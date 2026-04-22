@@ -1,0 +1,232 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&family=Fira+Code:wght@300..700&family=Inconsolata:wdth,wght@50..200,200..900&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ───────────────────────────────────────────
+   CSS CUSTOM PROPERTIES — from PRD §10
+   ─────────────────────────────────────────── */
+:root {
+  /* Background */
+  --bg:           #0d0d0d;
+  --bg-surface:   #141414;
+
+  /* Text hierarchy */
+  --text-muted:   #3a3a3a;
+  --text-stats:   #888888;
+  --text-active:  #e2e2e2;
+
+  /* Accent — overridden by settings */
+  --accent:       #e8c96a;
+
+  /* State colours */
+  --error:        #ca4754;
+  --orange:       #f09050;
+
+  /* Filler flash overlay */
+  --filler-flash: rgba(139, 92, 246, 0.08);
+  --filler-warn:  rgba(245, 158, 11, 0.08);
+
+  /* Font — overridden by settings */
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Inconsolata', monospace;
+
+  /* Font size scale — overridden by settings */
+  --test-font-size: 1.375rem;  /* medium */
+  --test-line-height: 2.25rem;
+}
+
+/* Accent + theme colours are applied dynamically via applyTheme() in lib/themes.ts */
+
+/* Font overrides */
+[data-font='fira']        { --font-mono: 'Fira Code', monospace; }
+[data-font='inconsolata'] { --font-mono: 'Inconsolata', monospace; }
+[data-font='jetbrains']   { --font-mono: 'JetBrains Mono', monospace; }
+
+/* Font size overrides */
+[data-fontsize='small'] {
+  --test-font-size: 1.1rem;
+  --test-line-height: 1.875rem;
+}
+[data-fontsize='large'] {
+  --test-font-size: 1.75rem;
+  --test-line-height: 2.75rem;
+}
+
+/* ───────────────────────────────────────────
+   BASE
+   ─────────────────────────────────────────── */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg);
+  color: var(--text-active);
+  font-family: var(--font-mono);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--text-muted); border-radius: 2px; }
+
+/* ───────────────────────────────────────────
+   COMPONENT CLASSES
+   ─────────────────────────────────────────── */
+
+/* Pill button */
+.pill-btn {
+  @apply px-3 py-1 rounded-full text-sm font-medium transition-all duration-150 cursor-pointer border border-transparent;
+  color: var(--text-stats);
+}
+.pill-btn:hover {
+  color: var(--text-active);
+}
+.pill-btn.active {
+  color: var(--bg);
+  background-color: var(--accent);
+}
+.pill-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Mode tabs */
+.mode-tab {
+  @apply px-4 py-1.5 rounded-full text-sm font-medium transition-all duration-200 cursor-pointer;
+  color: var(--text-stats);
+}
+.mode-tab.active {
+  background-color: var(--accent);
+  color: var(--bg);
+}
+.mode-tab:hover:not(.active) {
+  color: var(--text-active);
+}
+
+/* Test text */
+.word {
+  display: inline-block;
+  margin-right: 0.4em;
+  font-size: var(--test-font-size);
+  line-height: var(--test-line-height);
+  color: var(--text-muted);
+  transition: color 150ms ease;
+  position: relative;
+}
+.word.unspoken  { color: var(--text-muted); }
+.word.correct   { color: var(--accent); }
+.word.error     { color: var(--error); }
+.word.current   { color: var(--text-active); }
+
+/* Cursor pulse on current word */
+.word.current::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background-color: var(--accent);
+  animation: cursor-pulse 1s ease-in-out infinite;
+}
+
+/* Stats values */
+.stat-value {
+  color: var(--text-active);
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+.stat-label {
+  color: var(--text-stats);
+  font-size: 0.7rem;
+  text-transform: lowercase;
+  letter-spacing: 0.05em;
+}
+
+/* Diff colour classes */
+.diff-correct      { color: var(--accent); }
+.diff-substituted  { color: var(--error); }
+.diff-missed       { color: var(--text-muted); text-decoration: line-through; }
+.diff-added        { color: var(--orange); text-decoration: underline; }
+
+/* Results divider */
+.results-divider {
+  width: 100%;
+  border: none;
+  border-top: 1px solid var(--text-muted);
+  opacity: 0.3;
+  margin: 1rem 0;
+}
+
+/* Ghost transcript */
+.ghost-transcript {
+  font-size: 0.8rem;
+  font-style: italic;
+  color: var(--text-stats);
+  min-height: 1.5rem;
+  margin-top: 0.75rem;
+}
+
+/* Settings toggle */
+.toggle-track {
+  @apply relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-200 cursor-pointer;
+  background-color: var(--text-muted);
+}
+.toggle-track.on {
+  background-color: var(--accent);
+}
+.toggle-thumb {
+  @apply absolute left-0.5 h-4 w-4 rounded-full transition-transform duration-200;
+  background-color: var(--bg);
+}
+.toggle-track.on .toggle-thumb {
+  transform: translateX(1rem);
+}
+
+/* Clarity textarea */
+.clarity-input {
+  width: 100%;
+  background: transparent;
+  border: 1px solid var(--text-muted);
+  border-radius: 4px;
+  color: var(--text-active);
+  font-family: var(--font-mono);
+  font-size: var(--test-font-size);
+  line-height: var(--test-line-height);
+  padding: 1rem;
+  resize: none;
+  outline: none;
+  transition: border-color 200ms;
+}
+.clarity-input:focus {
+  border-color: var(--accent);
+}
+.clarity-input::placeholder {
+  color: var(--text-muted);
+}
+
+/* Keyframe animations */
+@keyframes cursor-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+@keyframes mic-ring {
+  0%   { transform: scale(1);   opacity: 0.7; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+@keyframes dot-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.15; }
+}
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
