@@ -18,6 +18,7 @@ import MicButton     from '@/components/MicButton'
 import ClarityInput  from '@/components/ClarityInput'
 import ResultsPanel  from '@/components/ResultsPanel'
 import SettingsPanel from '@/components/SettingsPanel'
+import WaveformVisualiser from '@/components/WaveformVisualiser'
 
 export default function Home() {
   const store = useTestStore()
@@ -95,7 +96,7 @@ export default function Home() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const { micState, liveTranscript, startStream, stopStream } = useDeepgram(handleWord, handleFiller)
+  const { micState, micStream, liveTranscript, startStream, stopStream } = useDeepgram(handleWord, handleFiller)
 
   // Sync micState to store
   useEffect(() => {
@@ -129,14 +130,17 @@ export default function Home() {
   // ── Test actions ─────────────────────────────────────────────────────────────
   const handleStart = useCallback(async () => {
     if (store.prompt.length === 0) loadPrompt()
-    store.startTest()
-    startTimeRef.current = Date.now()
 
     if (store.mode === 'speed') {
-      await startStream()
+      const didStart = await startStream()
+      if (!didStart) return
+      store.startTest()
+      startTimeRef.current = Date.now()
       startTimer()
+    } else {
+      store.startTest()
+      startTimeRef.current = Date.now()
     }
-    // Clarity: no timer, no stream
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store.mode, store.prompt.length, loadPrompt])
 
@@ -316,6 +320,18 @@ export default function Home() {
 
       {/* Settings panel */}
       <SettingsPanel isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
+
+      {/* Live microphone waveform */}
+      <AnimatePresence>
+        {store.mode === 'speed' && isRunning && (
+          <WaveformVisualiser
+            key="waveform"
+            stream={micStream}
+            isActive={store.micState === 'active'}
+            hasError={store.micState === 'denied' || store.micState === 'error'}
+          />
+        )}
+      </AnimatePresence>
     </div>
   )
 }

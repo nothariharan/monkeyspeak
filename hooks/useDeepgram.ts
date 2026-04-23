@@ -7,8 +7,9 @@ import type { WordResult } from '@/store/testStore'
 
 interface UseDeepgramReturn {
   micState: 'idle' | 'requesting' | 'active' | 'denied' | 'error'
+  micStream: MediaStream | null
   liveTranscript: string
-  startStream: () => Promise<void>
+  startStream: () => Promise<boolean>
   stopStream: () => void
 }
 
@@ -23,6 +24,7 @@ export function useDeepgram(
 ): UseDeepgramReturn {
   const { micState, setMicState, settings } = useTestStore()
   const [liveTranscript, setLiveTranscript] = useState('')
+  const [micStream, setMicStream] = useState<MediaStream | null>(null)
 
   const wsRef         = useRef<WebSocket | null>(null)
   const streamRef     = useRef<MediaStream | null>(null)
@@ -46,6 +48,7 @@ export function useDeepgram(
       streamRef.current.getTracks().forEach((t) => t.stop())
       streamRef.current = null
     }
+    setMicStream(null)
     setMicState('idle')
     setLiveTranscript('')
   }, [setMicState])
@@ -62,6 +65,7 @@ export function useDeepgram(
       // 2. Request microphone
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
       streamRef.current = stream
+      setMicStream(stream)
       setMicState('active')
 
       // 3. Build Deepgram WebSocket URL with config from PRD §7.2
@@ -151,13 +155,16 @@ export function useDeepgram(
       ws.onclose = () => {
         // Normal closure — state already updated by caller
       }
+      return true
     } catch (err: unknown) {
       const isDenied =
         err instanceof DOMException &&
         (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')
       setMicState(isDenied ? 'denied' : 'error')
+      setMicStream(null)
+      return false
     }
   }, [settings.language, setMicState, onWord, onFiller, stopStream])
 
-  return { micState, liveTranscript, startStream, stopStream }
+  return { micState, micStream, liveTranscript, startStream, stopStream }
 }
