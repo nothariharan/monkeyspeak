@@ -17,6 +17,7 @@ export interface ThemeDef {
   textMuted:  string
   textStats:  string
   textActive: string
+  textCurrent: string  // For the current word to speak
   error:      string
   orange:     string
   // Accent swatches available in this theme
@@ -25,15 +26,16 @@ export interface ThemeDef {
 
 export const THEMES: Record<ThemeName, ThemeDef> = {
   latte: {
-    name:       'latte',
-    label:      'Latte',
-    bg:         '#eff1f5',
-    bgSurface:  '#e6e9ef',
-    textMuted:  '#bcc0cc',
-    textStats:  '#8c8fa1',
-    textActive: '#4c4f69',
-    error:      '#d20f39',
-    orange:     '#fe640b',
+    name:         'latte',
+    label:        'Latte',
+    bg:           '#eff1f5',
+    bgSurface:    '#e6e9ef',
+    textMuted:    '#6c6f85', // Subtext0 (was #bcc0cc)
+    textStats:    '#5c5f77', // Subtext1 (was #8c8fa1)
+    textActive:   '#4c4f69',
+    textCurrent:  '#4c4f69',
+    error:        '#d20f39',
+    orange:       '#fe640b',
     accents: [
       { name: 'rosewater', hex: '#dc8a78' },
       { name: 'flamingo',  hex: '#dd7878' },
@@ -53,15 +55,16 @@ export const THEMES: Record<ThemeName, ThemeDef> = {
   },
 
   frappe: {
-    name:       'frappe',
-    label:      'Frappé',
-    bg:         '#303446',
-    bgSurface:  '#292c3c',
-    textMuted:  '#414559',
-    textStats:  '#737994',
-    textActive: '#c6d0f5',
-    error:      '#e78284',
-    orange:     '#ef9f76',
+    name:         'frappe',
+    label:        'Frappé',
+    bg:           '#303446',
+    bgSurface:    '#292c3c',
+    textMuted:    '#838ba7', // Overlay0 (was #414559)
+    textStats:    '#949cbb', // Overlay1 (was #737994)
+    textActive:   '#c6d0f5',
+    textCurrent:  '#c6d0f5', // Use active color for current by default
+    error:        '#e78284',
+    orange:       '#ef9f76',
     accents: [
       { name: 'rosewater', hex: '#f2d5cf' },
       { name: 'flamingo',  hex: '#eebebe' },
@@ -81,15 +84,16 @@ export const THEMES: Record<ThemeName, ThemeDef> = {
   },
 
   macchiato: {
-    name:       'macchiato',
-    label:      'Macchiato',
-    bg:         '#24273a',
-    bgSurface:  '#1e2030',
-    textMuted:  '#363a4f',
-    textStats:  '#6e738d',
-    textActive: '#cad3f5',
-    error:      '#ed8796',
-    orange:     '#f5a97f',
+    name:         'macchiato',
+    label:        'Macchiato',
+    bg:           '#24273a',
+    bgSurface:    '#1e2030',
+    textMuted:    '#8087a2', // Overlay0 (was #363a4f)
+    textStats:    '#939ab7', // Overlay1 (was #6e738d)
+    textActive:   '#cad3f5',
+    textCurrent:  '#cad3f5',
+    error:        '#ed8796',
+    orange:       '#f5a97f',
     accents: [
       { name: 'rosewater', hex: '#f4dbd6' },
       { name: 'flamingo',  hex: '#f0c6c6' },
@@ -109,15 +113,16 @@ export const THEMES: Record<ThemeName, ThemeDef> = {
   },
 
   mocha: {
-    name:       'mocha',
-    label:      'Mocha',
-    bg:         '#1e1e2e',
-    bgSurface:  '#181825',
-    textMuted:  '#313244',
-    textStats:  '#6c7086',
-    textActive: '#cdd6f4',
-    error:      '#f38ba8',
-    orange:     '#fab387',
+    name:         'mocha',
+    label:        'Mocha',
+    bg:           '#1e1e2e',
+    bgSurface:    '#181825',
+    textMuted:    '#7f849c', // Overlay0 (was #313244)
+    textStats:    '#9399b2', // Overlay1 (was #6c7086)
+    textActive:   '#cdd6f4',
+    textCurrent:  '#cdd6f4',
+    error:        '#f38ba8',
+    orange:       '#fab387',
     accents: [
       { name: 'rosewater', hex: '#f5e0dc' },
       { name: 'flamingo',  hex: '#f2cdcd' },
@@ -150,6 +155,7 @@ export function applyTheme(theme: ThemeDef, accentHex: string) {
   root.style.setProperty('--text-muted',   theme.textMuted)
   root.style.setProperty('--text-stats',   theme.textStats)
   root.style.setProperty('--text-active',  theme.textActive)
+  root.style.setProperty('--text-current', theme.textCurrent)
   root.style.setProperty('--error',        theme.error)
   root.style.setProperty('--orange',       theme.orange)
   root.style.setProperty('--accent',       accentHex)

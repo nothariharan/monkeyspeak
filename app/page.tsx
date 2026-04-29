@@ -258,8 +258,8 @@ export default function Home() {
 
         {/* Test area wrapper — relative for FillerFlash overlay */}
         <div
-          className="relative w-full rounded-lg p-6 mb-4"
-          style={{ minHeight: '12rem' }}
+          className="relative w-full rounded-lg p-6 mb-4 flex flex-col items-center justify-center transition-all duration-500"
+          style={{ minHeight: isIdle ? '8rem' : '12rem' }}
         >
           {/* Filler flash overlay (Speed mode only) */}
           {store.mode === 'speed' && (
@@ -271,12 +271,20 @@ export default function Home() {
 
           {/* Content */}
           {store.mode === 'speed' ? (
-            <TestArea
-              words={store.prompt}
-              confirmedWords={store.confirmedWords}
-              currentWordIndex={store.currentWordIndex}
-              liveTranscript={liveTranscript}
-            />
+            <div className="flex flex-col items-center gap-12">
+              <TestArea
+                words={store.prompt}
+                confirmedWords={store.confirmedWords}
+                currentWordIndex={store.currentWordIndex}
+                liveTranscript={liveTranscript}
+                isIdle={isIdle}
+              />
+              
+              {/* Mic button — Speed mode, idle state */}
+              {isIdle && (
+                <MicButton onStart={handleStart} micState={store.micState} />
+              )}
+            </div>
           ) : (
             <ClarityInput
               testState={store.testState}
@@ -289,11 +297,6 @@ export default function Home() {
             />
           )}
         </div>
-
-        {/* Mic button — Speed mode, idle state */}
-        {store.mode === 'speed' && isIdle && (
-          <MicButton onStart={handleStart} micState={store.micState} />
-        )}
 
         {/* Results panel */}
         <AnimatePresence>

@@ -124,18 +124,16 @@ body {
 .word.unspoken  { color: var(--text-muted); }
 .word.correct   { color: var(--accent); }
 .word.error     { color: var(--error); }
-.word.current   { color: var(--text-active); }
+.word.current {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+  animation: word-pulse 1.5s ease-in-out infinite;
+}
 
-/* Cursor pulse on current word */
-.word.current::after {
-  content: '';
-  position: absolute;
-  bottom: -2px;
-  left: 0;
-  width: 100%;
-  height: 2px;
-  background-color: var(--accent);
-  animation: cursor-pulse 1s ease-in-out infinite;
+@keyframes word-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.6; }
 }
 
 /* Stats values */

@@ -9,6 +9,7 @@ interface TestAreaProps {
   confirmedWords: WordResult[]
   currentWordIndex: number
   liveTranscript: string
+  isIdle?: boolean
 }
 
 export default function TestArea({
@@ -16,6 +17,7 @@ export default function TestArea({
   confirmedWords,
   currentWordIndex,
   liveTranscript,
+  isIdle = false,
 }: TestAreaProps) {
   const { settings } = useTestStore()
 
@@ -30,10 +32,14 @@ export default function TestArea({
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-8 items-center w-full">
       {/* Prompt word display */}
       <div
-        className="leading-relaxed select-none"
+        className={`leading-relaxed select-none transition-all duration-300 ${
+          isIdle 
+            ? 'line-clamp-2 text-ellipsis overflow-hidden max-h-[3.5em] opacity-40 text-center' 
+            : 'text-left'
+        }`}
         style={{ maxWidth: '48rem' }}
         aria-label="Speaking prompt"
         aria-live="polite"
@@ -66,7 +72,7 @@ export default function TestArea({
       </div>
 
       {/* Live transcript ghost text */}
-      {settings.showLiveTranscript && (
+      {!isIdle && settings.showLiveTranscript && (
         <div className="ghost-transcript" aria-label="Live transcription" aria-live="polite">
           {liveTranscript || <span className="opacity-0">‌</span>}
         </div>
