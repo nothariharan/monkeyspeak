@@ -1,3 +1,11 @@
 {
-  "extends": "next/core-web-vitals"
+  "extends": "next/core-web-vitals",
+  "overrides": [
+    {
+      "files": ["app/layout.tsx"],
+      "rules": {
+        "@next/next/no-page-custom-font": "off"
+      }
+    }
+  ]
 }

@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "clean": "node -e \"const fs=require('fs');for(const p of['.next','node_modules/.cache']){try{fs.rmSync(p,{recursive:true,force:true})}catch(e){}}\"",
     "dev": "next dev",
+    "dev:clean": "npm run clean && next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"

@@ -23,6 +23,10 @@ export default function RootLayout({
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800%3B1,100..800&family=Fira+Code:wght@300..700&family=Inconsolata:wdth,wght@50..200,200..900&display=swap"
+        />
       </head>
       <body className="min-h-screen" style={{ background: 'var(--bg)', color: 'var(--text-active)' }}>
         {children}

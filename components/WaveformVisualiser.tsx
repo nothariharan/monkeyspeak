@@ -3,7 +3,7 @@
 import { motion } from 'framer-motion'
 import { useEffect, useRef } from 'react'
 
-interface WaveformVisualiserProps {
+export interface WaveformVisualiserProps {
   stream: MediaStream | null
   isActive: boolean
   hasError: boolean
@@ -275,7 +275,7 @@ export default function WaveformVisualiser({
   return (
     <motion.div
       aria-hidden="true"
-      initial={false}
+      initial={{ opacity: 0.5, y: 10 }}
       animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0.5, y: 10 }}
       transition={isActive ? { duration: 0.4, ease: 'easeOut' } : { duration: 0.3, ease: 'easeIn' }}
       style={{

@@ -19,11 +19,40 @@ import ClarityInput  from '@/components/ClarityInput'
 import ResultsPanel  from '@/components/ResultsPanel'
 import SettingsPanel from '@/components/SettingsPanel'
 import WaveformVisualiser from '@/components/WaveformVisualiser'
+import type { WordResult } from '@/store/testStore'
+
+/** Lowercase and trim leading/trailing non-alphanumeric (keeps apostrophes for contractions). */
+function normalizeWordToken(s: string) {
+  return s.toLowerCase().replace(/^[^a-z0-9']+|[^a-z0-9']+$/gi, '').trim()
+}
 
 export default function Home() {
   const store = useTestStore()
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [waveformErrorFlash, setWaveformErrorFlash] = useState(false)
   const startTimeRef = useRef<number | null>(null)
+  const errorFlashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const prevFillerTriggerRef = useRef<number | null>(null)
+
+  const triggerWaveformError = useCallback(() => {
+    if (errorFlashTimeoutRef.current !== null) {
+      clearTimeout(errorFlashTimeoutRef.current)
+    }
+    setWaveformErrorFlash(true)
+    errorFlashTimeoutRef.current = setTimeout(() => {
+      setWaveformErrorFlash(false)
+      errorFlashTimeoutRef.current = null
+    }, 600)
+  }, [])
+
+  useEffect(
+    () => () => {
+      if (errorFlashTimeoutRef.current !== null) {
+        clearTimeout(errorFlashTimeoutRef.current)
+      }
+    },
+    []
+  )
 
   // ── Restore persisted settings to DOM on mount ──────────────────────────────
   useEffect(() => {
@@ -85,11 +114,19 @@ export default function Home() {
   }, [store.testState, store.mode])
 
   // ── Deepgram ─────────────────────────────────────────────────────────────────
-  const handleWord = useCallback((result: import('@/store/testStore').WordResult) => {
-    store.addWord(result)
-    store.advanceWord()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  const handleWord = useCallback(
+    (result: WordResult) => {
+      const { prompt, currentWordIndex, addWord, advanceWord } = useTestStore.getState()
+      const expectedRaw = prompt[currentWordIndex] ?? ''
+      const isCorrect = normalizeWordToken(result.word) === normalizeWordToken(expectedRaw)
+      if (!isCorrect) {
+        triggerWaveformError()
+      }
+      addWord({ ...result, isCorrect })
+      advanceWord()
+    },
+    [triggerWaveformError]
+  )
 
   const handleFiller = useCallback(() => {
     store.detectFiller()
@@ -97,6 +134,14 @@ export default function Home() {
   }, [])
 
   const { micState, micStream, liveTranscript, startStream, stopStream } = useDeepgram(handleWord, handleFiller)
+
+  useEffect(() => {
+    const t = store.fillerFlashTrigger
+    if (prevFillerTriggerRef.current !== null && t > prevFillerTriggerRef.current) {
+      triggerWaveformError()
+    }
+    prevFillerTriggerRef.current = t
+  }, [store.fillerFlashTrigger, triggerWaveformError])
 
   // Sync micState to store
   useEffect(() => {
@@ -253,8 +298,12 @@ export default function Home() {
         )}
       </AnimatePresence>
 
-      {/* Main content */}
-      <main className="flex-1 flex flex-col items-center justify-center px-6 py-8 max-w-3xl mx-auto w-full">
+      {/* Main content — bottom padding in speed mode so fixed waveform does not cover text */}
+      <main
+        className={`flex-1 flex flex-col items-center justify-center px-6 py-8 max-w-3xl mx-auto w-full ${
+          store.mode === 'speed' ? 'pb-[88px]' : ''
+        }`}
+      >
 
         {/* Test area wrapper — relative for FillerFlash overlay */}
         <div
@@ -324,17 +373,14 @@ export default function Home() {
       {/* Settings panel */}
       <SettingsPanel isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
 
-      {/* Live microphone waveform */}
-      <AnimatePresence>
-        {store.mode === 'speed' && isRunning && (
-          <WaveformVisualiser
-            key="waveform"
-            stream={micStream}
-            isActive={store.micState === 'active'}
-            hasError={store.micState === 'denied' || store.micState === 'error'}
-          />
-        )}
-      </AnimatePresence>
+      {/* Live microphone waveform — speed mode only; idle breathing when test not running */}
+      {store.mode === 'speed' && (
+        <WaveformVisualiser
+          stream={micStream}
+          isActive={store.testState === 'running'}
+          hasError={waveformErrorFlash}
+        />
+      )}
     </div>
   )
 }

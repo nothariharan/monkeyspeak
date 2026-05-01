@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&family=Fira+Code:wght@300..700&family=Inconsolata:wdth,wght@50..200,200..900&display=swap');
+/* Fonts loaded via <link> in layout.tsx — avoids @import of long Google URLs during PostCSS/Tailwind */
 
 @tailwind base;
 @tailwind components;
