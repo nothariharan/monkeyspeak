@@ -106,7 +106,6 @@ export default function Home() {
       const computed = Math.round(netWords / (elapsedMs / 60_000))
       store.setWpm(computed)
       if (computed > store.peakWpm) store.setPeakWpm(computed)
-      // Snapshot every 5 seconds
       store.addWpmSnapshot({ wpm: computed, timestamp: Date.now() })
     }, 500)
     return () => clearInterval(id)
@@ -180,11 +179,11 @@ export default function Home() {
       const didStart = await startStream()
       if (!didStart) return
       store.startTest()
-      startTimeRef.current = Date.now()
+      startTimeRef.current = useTestStore.getState().testStartedAt
       startTimer()
     } else {
       store.startTest()
-      startTimeRef.current = Date.now()
+      startTimeRef.current = useTestStore.getState().testStartedAt
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store.mode, store.prompt.length, loadPrompt])
@@ -327,6 +326,7 @@ export default function Home() {
                 currentWordIndex={store.currentWordIndex}
                 liveTranscript={liveTranscript}
                 isIdle={isIdle}
+                testActive={isRunning}
               />
               
               {/* Mic button — Speed mode, idle state */}
@@ -360,6 +360,11 @@ export default function Home() {
               consistency={store.consistency}
               duration={store.duration}
               promptType={store.promptType}
+              prompt={store.prompt}
+              confirmedWords={store.confirmedWords}
+              wpmSnapshots={store.wpmSnapshots}
+              testStartedAt={store.testStartedAt}
+              speedTimelineEvents={store.speedTimelineEvents}
               clarityScore={store.clarityScore}
               clarityGrade={store.clarityGrade}
               diffResult={store.diffResult}

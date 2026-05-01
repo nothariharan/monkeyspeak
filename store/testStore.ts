@@ -37,9 +37,16 @@ export interface Settings {
   language: 'en-US' | 'en-GB' | 'en-AU'
 }
 
-interface WpmSnapshot {
+export interface WpmSnapshot {
   wpm: number
   timestamp: number
+}
+
+export type SpeedTimelineKind = 'wrong_word' | 'filler'
+
+export interface SpeedTimelineEvent {
+  atMs: number
+  kind: SpeedTimelineKind
 }
 
 interface TestStore {
@@ -61,6 +68,10 @@ interface TestStore {
   peakWpm: number
   consistency: number
   wpmSnapshots: WpmSnapshot[]
+  /** Wall time when current speed test started; null when idle */
+  testStartedAt: number | null
+  /** Elapsed ms from test start for graph markers */
+  speedTimelineEvents: SpeedTimelineEvent[]
 
   // ── Clarity mode
   clarityTranscript: string
@@ -134,6 +145,8 @@ export const useTestStore = create<TestStore>()(
       peakWpm: 0,
       consistency: 100,
       wpmSnapshots: [],
+      testStartedAt: null,
+      speedTimelineEvents: [],
       clarityTranscript: '',
       diffResult: [],
       clarityScore: 0,
@@ -154,9 +167,15 @@ export const useTestStore = create<TestStore>()(
       setPrompt: (prompt) => set({ prompt, currentWordIndex: 0 }),
 
       addWord: (result) =>
-        set((s) => ({
-          confirmedWords: [...s.confirmedWords, result],
-        })),
+        set((s) => {
+          const confirmedWords = [...s.confirmedWords, result]
+          const t0 = s.testStartedAt
+          const speedTimelineEvents =
+            s.testState === 'running' && t0 != null && !result.isCorrect
+              ? [...s.speedTimelineEvents, { atMs: Date.now() - t0, kind: 'wrong_word' as const }]
+              : s.speedTimelineEvents
+          return { confirmedWords, speedTimelineEvents }
+        }),
 
       detectFiller: () => {
         const s = get()
@@ -166,11 +185,17 @@ export const useTestStore = create<TestStore>()(
         // We'll track recentFillerCount separately and set fillerWarning
         const newCount = s.recentFillerCount + 1
         const isWarning = newCount >= 3
+        const t0 = s.testStartedAt
+        const speedTimelineEvents =
+          s.testState === 'running' && t0 != null
+            ? [...s.speedTimelineEvents, { atMs: now - t0, kind: 'filler' as const }]
+            : s.speedTimelineEvents
         set({
           fillerCount: s.fillerCount + 1,
           fillerFlashTrigger: s.fillerFlashTrigger + 1,
           recentFillerCount: newCount,
           fillerWarning: isWarning,
+          speedTimelineEvents,
         })
         // Reset recent count after 10s
         setTimeout(() => {
@@ -224,7 +249,8 @@ export const useTestStore = create<TestStore>()(
 
       setMicState: (micState) => set({ micState }),
 
-      startTest: () =>
+      startTest: () => {
+        const t = Date.now()
         set({
           testState: 'running',
           confirmedWords: [],
@@ -233,6 +259,8 @@ export const useTestStore = create<TestStore>()(
           peakWpm: 0,
           consistency: 100,
           wpmSnapshots: [],
+          testStartedAt: t,
+          speedTimelineEvents: [],
           currentWordIndex: 0,
           fillerFlashTrigger: 0,
           recentFillerCount: 0,
@@ -240,7 +268,8 @@ export const useTestStore = create<TestStore>()(
           clarityTranscript: '',
           diffResult: [],
           clarityScore: 0,
-        }),
+        })
+      },
 
       resetTest: () =>
         set({
@@ -251,6 +280,8 @@ export const useTestStore = create<TestStore>()(
           peakWpm: 0,
           consistency: 100,
           wpmSnapshots: [],
+          testStartedAt: null,
+          speedTimelineEvents: [],
           currentWordIndex: 0,
           fillerFlashTrigger: 0,
           recentFillerCount: 0,

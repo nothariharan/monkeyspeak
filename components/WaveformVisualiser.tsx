@@ -146,14 +146,14 @@ export default function WaveformVisualiser({
     const source = audioCtx.createMediaStreamSource(stream)
     const analyser = audioCtx.createAnalyser()
 
-    analyser.fftSize = 256
-    analyser.smoothingTimeConstant = 0.8
+    analyser.fftSize = 512
+    analyser.smoothingTimeConstant = 0.75
     source.connect(analyser)
 
     audioCtxRef.current = audioCtx
     sourceRef.current = source
     analyserRef.current = analyser
-    dataArrayRef.current = new Uint8Array(analyser.frequencyBinCount)
+    dataArrayRef.current = new Uint8Array(analyser.fftSize)
 
     if (audioCtx.state === 'suspended') {
       void audioCtx.resume()
@@ -193,20 +193,20 @@ export default function WaveformVisualiser({
 
       if (!analyser || !dataArray) return null
 
-      analyser.getByteFrequencyData(dataArray)
+      analyser.getByteTimeDomainData(dataArray)
 
-      const bucketSize = Math.max(1, Math.floor(dataArray.length / barCount))
+      let sumSq = 0
+      for (let i = 0; i < dataArray.length; i += 1) {
+        const x = (dataArray[i] - 128) / 128
+        sumSq += x * x
+      }
+      const rms = Math.sqrt(sumSq / Math.max(1, dataArray.length))
+      const envelope = Math.min(1, rms * 5.2)
+      const t = performance.now() / 1000
+
       return Array.from({ length: barCount }, (_, index) => {
-        const start = index * bucketSize
-        const end = index === barCount - 1 ? dataArray.length : Math.min(dataArray.length, start + bucketSize)
-        let total = 0
-
-        for (let i = start; i < end; i += 1) {
-          total += dataArray[i]
-        }
-
-        const average = total / Math.max(1, end - start)
-        return (average / 255) * MAX_BAR_HEIGHT
+        const wobble = 0.72 + 0.28 * Math.sin(t * 7 + index * 0.38)
+        return envelope * wobble * MAX_BAR_HEIGHT
       })
     }
 
