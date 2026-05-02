@@ -11,12 +11,13 @@ interface TestAreaProps {
   currentWordIndex: number
   liveTranscript: string
   isIdle?: boolean
-  /** When true, show a MonkeyType-style ~2-line rolling window instead of the full prompt */
+  /** When true, show a rolling window (~4 lines) instead of the full prompt */
   testActive?: boolean
 }
 
-const WINDOW_WORDS = 34
-const PREFIX_BEFORE_CURRENT = 9
+/** ~4 lines of monospace prompt at typical widths; wraps naturally inside max-height window */
+const WINDOW_WORDS = 64
+const PREFIX_BEFORE_CURRENT = 16
 
 function getWindowRange(wordCount: number, currentWordIndex: number) {
   if (wordCount === 0) return { start: 0, end: 0 }
@@ -68,7 +69,7 @@ export default function TestArea({
           testActive
             ? {
                 maxWidth: '48rem',
-                maxHeight: 'calc(2 * var(--test-line-height))',
+                maxHeight: 'calc(4 * var(--test-line-height))',
               }
             : { maxWidth: '48rem' }
         }
@@ -98,16 +99,6 @@ export default function TestArea({
               }
             >
               {word}
-              {testActive &&
-              !isIdle &&
-              settings.showLiveTranscript &&
-              state === 'current' &&
-              liveTranscript ? (
-                <span className="ghost-interim-inline" aria-hidden>
-                  {' '}
-                  {liveTranscript}
-                </span>
-              ) : null}
             </motion.span>
           )
         })}
