@@ -2,10 +2,11 @@
 const nextConfig = {
   reactStrictMode: true,
   webpack: (config, { dev }) => {
-    // Windows: webpack cache can drift from .next manifests → 404 on layout.css / page.js.
-    // Default `npm run dev` uses webpack with cache off. Use `npm run dev:turbo` if you prefer Turbopack.
+    // Windows: filesystem webpack cache can desync from .next (stale chunks, missing manifests).
+    // `cache: false` has been seen to leave `.next/server` incomplete (middleware-manifest missing).
+    // In-memory dev cache avoids disk drift without skipping webpack output.
     if (dev) {
-      config.cache = false
+      config.cache = { type: 'memory' }
     }
     return config
   },
