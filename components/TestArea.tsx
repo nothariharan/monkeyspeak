@@ -104,11 +104,15 @@ export default function TestArea({
         })}
       </div>
 
-      {/* Live interim is inline after the current word (caret-adjacent); keep polite region on prompt */}
+      {/* Interim ASR: visible so feedback is not blocked on `is_final` (which waits on endpointing). */}
       {testActive && !isIdle && settings.showLiveTranscript && liveTranscript ? (
-        <span className="sr-only" aria-live="polite">
+        <p
+          className="w-full max-w-[48rem] text-left text-sm opacity-70 font-mono truncate pt-2 mt-1 border-t"
+          style={{ borderColor: 'var(--surface1)', color: 'var(--subtext0)' }}
+          aria-live="polite"
+        >
           {liveTranscript}
-        </span>
+        </p>
       ) : null}
     </div>
   )

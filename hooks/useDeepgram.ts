@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useCallback, useState } from 'react'
 import { useTestStore } from '@/store/testStore'
+import { float32ToLinear16Pcm16k } from '@/lib/pcmDownsample'
 
 interface UseDeepgramReturn {
   micState: 'idle' | 'requesting' | 'active' | 'denied' | 'error'
@@ -110,8 +111,8 @@ export function useDeepgram(onFinalWords: (spokenTokens: string[]) => void): Use
         interim_results: 'true',
         utterance_end_ms: '1000',
         vad_events: 'true',
-        // Natural pause boundary for is_final; avoids default extremes (see Deepgram endpointing docs)
-        endpointing: '300',
+        // Low ms = faster `is_final` (default ~10ms). 300ms added noticeable lag vs speech.
+        endpointing: '50',
         encoding: 'linear16',
         sample_rate: '16000',
       })
@@ -127,22 +128,23 @@ export function useDeepgram(onFinalWords: (spokenTokens: string[]) => void): Use
         if (ctx.state === 'suspended') void ctx.resume()
 
         const source = ctx.createMediaStreamSource(stream)
-        // 1024 samples @ 16kHz ≈ 64ms frames → audio reaches Deepgram sooner than 2048 (~128ms)
-        const processor = ctx.createScriptProcessor(1024, 1, 1)
+        // Smaller buffer = lower capture latency (must be 256/512/1024/… per ScriptProcessor API)
+        const processor = ctx.createScriptProcessor(512, 1, 1)
         processorRef.current = processor
 
         processor.onaudioprocess = (e) => {
           if (ws.readyState !== WebSocket.OPEN) return
           const input = e.inputBuffer.getChannelData(0)
-          const int16 = new Int16Array(input.length)
-          for (let i = 0; i < input.length; i++) {
-            int16[i] = Math.max(-32768, Math.min(32767, Math.round(input[i] * 32767)))
-          }
+          const int16 = float32ToLinear16Pcm16k(input, ctx.sampleRate)
           ws.send(int16.buffer)
         }
 
         source.connect(processor)
-        processor.connect(ctx.destination)
+        // Keep graph active without playing mic out the speakers (avoids echo / extra buffering)
+        const mute = ctx.createGain()
+        mute.gain.value = 0
+        processor.connect(mute)
+        mute.connect(ctx.destination)
       }
 
       ws.onmessage = (event) => {
