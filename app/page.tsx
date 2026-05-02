@@ -6,8 +6,8 @@ import { AnimatePresence } from 'framer-motion'
 import { useTestStore }  from '@/store/testStore'
 import { useTimer }      from '@/hooks/useTimer'
 import { useDeepgram }   from '@/hooks/useDeepgram'
-import { useDiff }       from '@/hooks/useDiff'
 import { getPrompt }     from '@/lib/prompts'
+import { diffWords, calcClarityScore } from '@/lib/diff'
 
 import Header        from '@/components/Header'
 import ConfigBar     from '@/components/ConfigBar'
@@ -19,12 +19,7 @@ import ClarityInput  from '@/components/ClarityInput'
 import ResultsPanel  from '@/components/ResultsPanel'
 import SettingsPanel from '@/components/SettingsPanel'
 import WaveformVisualiser from '@/components/WaveformVisualiser'
-import type { WordResult } from '@/store/testStore'
-
-/** Lowercase and trim leading/trailing non-alphanumeric (keeps apostrophes for contractions). */
-function normalizeWordToken(s: string) {
-  return s.toLowerCase().replace(/^[^a-z0-9']+|[^a-z0-9']+$/gi, '').trim()
-}
+import { alignAsrFinalToPrompt } from '@/lib/asrPromptAlign'
 
 export default function Home() {
   const store = useTestStore()
@@ -33,6 +28,22 @@ export default function Home() {
   const startTimeRef = useRef<number | null>(null)
   const errorFlashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const prevFillerTriggerRef = useRef<number | null>(null)
+
+  /** Latest word counts + WPM from Zustand (avoids stale closures in intervals). */
+  const flushSpeedWpmSnapshot = useCallback(() => {
+    const t0 = startTimeRef.current
+    if (t0 == null) return
+    const s = useTestStore.getState()
+    if (s.mode !== 'speed') return
+    const elapsedMs = Date.now() - t0
+    if (elapsedMs < 3000) return
+    const netWords = Math.max(0, s.confirmedWords.length - s.fillerCount)
+    const elapsedMin = elapsedMs / 60_000
+    const computed = Math.round(netWords / elapsedMin)
+    s.setWpm(computed)
+    if (computed > s.peakWpm) s.setPeakWpm(computed)
+    s.addWpmSnapshot({ wpm: computed, timestamp: Date.now() })
+  }, [])
 
   const triggerWaveformError = useCallback(() => {
     if (errorFlashTimeoutRef.current !== null) {
@@ -70,28 +81,30 @@ export default function Home() {
 
   // ── Timer ───────────────────────────────────────────────────────────────────
   const handleTimerEnd = useCallback(() => {
+    flushSpeedWpmSnapshot()
     store.finaliseConsistency()
     store.setTestState('ended')
     stopStream()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [flushSpeedWpmSnapshot])
 
   const { timeRemaining, isWarning, start: startTimer, stop: stopTimer, reset: resetTimer } =
     useTimer(store.duration, handleTimerEnd)
 
   // ── WPM tracking ────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (store.testState !== 'running' || store.mode !== 'speed') return
+    const s = useTestStore.getState()
+    if (s.testState !== 'running' || s.mode !== 'speed') return
     if (!startTimeRef.current) return
 
     const elapsedMs = Date.now() - startTimeRef.current
     if (elapsedMs < 3000) return
 
-    const netWords = Math.max(0, store.confirmedWords.length - store.fillerCount)
+    const netWords = Math.max(0, s.confirmedWords.length - s.fillerCount)
     const elapsedMin = elapsedMs / 60_000
     const computed = Math.round(netWords / elapsedMin)
-    store.setWpm(computed)
-    if (computed > store.peakWpm) store.setPeakWpm(computed)
+    s.setWpm(computed)
+    if (computed > s.peakWpm) s.setPeakWpm(computed)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store.confirmedWords.length])
 
@@ -100,39 +113,39 @@ export default function Home() {
     if (store.testState !== 'running' || store.mode !== 'speed') return
     const id = setInterval(() => {
       if (!startTimeRef.current) return
+      const s = useTestStore.getState()
+      if (s.testState !== 'running' || s.mode !== 'speed') return
       const elapsedMs = Date.now() - startTimeRef.current
       if (elapsedMs < 3000) return
-      const netWords = Math.max(0, store.confirmedWords.length - store.fillerCount)
+      const netWords = Math.max(0, s.confirmedWords.length - s.fillerCount)
       const computed = Math.round(netWords / (elapsedMs / 60_000))
-      store.setWpm(computed)
-      if (computed > store.peakWpm) store.setPeakWpm(computed)
-      store.addWpmSnapshot({ wpm: computed, timestamp: Date.now() })
+      s.setWpm(computed)
+      if (computed > s.peakWpm) s.setPeakWpm(computed)
+      s.addWpmSnapshot({ wpm: computed, timestamp: Date.now() })
     }, 500)
     return () => clearInterval(id)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store.testState, store.mode])
 
-  // ── Deepgram ─────────────────────────────────────────────────────────────────
-  const handleWord = useCallback(
-    (result: WordResult) => {
-      const { prompt, currentWordIndex, addWord, advanceWord } = useTestStore.getState()
-      const expectedRaw = prompt[currentWordIndex] ?? ''
-      const isCorrect = normalizeWordToken(result.word) === normalizeWordToken(expectedRaw)
-      if (!isCorrect) {
-        triggerWaveformError()
+  // ── Deepgram: one `is_final` may contain many tokens — align batch to prompt (see lib/asrPromptAlign)
+  const handleFinalWords = useCallback(
+    (tokens: string[]) => {
+      const { prompt, currentWordIndex, addWord, advanceWord, detectFiller } = useTestStore.getState()
+      const batch = alignAsrFinalToPrompt(tokens, prompt, currentWordIndex, () => {
+        detectFiller()
+      })
+      for (const result of batch) {
+        if (!result.isCorrect) {
+          triggerWaveformError()
+        }
+        addWord(result)
+        advanceWord()
       }
-      addWord({ ...result, isCorrect })
-      advanceWord()
     },
     [triggerWaveformError]
   )
 
-  const handleFiller = useCallback(() => {
-    store.detectFiller()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  const { micState, micStream, liveTranscript, startStream, stopStream } = useDeepgram(handleWord, handleFiller)
+  const { micState, micStream, liveTranscript, startStream, stopStream } = useDeepgram(handleFinalWords)
 
   useEffect(() => {
     const t = store.fillerFlashTrigger
@@ -147,9 +160,6 @@ export default function Home() {
     store.setMicState(micState)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [micState])
-
-  // ── Diff (Clarity Mode) ──────────────────────────────────────────────────────
-  const { run: runDiff } = useDiff()
 
   // ── Prompt management ────────────────────────────────────────────────────────
   const { promptType, duration, customPromptText, setPrompt } = store
@@ -189,17 +199,22 @@ export default function Home() {
   }, [store.mode, store.prompt.length, loadPrompt])
 
   const handleStop = useCallback(() => {
-    if (store.mode === 'speed') {
+    const s = useTestStore.getState()
+    if (s.mode === 'speed') {
       stopTimer()
       stopStream()
-      store.finaliseConsistency()
+      flushSpeedWpmSnapshot()
+      s.finaliseConsistency()
     } else {
-      // Clarity mode — run diff
-      runDiff(store.prompt.join(' '), store.clarityTranscript)
+      const promptStr = s.prompt.join(' ')
+      const diff = diffWords(promptStr, s.clarityTranscript)
+      const promptWordCount = promptStr.trim().split(/\s+/).filter(Boolean).length
+      const { score, grade } = calcClarityScore(diff, promptWordCount)
+      s.setDiffResult(diff, score, grade)
     }
-    store.setTestState('ended')
+    useTestStore.getState().setTestState('ended')
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store.mode, store.prompt, store.clarityTranscript])
+  }, [flushSpeedWpmSnapshot])
 
   const handleRetry = useCallback(() => {
     store.resetTest()
@@ -259,17 +274,11 @@ export default function Home() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store.testState, store.duration])
 
-  // ── Clarity mode stop handler ─────────────────────────────────────────────────
-  const handleClarityStop = useCallback(() => {
-    runDiff(store.prompt.join(' '), store.clarityTranscript)
-    store.setDiffResult([], store.clarityScore, store.clarityGrade)
-    store.setTestState('ended')
-  }, [store, runDiff])
-
   // ── Render ────────────────────────────────────────────────────────────────────
   const isRunning = store.testState === 'running'
   const isEnded   = store.testState === 'ended'
   const isIdle    = store.testState === 'idle'
+  const isSpeedEnded = store.mode === 'speed' && isEnded
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg)' }}>
@@ -288,7 +297,11 @@ export default function Home() {
             key="stats-bar"
             mode={store.mode}
             wpm={store.wpm}
-            wordCount={store.confirmedWords.length}
+            wordCount={
+              store.mode === 'clarity'
+                ? store.clarityTranscript.trim().split(/\s+/).filter(Boolean).length
+                : store.confirmedWords.length
+            }
             fillerCount={store.fillerCount}
             timeRemainingMs={timeRemaining}
             isWarning={isWarning}
@@ -297,61 +310,67 @@ export default function Home() {
         )}
       </AnimatePresence>
 
-      {/* Main content — bottom padding in speed mode so fixed waveform does not cover text */}
+      {/* Main content — bottom padding while speed waveform may show */}
       <main
-        className={`flex-1 flex flex-col items-center justify-center px-6 py-8 max-w-3xl mx-auto w-full ${
-          store.mode === 'speed' ? 'pb-[88px]' : ''
-        }`}
+        className={`flex-1 flex flex-col items-center px-6 py-8 mx-auto w-full ${
+          isSpeedEnded ? 'justify-center min-h-[calc(100dvh-5rem)] max-w-6xl' : 'justify-center max-w-3xl pb-8'
+        } ${store.mode === 'speed' && !isSpeedEnded ? 'pb-[88px]' : ''}`}
       >
-
-        {/* Test area wrapper — relative for FillerFlash overlay */}
-        <div
-          className="relative w-full rounded-lg p-6 mb-4 flex flex-col items-center justify-center transition-all duration-500"
-          style={{ minHeight: isIdle ? '8rem' : '12rem' }}
-        >
-          {/* Filler flash overlay (Speed mode only) */}
-          {store.mode === 'speed' && (
-            <FillerFlash
-              trigger={store.fillerFlashTrigger}
-              isWarning={store.fillerWarning}
-            />
-          )}
-
-          {/* Content */}
-          {store.mode === 'speed' ? (
-            <div className="flex flex-col items-center gap-12">
-              <TestArea
-                words={store.prompt}
-                confirmedWords={store.confirmedWords}
-                currentWordIndex={store.currentWordIndex}
-                liveTranscript={liveTranscript}
-                isIdle={isIdle}
-                testActive={isRunning}
+        {/* Prompt + mic — hidden after speed test ends so results sit centered like MonkeyType */}
+        {!(store.mode === 'speed' && isEnded) && (
+          <div
+            className="relative w-full rounded-lg p-6 mb-4 flex flex-col items-center justify-center transition-all duration-500"
+            style={{
+              minHeight:
+                store.mode === 'clarity'
+                  ? 'auto'
+                  : isIdle
+                    ? '8rem'
+                    : '12rem',
+            }}
+          >
+            {store.mode === 'speed' && (
+              <FillerFlash
+                trigger={store.fillerFlashTrigger}
+                isWarning={store.fillerWarning}
               />
-              
-              {/* Mic button — Speed mode, idle state */}
-              {isIdle && (
-                <MicButton onStart={handleStart} micState={store.micState} />
-              )}
-            </div>
-          ) : (
-            <ClarityInput
-              testState={store.testState}
-              transcript={store.clarityTranscript}
-              diffResult={store.diffResult}
-              prompt={store.prompt}
-              onChange={(val) => store.setClarityTranscript(val)}
-              onStop={handleClarityStop}
-              onStart={handleStart}
-            />
-          )}
-        </div>
+            )}
+
+            {store.mode === 'speed' ? (
+              <div className="flex flex-col items-center gap-12">
+                <TestArea
+                  words={store.prompt}
+                  confirmedWords={store.confirmedWords}
+                  currentWordIndex={store.currentWordIndex}
+                  liveTranscript={liveTranscript}
+                  isIdle={isIdle}
+                  testActive={isRunning}
+                />
+
+                {isIdle && (
+                  <MicButton onStart={handleStart} micState={store.micState} />
+                )}
+              </div>
+            ) : (
+              <ClarityInput
+                testState={store.testState}
+                transcript={store.clarityTranscript}
+                diffResult={store.diffResult}
+                prompt={store.prompt}
+                onChange={(val) => store.setClarityTranscript(val)}
+                onStop={handleStop}
+                onStart={handleStart}
+              />
+            )}
+          </div>
+        )}
 
         {/* Results panel */}
         <AnimatePresence>
           {isEnded && (
             <ResultsPanel
               key="results"
+              centered={isSpeedEnded}
               mode={store.mode}
               wpm={store.wpm}
               wordCount={store.confirmedWords.length}

@@ -98,22 +98,27 @@ export default function TestArea({
               }
             >
               {word}
+              {testActive &&
+              !isIdle &&
+              settings.showLiveTranscript &&
+              state === 'current' &&
+              liveTranscript ? (
+                <span className="ghost-interim-inline" aria-hidden>
+                  {' '}
+                  {liveTranscript}
+                </span>
+              ) : null}
             </motion.span>
           )
         })}
       </div>
 
-      {/* Live transcript ghost text */}
-      {!isIdle && settings.showLiveTranscript && (
-        <div
-          className="ghost-transcript w-full text-center"
-          style={testActive ? { maxWidth: '48rem', fontSize: '0.75rem' } : { maxWidth: '48rem' }}
-          aria-label="Live transcription"
-          aria-live="polite"
-        >
-          {liveTranscript || <span className="opacity-0">‌</span>}
-        </div>
-      )}
+      {/* Live interim is inline after the current word (caret-adjacent); keep polite region on prompt */}
+      {testActive && !isIdle && settings.showLiveTranscript && liveTranscript ? (
+        <span className="sr-only" aria-live="polite">
+          {liveTranscript}
+        </span>
+      ) : null}
     </div>
   )
 }

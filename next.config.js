@@ -2,11 +2,11 @@
 const nextConfig = {
   reactStrictMode: true,
   webpack: (config, { dev }) => {
-    // Disk webpack cache under node_modules/.cache can desync from .next on Windows
-    // (MODULE_NOT_FOUND for ./NNN.js, missing fallback-build-manifest). Memory cache
-    // avoids stale chunk references after partial deletes or multiple dev servers.
+    // Windows: webpack filesystem/memory caches can drift from .next manifests → 404 on
+    // webpack.js / layout.css / page.js. Turbopack (`npm run dev`) avoids this path.
+    // When using `npm run dev:webpack`, disable cache so chunk graphs stay consistent.
     if (dev) {
-      config.cache = { type: 'memory' }
+      config.cache = false
     }
     return config
   },

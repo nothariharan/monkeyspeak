@@ -21,7 +21,7 @@ export async function GET() {
   // If no project ID is set, just return the key directly
   // (for development — in production, use ephemeral tokens)
   if (!projectId) {
-    return NextResponse.json({ key: apiKey })
+    return NextResponse.json({ key: apiKey, ttlSeconds: 3600 })
   }
 
   try {
@@ -44,13 +44,14 @@ export async function GET() {
     if (!res.ok) {
       // Fallback: return the main key if ephemeral key creation fails
       // (can happen if the account doesn't support project key management)
-      return NextResponse.json({ key: apiKey })
+      return NextResponse.json({ key: apiKey, ttlSeconds: 3600 })
     }
 
     const data = await res.json()
-    return NextResponse.json({ key: data.result?.key ?? apiKey })
+    // Ephemeral key POST used time_to_live_in_seconds: 30 — cache slightly less on client
+    return NextResponse.json({ key: data.result?.key ?? apiKey, ttlSeconds: 28 })
   } catch {
     // Network error — fall back to main key
-    return NextResponse.json({ key: apiKey })
+    return NextResponse.json({ key: apiKey, ttlSeconds: 3600 })
   }
 }

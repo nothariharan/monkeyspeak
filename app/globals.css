@@ -164,13 +164,23 @@ body {
   margin: 1rem 0;
 }
 
-/* Ghost transcript */
+/* Ghost transcript (legacy row; interim is now inline on the current word) */
 .ghost-transcript {
   font-size: 0.8rem;
   font-style: italic;
   color: var(--text-stats);
   min-height: 1.5rem;
   margin-top: 0.75rem;
+}
+
+/* Interim ASR after the active prompt word — same scale as prompt, dimmed until is_final */
+.ghost-interim-inline {
+  font-weight: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  font-style: italic;
+  color: var(--text-active);
+  opacity: 0.52;
 }
 
 /* Settings toggle */

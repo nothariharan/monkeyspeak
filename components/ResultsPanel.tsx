@@ -7,6 +7,8 @@ import SpeedWpmGraph from '@/components/SpeedWpmGraph'
 import type { DiffWord, WordResult, WpmSnapshot, SpeedTimelineEvent } from '@/store/testStore'
 
 interface ResultsPanelProps {
+  /** Speed mode: results-only layout centered in the viewport (prompt hidden above). */
+  centered?: boolean
   mode: 'speed' | 'clarity'
   wpm: number
   wordCount: number
@@ -43,6 +45,7 @@ const TAG_CLASS: Record<DiffWord['tag'], string> = {
 }
 
 export default function ResultsPanel({
+  centered = false,
   mode,
   wpm,
   wordCount,
@@ -68,6 +71,8 @@ export default function ResultsPanel({
     return Math.round((100 * ok) / confirmedWords.length)
   }, [confirmedWords])
 
+  const consistencyDisplay = Number.isFinite(consistency) ? consistency : 100
+
   const handleShare = () => {
     generateShareCard(
       mode === 'speed'
@@ -81,14 +86,20 @@ export default function ResultsPanel({
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, ease: 'easeOut' }}
-      className="w-full max-w-5xl mt-8 pt-6 px-1"
-      style={{ borderTop: '1px solid var(--text-muted)', opacity: 0.95 }}
+      className={`w-full px-1 ${centered && mode === 'speed' ? 'max-w-6xl mt-0 pt-2' : 'max-w-5xl mt-8 pt-6'}`}
+      style={
+        centered && mode === 'speed'
+          ? { opacity: 0.98 }
+          : { borderTop: '1px solid var(--text-muted)', opacity: 0.95 }
+      }
       role="region"
       aria-label="Test results"
     >
       {mode === 'speed' ? (
         <>
-          <div className="flex flex-wrap items-end justify-center gap-6 mb-8">
+          <div
+            className={`flex flex-wrap items-end justify-center gap-6 ${centered ? 'mb-6' : 'mb-8'}`}
+          >
             <div className="text-center">
               <span
                 className="font-mono font-semibold block"
@@ -121,13 +132,17 @@ export default function ResultsPanel({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-10 mb-8">
-            <div>
+          <div
+            className={`grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-10 items-start ${centered ? 'mb-6' : 'mb-8'}`}
+          >
+            <div className="min-w-0">
               <h3 className="text-xs font-mono uppercase tracking-widest mb-3" style={{ color: 'var(--text-stats)' }}>
                 recap
               </h3>
               <div
-                className="leading-loose rounded p-4 max-h-[min(22rem,50vh)] overflow-y-auto"
+                className={`leading-loose rounded p-4 overflow-y-auto ${
+                  centered ? 'max-h-[min(28rem,55vh)]' : 'max-h-[min(22rem,50vh)]'
+                }`}
                 style={{
                   border: '1px solid var(--text-muted)',
                   fontSize: 'var(--test-font-size)',
@@ -166,7 +181,7 @@ export default function ResultsPanel({
                 })}
               </div>
             </div>
-            <div>
+            <div className="min-w-0">
               <h3 className="text-xs font-mono uppercase tracking-widest mb-3" style={{ color: 'var(--text-stats)' }}>
                 session
               </h3>
@@ -188,7 +203,7 @@ export default function ResultsPanel({
               { label: 'words', value: wordCount },
               { label: 'fillers', value: fillerCount },
               { label: 'peak wpm', value: peakWpm },
-              { label: 'consistency', value: `${consistency}%` },
+              { label: 'consistency', value: `${consistencyDisplay}%` },
             ].map(({ label, value }) => (
               <div key={label} className="flex flex-col items-center gap-1">
                 <span className="stat-value text-xl">{value}</span>

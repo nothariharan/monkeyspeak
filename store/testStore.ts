@@ -222,9 +222,16 @@ export const useTestStore = create<TestStore>()(
         }
         const values = wpmSnapshots.map((s) => s.wpm)
         const mean = values.reduce((a, b) => a + b, 0) / values.length
+        if (!mean || !Number.isFinite(mean)) {
+          set({ consistency: 100 })
+          return
+        }
         const variance = values.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / values.length
         const stdDev = Math.sqrt(variance)
-        const consistency = Math.max(0, Math.min(100, Math.round(100 - (stdDev / mean) * 100)))
+        const raw = 100 - (stdDev / mean) * 100
+        const consistency = Number.isFinite(raw)
+          ? Math.max(0, Math.min(100, Math.round(raw)))
+          : 100
         set({ consistency })
       },
 
@@ -268,6 +275,7 @@ export const useTestStore = create<TestStore>()(
           clarityTranscript: '',
           diffResult: [],
           clarityScore: 0,
+          clarityGrade: 'needs work',
         })
       },
 

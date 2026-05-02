@@ -4,8 +4,9 @@
   "private": true,
   "scripts": {
     "clean": "node -e \"const fs=require('fs');for(const p of['.next','node_modules/.cache']){try{fs.rmSync(p,{recursive:true,force:true})}catch(e){}}\"",
-    "dev": "next dev",
-    "dev:clean": "npm run clean && next dev",
+    "dev": "next dev --turbo",
+    "dev:webpack": "next dev",
+    "dev:clean": "npm run clean && next dev --turbo",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"

@@ -1,6 +1,5 @@
 'use client'
 
-import { useState } from 'react'
 import { motion } from 'framer-motion'
 import type { DiffWord } from '@/store/testStore'
 
@@ -30,21 +29,11 @@ export default function ClarityInput({
   onStop,
   onStart,
 }: ClarityInputProps) {
-  const [diffVisible, setDiffVisible] = useState(false)
-
-  // When testState flips to 'ended', trigger stagger reveal
-  if (testState === 'ended' && !diffVisible) {
-    setDiffVisible(true)
-  }
-  if (testState !== 'ended' && diffVisible) {
-    setDiffVisible(false)
-  }
-
   return (
-    <div className="flex flex-col gap-4 w-full max-w-2xl">
+    <div className="flex flex-col items-center gap-4 w-full max-w-2xl mx-auto">
       {/* Prompt display */}
       <div
-        className="text-sm leading-relaxed"
+        className="text-sm leading-relaxed w-full text-center"
         style={{ color: 'var(--text-stats)' }}
         aria-label="Prompt to read"
       >
@@ -52,7 +41,7 @@ export default function ClarityInput({
       </div>
 
       <div
-        className="p-4 rounded leading-loose"
+        className="p-4 rounded leading-loose w-full text-left"
         style={{ border: '1px solid var(--text-muted)', fontSize: 'var(--test-font-size)', lineHeight: 'var(--test-line-height)' }}
         aria-label="Prompt text"
       >
@@ -63,7 +52,7 @@ export default function ClarityInput({
       {testState !== 'ended' ? (
         <textarea
           id="clarity-transcript-input"
-          className="clarity-input"
+          className="clarity-input w-full"
           rows={5}
           placeholder="activate your voice tool and speak the prompt…"
           value={transcript}
@@ -74,7 +63,7 @@ export default function ClarityInput({
       ) : (
         /* Staggered diff reveal */
         <div
-          className="p-4 rounded leading-loose"
+          className="p-4 rounded leading-loose w-full text-left"
           style={{
             border: '1px solid var(--text-muted)',
             fontSize: 'var(--test-font-size)',
@@ -99,7 +88,7 @@ export default function ClarityInput({
       )}
 
       {/* Controls */}
-      <div className="flex items-center gap-3">
+      <div className="flex w-full items-center justify-center gap-3 pt-1">
         {testState === 'idle' && (
           <button
             id="btn-clarity-start"

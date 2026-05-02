@@ -48,10 +48,10 @@ export default function StatsBar({
         </div>
       )}
 
-      {/* Word count */}
+      {/* Word count — speed: matched words; clarity: transcript tokens */}
       <div className="flex flex-col items-center gap-0.5">
         <span className="stat-value">{wordCount}</span>
-        <span className="stat-label">words</span>
+        <span className="stat-label">{mode === 'clarity' ? 'typed' : 'words'}</span>
       </div>
 
       {/* Fillers — Speed mode */}
