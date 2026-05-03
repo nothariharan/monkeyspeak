@@ -15,19 +15,19 @@ export default function Header({ onSettingsOpen }: HeaderProps) {
   }
 
   return (
-    <header className="flex items-center justify-between px-6 py-4 select-none">
+    <header className="grid grid-cols-[1fr_auto_1fr] items-center gap-4 px-6 py-4 select-none">
       {/* Logo */}
       <span
-        className="text-xl font-mono lowercase tracking-tight"
+        className="justify-self-start text-xl font-mono lowercase tracking-tight min-w-0"
         style={{ color: 'var(--text-active)' }}
         aria-label="MonkeySpeak"
       >
         monkey<span style={{ color: 'var(--accent)' }}>speak</span>
       </span>
 
-      {/* Mode switcher */}
+      {/* Mode switcher — centered column so it sits on true page midpoint */}
       <div
-        className="flex items-center gap-1 rounded-full p-1"
+        className="flex shrink-0 items-center justify-center gap-1 rounded-full p-1"
         style={{ background: 'var(--bg-surface)', border: '1px solid var(--text-muted)' }}
         role="tablist"
         aria-label="Mode selection"
@@ -53,7 +53,7 @@ export default function Header({ onSettingsOpen }: HeaderProps) {
       </div>
 
       {/* Right controls */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center justify-end justify-self-end gap-4">
         {/* Settings */}
         <button
           id="btn-settings"

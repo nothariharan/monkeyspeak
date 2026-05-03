@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useLayoutEffect, useMemo, useState } from 'react'
 import { tokensRoughlyMatch } from '@/lib/wordMatch'
 
 export type WordStatus =
@@ -20,6 +20,9 @@ export interface UseSpeculativeMatchProps {
   confirmedWords: string[]
   interimText: string
 }
+
+/** Only the next N words after confirmed may use interim-based speculative/wrong styling. */
+const MAX_SPECULATIVE_LOOKAHEAD = 2
 
 function tokenizeInterim(interimText: string): string[] {
   return interimText
@@ -70,24 +73,42 @@ export function useSpeculativeMatch({
   confirmedWords,
   interimText,
 }: UseSpeculativeMatchProps): PromptWordState[] {
+  const [peakConfirmedCount, setPeakConfirmedCount] = useState(0)
+
+  useLayoutEffect(() => {
+    const n = confirmedWords.length
+    if (n === 0) {
+      setPeakConfirmedCount(0)
+    } else {
+      setPeakConfirmedCount((p) => Math.max(p, n))
+    }
+  }, [confirmedWords.length])
+
   return useMemo(() => {
-    const confirmedCount = confirmedWords.length
+    const safeConfirmedCount = Math.max(peakConfirmedCount, confirmedWords.length)
     const rawInterim = tokenizeInterim(interimText)
     const interimWords = stripInterimAlignedToConfirmedProgress(rawInterim, confirmedWords)
 
     return promptWords.map((promptWord, index) => {
       const clean = cleanToken(promptWord)
 
-      if (index < confirmedCount) {
-        const spokenWord = cleanToken(confirmedWords[index] ?? '')
-        return {
-          word: promptWord,
-          status: spokenWord === clean ? 'correct' : 'wrong',
+      if (index < safeConfirmedCount) {
+        if (index < confirmedWords.length) {
+          const spokenWord = cleanToken(confirmedWords[index] ?? '')
+          return {
+            word: promptWord,
+            status: spokenWord === clean ? 'correct' : 'wrong',
+          }
         }
+        return { word: promptWord, status: 'correct' as const }
       }
 
-      const interimIndex = index - confirmedCount
-      if (interimIndex < interimWords.length) {
+      const interimIndex = index - safeConfirmedCount
+      if (
+        interimIndex >= 0 &&
+        interimIndex < interimWords.length &&
+        interimIndex < MAX_SPECULATIVE_LOOKAHEAD
+      ) {
         const interimWord = cleanToken(interimWords[interimIndex] ?? '')
         const speculative =
           (clean.length > 0 && interimWord.length > 0 && clean.startsWith(interimWord)) || interimWord === clean
@@ -97,11 +118,11 @@ export function useSpeculativeMatch({
         }
       }
 
-      if (index === confirmedCount + interimWords.length) {
+      if (index === safeConfirmedCount + interimWords.length) {
         return { word: promptWord, status: 'current' }
       }
 
       return { word: promptWord, status: 'pending' }
     })
-  }, [promptWords, confirmedWords, interimText])
+  }, [promptWords, confirmedWords, interimText, peakConfirmedCount])
 }

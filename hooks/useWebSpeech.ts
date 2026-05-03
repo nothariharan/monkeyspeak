@@ -89,6 +89,14 @@ export function useWebSpeech(
   const scoringFrozenRef = options?.scoringFrozenRef
   const onFirstActivityRef = useRef(options?.onFirstRecognitionActivity)
   const firstActivityFiredRef = useRef(false)
+  const interimDebounceRef = useRef<number | null>(null)
+
+  const clearInterimDebounce = useCallback(() => {
+    if (interimDebounceRef.current != null) {
+      window.clearTimeout(interimDebounceRef.current)
+      interimDebounceRef.current = null
+    }
+  }, [])
 
   useEffect(() => {
     onFinalWordsRef.current = onFinalWords
@@ -100,7 +108,8 @@ export function useWebSpeech(
 
   const resetInterimEmitted = useCallback(() => {
     interimEmittedTokensRef.current = []
-  }, [])
+    clearInterimDebounce()
+  }, [clearInterimDebounce])
 
   const stopStream = useCallback(() => {
     listeningRef.current = false
@@ -119,9 +128,10 @@ export function useWebSpeech(
     }
     setMicStream(null)
     setMicState('idle')
+    clearInterimDebounce()
     setLiveTranscript('')
     interimEmittedTokensRef.current = []
-  }, [setMicState])
+  }, [setMicState, clearInterimDebounce])
 
   const startStream = useCallback(async () => {
     const Ctor = getSpeechRecognitionCtor()
@@ -188,10 +198,23 @@ export function useWebSpeech(
           }
         }
         const interimTrim = interim.trim()
-        setLiveTranscript(interimTrim)
 
         if (frozen) {
+          clearInterimDebounce()
+          setLiveTranscript(interimTrim)
           return
+        }
+
+        let hasNewFinalInEvent = false
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          if (event.results[i]?.isFinal) {
+            hasNewFinalInEvent = true
+            break
+          }
+        }
+        if (hasNewFinalInEvent) {
+          clearInterimDebounce()
+          setLiveTranscript('')
         }
 
         const finalBatch: string[] = []
@@ -238,6 +261,16 @@ export function useWebSpeech(
         }
         if (!prefixOk) {
           interimEmittedTokensRef.current = []
+          if (interimTrim.length === 0) {
+            clearInterimDebounce()
+            setLiveTranscript('')
+          } else {
+            clearInterimDebounce()
+            interimDebounceRef.current = window.setTimeout(() => {
+              interimDebounceRef.current = null
+              setLiveTranscript(interimTrim)
+            }, 80)
+          }
           return
         }
         if (stable.length > prev.length) {
@@ -247,6 +280,17 @@ export function useWebSpeech(
           }
         }
         interimEmittedTokensRef.current = stable.slice()
+
+        if (interimTrim.length === 0) {
+          clearInterimDebounce()
+          setLiveTranscript('')
+        } else {
+          clearInterimDebounce()
+          interimDebounceRef.current = window.setTimeout(() => {
+            interimDebounceRef.current = null
+            setLiveTranscript(interimTrim)
+          }, 80)
+        }
       }
 
       recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
@@ -259,6 +303,7 @@ export function useWebSpeech(
         }
         setMicStream(null)
         recognitionRef.current = null
+        clearInterimDebounce()
         setLiveTranscript('')
       }
 
@@ -298,7 +343,7 @@ export function useWebSpeech(
       listeningRef.current = false
       return false
     }
-  }, [settings.language, setMicState, scoringFrozenRef])
+  }, [settings.language, setMicState, scoringFrozenRef, clearInterimDebounce])
 
   return { micState, micStream, liveTranscript, startStream, stopStream, resetInterimEmitted }
 }

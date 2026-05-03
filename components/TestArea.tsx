@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import type { CSSProperties } from 'react'
 import type { WordResult } from '@/store/testStore'
@@ -34,6 +34,8 @@ function getWindowRange(wordCount: number, currentWordIndex: number) {
   return { start, end }
 }
 
+const STATUS_HYSTERESIS_MS = 100
+
 const STATUS_STYLES: Record<WordStatus, CSSProperties> = {
   correct: {
     color: '#7eb8f7',
@@ -59,7 +61,41 @@ const STATUS_STYLES: Record<WordStatus, CSSProperties> = {
 }
 
 function Word({ state, idlePreview }: { state: PromptWordState; idlePreview?: boolean }) {
-  const base = STATUS_STYLES[state.status]
+  const lastStatusRef = useRef<WordStatus>(state.status)
+  const lastChangeAtRef = useRef(Date.now())
+  const [stableStatus, setStableStatus] = useState<WordStatus>(state.status)
+
+  useEffect(() => {
+    if (idlePreview) {
+      setStableStatus(state.status)
+      lastStatusRef.current = state.status
+      lastChangeAtRef.current = Date.now()
+      return
+    }
+    if (state.status === lastStatusRef.current) return
+
+    const now = Date.now()
+    const since = now - lastChangeAtRef.current
+
+    if (since >= STATUS_HYSTERESIS_MS) {
+      lastStatusRef.current = state.status
+      lastChangeAtRef.current = now
+      setStableStatus(state.status)
+      return
+    }
+
+    const delay = STATUS_HYSTERESIS_MS - since
+    const id = window.setTimeout(() => {
+      lastStatusRef.current = state.status
+      lastChangeAtRef.current = Date.now()
+      setStableStatus(state.status)
+    }, delay)
+    return () => clearTimeout(id)
+  }, [state.status, idlePreview])
+
+  const displayStatus = idlePreview ? state.status : stableStatus
+
+  const base = STATUS_STYLES[displayStatus]
   const style: CSSProperties =
     idlePreview && (state.status === 'pending' || state.status === 'current')
       ? {
@@ -78,12 +114,12 @@ function Word({ state, idlePreview }: { state: PromptWordState; idlePreview?: bo
         transition: 'color 0.08s ease, opacity 0.08s ease',
         ...style,
       }}
-      animate={state.status === 'correct' ? { scale: [1, 1.04, 1] } : { scale: 1 }}
+      animate={displayStatus === 'correct' ? { scale: [1, 1.04, 1] } : { scale: 1 }}
       transition={{ duration: 0.12 }}
     >
       {state.word}
 
-      {state.status === 'current' && !idlePreview && (
+      {displayStatus === 'current' && !idlePreview && (
         <motion.span
           style={{
             position: 'absolute',
@@ -111,11 +147,6 @@ export default function TestArea({
   isIdle = false,
   testActive = false,
 }: TestAreaProps) {
-  const { start: windowStart, end: windowEnd } = useMemo(
-    () => getWindowRange(words.length, currentWordIndex),
-    [words.length, currentWordIndex]
-  )
-
   const confirmedStrings = useMemo(
     () => confirmedWords.map((c) => c.word),
     [confirmedWords]
@@ -128,6 +159,19 @@ export default function TestArea({
     confirmedWords: confirmedStrings,
     interimText: interimForSpec,
   })
+
+  const visualCaretIndex = useMemo(
+    () => wordStates.findIndex((w) => w.status === 'current'),
+    [wordStates]
+  )
+
+  const windowAnchor =
+    testActive && !isIdle && visualCaretIndex >= 0 ? visualCaretIndex : currentWordIndex
+
+  const { start: windowStart, end: windowEnd } = useMemo(
+    () => getWindowRange(words.length, windowAnchor),
+    [words.length, windowAnchor]
+  )
 
   const visibleStates = useMemo(() => {
     if (testActive && !isIdle) {
