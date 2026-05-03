@@ -3,7 +3,6 @@
 import { useMemo, type CSSProperties } from 'react'
 import { motion } from 'framer-motion'
 import { generateShareCard } from '@/lib/shareCard'
-import { diffWords } from '@/lib/diff'
 import SparklineChart from '@/components/SparklineChart'
 import type { DiffWord, WordResult, WpmSnapshot } from '@/store/testStore'
 
@@ -11,6 +10,12 @@ type SpeedReviewItem = {
   word: string
   tag: 'correct' | 'substituted' | 'missed'
   spoken?: string
+}
+
+type SpeedRecognizedItem = {
+  display: string
+  tag: 'correct' | 'substituted' | 'missed'
+  title?: string
 }
 
 interface ResultsPanelProps {
@@ -41,44 +46,44 @@ const GRADE_COLOR: Record<string, string> = {
   'needs work': '#ca4754',
 }
 
-const ACCENT = '#7eb8f7'
-const ERR = '#ca4754'
-const EXTRA = '#e8a87c'
-const MUTED = '#2e2e38'
+const TAG_CLASS: Record<DiffWord['tag'], string> = {
+  correct: 'diff-correct',
+  substituted: 'diff-substituted',
+  missed: 'diff-missed',
+  added: 'diff-added',
+}
 
-function diffWordStyle(tag: DiffWord['tag']): CSSProperties {
-  switch (tag) {
-    case 'correct':
-      return { color: ACCENT }
-    case 'substituted':
-      return { color: ERR, textDecoration: 'underline' }
-    case 'missed':
-      return { color: ERR, opacity: 0.4, textDecoration: 'line-through' }
-    case 'added':
-      return { color: EXTRA, textDecoration: 'underline' }
-    default:
-      return {}
-  }
+const SPEED_TAG_CLASS: Record<SpeedReviewItem['tag'] | 'added', string> = {
+  correct: 'diff-correct',
+  substituted: 'diff-substituted',
+  missed: 'diff-missed',
+  added: 'diff-added',
+}
+
+const reviewBoxStyle: CSSProperties = {
+  border: '1px solid color-mix(in srgb, var(--text-muted) 45%, transparent)',
+  fontSize: 'var(--test-font-size, 1.05rem)',
+  lineHeight: 'var(--test-line-height, 1.75)',
 }
 
 function StatCell({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="flex flex-col gap-1">
-      <span className="text-xs font-mono uppercase tracking-wider" style={{ color: MUTED }}>
+      <span className="text-xs font-mono uppercase tracking-wider" style={{ color: 'var(--text-stats)' }}>
         {label}
       </span>
-      <span className="font-mono text-xl" style={{ color: '#e8e8ec' }}>
+      <span className="font-mono text-xl" style={{ color: 'var(--text-active)' }}>
         {value}
       </span>
     </div>
   )
 }
 
-function StatRowItem({ label, value, color }: { label: string; value: number; color: string }) {
+function StatRowItem({ label, value, colorVar }: { label: string; value: number; colorVar: string }) {
   return (
     <div className="flex items-baseline justify-between gap-4 text-sm font-mono">
-      <span style={{ color: MUTED }}>{label}</span>
-      <span style={{ color }}>{value}</span>
+      <span style={{ color: 'var(--text-stats)' }}>{label}</span>
+      <span style={{ color: colorVar }}>{value}</span>
     </div>
   )
 }
@@ -102,7 +107,7 @@ export default function ResultsPanel({
   onRetry,
   onNext,
 }: ResultsPanelProps) {
-  /** Align each prompt word to the same index in `confirmedWords` — show expected text, colour-only (no ASR string substitution). */
+  /** Expected prompt words + counts (unchanged semantics). */
   const speedPromptReview = useMemo(() => {
     if (mode !== 'speed') return null
     const items: SpeedReviewItem[] = []
@@ -128,6 +133,32 @@ export default function ResultsPanel({
     return { items, extraWords, counts: { correct, missed, substituted, extra } }
   }, [mode, prompt, confirmedWords])
 
+  /** Per prompt index: what ASR stored (gap placeholder if none). */
+  const speedRecognizedReview = useMemo(() => {
+    if (mode !== 'speed') return null
+    const items: SpeedRecognizedItem[] = []
+    for (let i = 0; i < prompt.length; i++) {
+      const pw = prompt[i] ?? ''
+      const r = confirmedWords[i]
+      if (!r) {
+        items.push({
+          display: '—',
+          tag: 'missed',
+          title: `expected “${pw}” · not captured`,
+        })
+      } else if (r.isCorrect) {
+        items.push({ display: r.word, tag: 'correct', title: pw !== r.word ? `expected “${pw}”` : undefined })
+      } else {
+        items.push({
+          display: r.word,
+          tag: 'substituted',
+          title: `expected “${pw}”`,
+        })
+      }
+    }
+    return { items, extraWords: confirmedWords.slice(prompt.length) }
+  }, [mode, prompt, confirmedWords])
+
   const consistencyDisplay = Number.isFinite(consistency) ? `${consistency}%` : '—'
 
   const handleShare = () => {
@@ -138,12 +169,7 @@ export default function ResultsPanel({
     )
   }
 
-  const TAG_CLASS: Record<DiffWord['tag'], string> = {
-    correct: 'diff-correct',
-    substituted: 'diff-substituted',
-    missed: 'diff-missed',
-    added: 'diff-added',
-  }
+  const sectionLabelStyle: CSSProperties = { color: 'var(--text-stats)' }
 
   return (
     <motion.div
@@ -153,52 +179,52 @@ export default function ResultsPanel({
       className="fixed inset-0 z-[90] flex items-start justify-center overflow-y-auto"
       style={{
         padding: 'clamp(1rem, 4vw, 2.5rem)',
-        background: '#0e0e10',
+        background: 'var(--bg)',
       }}
       role="dialog"
       aria-label="Test results"
     >
-      <div className="grid w-full max-w-[1100px] gap-10 md:gap-16 lg:gap-20 py-8 md:py-10 items-start grid-cols-1 md:grid-cols-2">
+      <div
+        className={`grid w-full max-w-[1200px] py-8 md:py-10 items-start gap-10 md:gap-12 lg:gap-14 ${
+          mode === 'speed'
+            ? 'grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(280px,0.9fr)]'
+            : 'grid-cols-1 md:grid-cols-2'
+        }`}
+      >
         {mode === 'speed' ? (
           <>
             <div className="min-w-0">
-              <p className="text-xs font-mono uppercase tracking-widest mb-4" style={{ color: MUTED }}>
+              <p className="text-xs font-mono uppercase tracking-widest mb-4" style={sectionLabelStyle}>
                 prompt review
               </p>
-              <div
-                className="leading-loose rounded p-4 mb-6 max-h-[min(40vh,28rem)] overflow-y-auto"
-                style={{
-                  border: `1px solid ${MUTED}`,
-                  fontSize: 'var(--test-font-size, 1.05rem)',
-                  lineHeight: 'var(--test-line-height, 1.75)',
-                }}
-              >
+              <div className="leading-loose rounded p-4 mb-6 max-h-[min(40vh,28rem)] overflow-y-auto" style={reviewBoxStyle}>
                 {speedPromptReview?.items.map((w, i) => (
                   <span
                     key={i}
-                    className="inline-block mr-[0.35em]"
-                    style={diffWordStyle(w.tag)}
+                    className={`inline-block mr-[0.35em] ${SPEED_TAG_CLASS[w.tag]}`}
                     title={
                       w.tag === 'substituted' && w.spoken
                         ? `you said “${w.spoken}”`
-                        : w.tag
+                        : w.tag === 'missed'
+                          ? 'not captured in time'
+                          : w.tag
                     }
                   >
                     {w.word}
                   </span>
                 ))}
                 {speedPromptReview && speedPromptReview.extraWords.length > 0 ? (
-                  <span className="block mt-3 pt-3 font-mono text-sm" style={{ borderTop: `1px solid ${MUTED}` }}>
-                    <span className="block mb-1 uppercase tracking-wider text-xs" style={{ color: MUTED }}>
+                  <span
+                    className="block mt-3 pt-3 font-mono text-sm"
+                    style={{
+                      borderTop: '1px solid color-mix(in srgb, var(--text-muted) 45%, transparent)',
+                    }}
+                  >
+                    <span className="block mb-1 uppercase tracking-wider text-xs" style={sectionLabelStyle}>
                       extra
                     </span>
                     {speedPromptReview.extraWords.map((x, j) => (
-                      <span
-                        key={`x-${j}`}
-                        className="inline-block mr-[0.35em]"
-                        style={diffWordStyle('added')}
-                        title="not in prompt"
-                      >
+                      <span key={`x-${j}`} className={`inline-block mr-[0.35em] ${SPEED_TAG_CLASS.added}`} title="not in prompt">
                         {x.word}
                       </span>
                     ))}
@@ -206,24 +232,58 @@ export default function ResultsPanel({
                 ) : null}
               </div>
               <div className="flex flex-col gap-2 mb-6 font-mono text-sm">
-                <StatRowItem label="correct" value={speedPromptReview?.counts.correct ?? 0} color={ACCENT} />
-                <StatRowItem label="missed" value={speedPromptReview?.counts.missed ?? 0} color={ERR} />
-                <StatRowItem label="substituted" value={speedPromptReview?.counts.substituted ?? 0} color={ERR} />
-                <StatRowItem label="extra" value={speedPromptReview?.counts.extra ?? 0} color={EXTRA} />
+                <StatRowItem label="correct" value={speedPromptReview?.counts.correct ?? 0} colorVar="var(--accent)" />
+                <StatRowItem label="missed" value={speedPromptReview?.counts.missed ?? 0} colorVar="var(--text-stats)" />
+                <StatRowItem
+                  label="substituted"
+                  value={speedPromptReview?.counts.substituted ?? 0}
+                  colorVar="var(--error)"
+                />
+                <StatRowItem label="extra" value={speedPromptReview?.counts.extra ?? 0} colorVar="var(--orange)" />
               </div>
-              <div className="text-xs font-mono space-y-1" style={{ color: MUTED }}>
+              <div className="text-xs font-mono space-y-1" style={{ color: 'var(--text-stats)' }}>
                 <div>
-                  <span style={{ color: ACCENT }}>■</span> correct
+                  <span className="diff-correct">■</span> correct
                 </div>
                 <div>
-                  <span style={{ color: ERR }}>■</span> wrong word
+                  <span className="diff-substituted">■</span> wrong word
                 </div>
                 <div>
-                  <span style={{ color: ERR, textDecoration: 'line-through' }}>■</span> missed
+                  <span className="diff-missed">■</span> missed
                 </div>
                 <div>
-                  <span style={{ color: EXTRA }}>■</span> extra
+                  <span className="diff-added">■</span> extra
                 </div>
+              </div>
+            </div>
+
+            <div className="min-w-0">
+              <p className="text-xs font-mono uppercase tracking-widest mb-4" style={sectionLabelStyle}>
+                recognized
+              </p>
+              <div className="leading-loose rounded p-4 mb-6 max-h-[min(40vh,28rem)] overflow-y-auto" style={reviewBoxStyle}>
+                {speedRecognizedReview?.items.map((w, i) => (
+                  <span key={i} className={`inline-block mr-[0.35em] ${SPEED_TAG_CLASS[w.tag]}`} title={w.title}>
+                    {w.display}
+                  </span>
+                ))}
+                {speedRecognizedReview && speedRecognizedReview.extraWords.length > 0 ? (
+                  <span
+                    className="block mt-3 pt-3 font-mono text-sm"
+                    style={{
+                      borderTop: '1px solid color-mix(in srgb, var(--text-muted) 45%, transparent)',
+                    }}
+                  >
+                    <span className="block mb-1 uppercase tracking-wider text-xs" style={sectionLabelStyle}>
+                      extra
+                    </span>
+                    {speedRecognizedReview.extraWords.map((x, j) => (
+                      <span key={`rx-${j}`} className={`inline-block mr-[0.35em] ${SPEED_TAG_CLASS.added}`} title="not in prompt">
+                        {x.word}
+                      </span>
+                    ))}
+                  </span>
+                ) : null}
               </div>
             </div>
 
@@ -231,20 +291,17 @@ export default function ResultsPanel({
               <div>
                 <span
                   className="font-mono font-semibold block"
-                  style={{ fontSize: '3.5rem', color: ACCENT, lineHeight: 1 }}
+                  style={{ fontSize: '3.5rem', color: 'var(--accent)', lineHeight: 1 }}
                   aria-label={`${wpm} words per minute`}
                 >
                   {wpm}
                 </span>
-                <span className="text-sm font-mono" style={{ color: MUTED }}>
+                <span className="text-sm font-mono" style={{ color: 'var(--text-stats)' }}>
                   wpm
                 </span>
               </div>
 
-              <div
-                className="grid gap-6"
-                style={{ gridTemplateColumns: '1fr 1fr' }}
-              >
+              <div className="grid gap-6" style={{ gridTemplateColumns: '1fr 1fr' }}>
                 <StatCell label="words spoken" value={wordCount} />
                 <StatCell label="fillers removed" value={fillerCount} />
                 <StatCell label="peak wpm" value={peakWpm} />
@@ -253,7 +310,7 @@ export default function ResultsPanel({
 
               <div>
                 <SparklineChart wpmSnapshots={wpmSnapshots} testStartedAt={testStartedAt} height={110} />
-                <p className="text-xs font-mono mt-2 uppercase tracking-wider" style={{ color: MUTED }}>
+                <p className="text-xs font-mono mt-2 uppercase tracking-wider" style={{ color: 'var(--text-stats)' }}>
                   wpm over time
                 </p>
               </div>
@@ -269,7 +326,7 @@ export default function ResultsPanel({
                   share
                 </button>
               </div>
-              <p className="text-xs font-mono" style={{ color: MUTED }}>
+              <p className="text-xs font-mono" style={{ color: 'var(--text-stats)' }}>
                 tab · retry &nbsp;&nbsp; enter · next
               </p>
             </div>
@@ -277,24 +334,28 @@ export default function ResultsPanel({
         ) : (
           <>
             <div className="min-w-0">
-              <p className="text-xs font-mono uppercase tracking-widest mb-4" style={{ color: MUTED }}>
+              <p className="text-xs font-mono uppercase tracking-widest mb-4" style={sectionLabelStyle}>
                 transcript diff
               </p>
               <div
                 className="leading-loose rounded p-4 mb-6 max-h-[min(28rem,50vh)] overflow-y-auto"
                 style={{
-                  border: `1px solid ${MUTED}`,
+                  ...reviewBoxStyle,
                   fontSize: '0.95rem',
                   lineHeight: '2rem',
                 }}
               >
                 {diffResult.map((w, i) => (
-                  <span key={i} className={`inline-block mr-[0.4em] ${TAG_CLASS[w.tag]}`} title={w.tag === 'substituted' ? `expected: ${w.expected}` : w.tag}>
+                  <span
+                    key={i}
+                    className={`inline-block mr-[0.4em] ${TAG_CLASS[w.tag]}`}
+                    title={w.tag === 'substituted' ? `expected: ${w.expected}` : w.tag}
+                  >
                     {w.word}
                   </span>
                 ))}
               </div>
-              <div className="text-xs font-mono flex flex-wrap gap-4" style={{ color: MUTED }}>
+              <div className="text-xs font-mono flex flex-wrap gap-4" style={{ color: 'var(--text-stats)' }}>
                 <span>
                   <span className="diff-correct">■</span> correct
                 </span>
@@ -314,20 +375,20 @@ export default function ResultsPanel({
               <div className="flex items-baseline gap-4 flex-wrap">
                 <span
                   className="font-mono font-semibold"
-                  style={{ fontSize: '3.5rem', color: ACCENT, lineHeight: 1 }}
+                  style={{ fontSize: '3.5rem', color: 'var(--accent)', lineHeight: 1 }}
                   aria-label={`Clarity score ${clarityScore} percent`}
                 >
                   {clarityScore}%
                 </span>
                 <span
                   className="font-mono font-semibold text-4xl"
-                  style={{ color: GRADE_COLOR[clarityGrade] ?? '#e8e8ec' }}
+                  style={{ color: GRADE_COLOR[clarityGrade] ?? 'var(--text-active)' }}
                   aria-label={`Grade ${clarityGrade}`}
                 >
                   {clarityGrade}
                 </span>
               </div>
-              <p className="text-xs font-mono" style={{ color: MUTED }}>
+              <p className="text-xs font-mono" style={{ color: 'var(--text-stats)' }}>
                 {promptType} · {duration}s
               </p>
 
@@ -342,7 +403,7 @@ export default function ResultsPanel({
                   share
                 </button>
               </div>
-              <p className="text-xs font-mono" style={{ color: MUTED }}>
+              <p className="text-xs font-mono" style={{ color: 'var(--text-stats)' }}>
                 tab · retry &nbsp;&nbsp; enter · next
               </p>
             </div>

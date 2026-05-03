@@ -5,7 +5,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 
 import { useTestStore } from '@/store/testStore'
 import { useTimer } from '@/hooks/useTimer'
-import { useDeepgram } from '@/hooks/useDeepgram'
+import { useWebSpeech } from '@/hooks/useWebSpeech'
 import { generatePrompt, regeneratePrompt, type PromptMode } from '@/lib/prompts'
 import { diffWords, calcClarityScore } from '@/lib/diff'
 
@@ -148,7 +148,7 @@ export default function Home() {
     [triggerWaveformError]
   )
 
-  const { micState, micStream, liveTranscript, startStream, stopStream } = useDeepgram(handleFinalWords)
+  const { micState, micStream, liveTranscript, startStream, stopStream } = useWebSpeech(handleFinalWords)
 
   useEffect(() => {
     const t = store.fillerFlashTrigger

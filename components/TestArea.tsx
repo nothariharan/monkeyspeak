@@ -2,8 +2,13 @@
 
 import { useMemo } from 'react'
 import { motion } from 'framer-motion'
-import { useTestStore } from '@/store/testStore'
+import type { CSSProperties } from 'react'
 import type { WordResult } from '@/store/testStore'
+import {
+  useSpeculativeMatch,
+  type PromptWordState,
+  type WordStatus,
+} from '@/hooks/useSpeculativeMatch'
 
 interface TestAreaProps {
   words: string[]
@@ -29,6 +34,75 @@ function getWindowRange(wordCount: number, currentWordIndex: number) {
   return { start, end }
 }
 
+const STATUS_STYLES: Record<WordStatus, CSSProperties> = {
+  correct: {
+    color: '#7eb8f7',
+    fontWeight: 600,
+  },
+  speculative: {
+    color: '#7eb8f7',
+    fontWeight: 600,
+    opacity: 0.65,
+  },
+  wrong: {
+    color: '#ca4754',
+    fontWeight: 400,
+  },
+  current: {
+    color: '#e2e2e2',
+    fontWeight: 400,
+  },
+  pending: {
+    color: '#2e2e38',
+    fontWeight: 400,
+  },
+}
+
+function Word({ state, idlePreview }: { state: PromptWordState; idlePreview?: boolean }) {
+  const base = STATUS_STYLES[state.status]
+  const style: CSSProperties =
+    idlePreview && (state.status === 'pending' || state.status === 'current')
+      ? {
+          ...base,
+          color: state.status === 'current' ? 'var(--accent)' : 'var(--text-muted)',
+          opacity: 1,
+        }
+      : base
+
+  return (
+    <motion.span
+      style={{
+        display: 'inline-block',
+        marginRight: '0.45em',
+        position: 'relative',
+        transition: 'color 0.08s ease, opacity 0.08s ease',
+        ...style,
+      }}
+      animate={state.status === 'correct' ? { scale: [1, 1.04, 1] } : { scale: 1 }}
+      transition={{ duration: 0.12 }}
+    >
+      {state.word}
+
+      {state.status === 'current' && !idlePreview && (
+        <motion.span
+          style={{
+            position: 'absolute',
+            bottom: 2,
+            left: 0,
+            right: 0,
+            height: 2,
+            background: '#7eb8f7',
+            borderRadius: 1,
+          }}
+          aria-hidden
+          animate={{ opacity: [1, 0.2, 1] }}
+          transition={{ duration: 0.9, repeat: Infinity, ease: 'easeInOut' }}
+        />
+      )}
+    </motion.span>
+  )
+}
+
 export default function TestArea({
   words,
   confirmedWords,
@@ -37,83 +111,74 @@ export default function TestArea({
   isIdle = false,
   testActive = false,
 }: TestAreaProps) {
-  const { settings } = useTestStore()
-
   const { start: windowStart, end: windowEnd } = useMemo(
     () => getWindowRange(words.length, currentWordIndex),
     [words.length, currentWordIndex]
   )
 
-  const getWordState = (globalIndex: number): 'unspoken' | 'correct' | 'error' | 'current' => {
-    if (globalIndex < currentWordIndex) {
-      const w = confirmedWords[globalIndex]
-      if (!w) return 'unspoken'
-      return w.isCorrect ? 'correct' : 'error'
+  const confirmedStrings = useMemo(
+    () => confirmedWords.map((c) => c.word),
+    [confirmedWords]
+  )
+
+  const interimForSpec = testActive && !isIdle ? liveTranscript : ''
+
+  const wordStates = useSpeculativeMatch({
+    promptWords: words,
+    confirmedWords: confirmedStrings,
+    interimText: interimForSpec,
+  })
+
+  const visibleStates = useMemo(() => {
+    if (testActive && !isIdle) {
+      return wordStates.slice(windowStart, windowEnd).map((ws, localI) => ({
+        ws,
+        globalIndex: windowStart + localI,
+      }))
     }
-    if (globalIndex === currentWordIndex) return 'current'
-    return 'unspoken'
-  }
+    return wordStates.map((ws, globalIndex) => ({ ws, globalIndex }))
+  }, [wordStates, testActive, isIdle, windowStart, windowEnd])
+
+  /** Must match line box used for height — same vars as globals `.word` / settings. */
+  const activeRunStyles: CSSProperties | undefined =
+    testActive && !isIdle
+      ? {
+          fontFamily: 'var(--font-mono), ui-monospace, monospace',
+          fontSize: 'var(--test-font-size)',
+          lineHeight: 'var(--test-line-height)',
+        }
+      : undefined
 
   return (
     <div className="flex flex-col gap-4 items-center w-full">
-      {/* Prompt word display */}
       <div
-        className={`leading-relaxed select-none transition-all duration-300 w-full ${
+        className={`select-none transition-all duration-300 w-full ${
           isIdle
-            ? 'line-clamp-2 text-ellipsis overflow-hidden max-h-[3.5em] opacity-40 text-center'
+            ? 'leading-relaxed line-clamp-2 text-ellipsis overflow-hidden max-h-[3.5em] opacity-40 text-center'
             : testActive
-              ? 'text-left overflow-hidden'
-              : 'text-left'
+              ? 'text-left overflow-x-hidden'
+              : 'text-left leading-relaxed'
         }`}
-        style={
-          testActive
+        style={{
+          maxWidth: '48rem',
+          ...(testActive && !isIdle
             ? {
-                maxWidth: '48rem',
+                /* Exactly four theme line-heights; prior bug used 2rem text with 2.25rem line cap → ~2 visible lines */
                 maxHeight: 'calc(4 * var(--test-line-height))',
+                overflowY: 'auto',
+                WebkitOverflowScrolling: 'touch',
+                paddingBottom: 4,
+                ...activeRunStyles,
               }
-            : { maxWidth: '48rem' }
-        }
+            : {}),
+        }}
         aria-label="Speaking prompt"
         aria-live="polite"
       >
-        {(testActive && !isIdle ? words.slice(windowStart, windowEnd) : words).map((word, localI) => {
-          const i = testActive && !isIdle ? windowStart + localI : localI
-          const state = getWordState(i)
-          return (
-            <motion.span
-              key={`${word}-${i}`}
-              className={`word ${state}`}
-              animate={
-                state === 'correct'
-                  ? { scale: [1, 1.02, 1] }
-                  : state === 'error'
-                    ? { x: [0, -2, 2, -1, 1, 0] }
-                    : {}
-              }
-              transition={
-                state === 'correct'
-                  ? { duration: 0.15, ease: 'easeOut' }
-                  : state === 'error'
-                    ? { duration: 0.2 }
-                    : {}
-              }
-            >
-              {word}
-            </motion.span>
-          )
-        })}
+        {visibleStates.map(({ ws, globalIndex }) => (
+          <Word key={`${globalIndex}-${ws.word}`} state={ws} idlePreview={isIdle} />
+        ))}
       </div>
-
-      {/* Interim ASR: visible so feedback is not blocked on `is_final` (which waits on endpointing). */}
-      {testActive && !isIdle && settings.showLiveTranscript && liveTranscript ? (
-        <p
-          className="w-full max-w-[48rem] text-left text-sm opacity-70 font-mono truncate pt-2 mt-1 border-t"
-          style={{ borderColor: 'var(--surface1)', color: 'var(--subtext0)' }}
-          aria-live="polite"
-        >
-          {liveTranscript}
-        </p>
-      ) : null}
     </div>
   )
 }
