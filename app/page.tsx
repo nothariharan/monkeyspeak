@@ -25,6 +25,10 @@ function splitPrompt(text: string): string[] {
   return text.split(/\s+/).filter(Boolean)
 }
 
+/** 3–2–1 arming: recognition runs but scoring/timer wait until max(armEnd, firstSpeech). Set 0 to disable UI and arm window. */
+const SPEED_ARMING_MS = 3000
+const SPEED_NO_SPEECH_WATCHDOG_MS = 25_000
+
 export default function Home() {
   const store = useTestStore()
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -32,6 +36,22 @@ export default function Home() {
   const startTimeRef = useRef<number | null>(null)
   const errorFlashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const prevFillerTriggerRef = useRef<number | null>(null)
+  const scoringFrozenRef = useRef(false)
+  const firstSpeechTsRef = useRef<number | null>(null)
+  const armingEndTsRef = useRef<number | null>(null)
+  /** Timer handles (DOM number vs Node Timeout — widen for tsc). */
+  const armTimerIdsRef = useRef<Array<number | ReturnType<typeof setTimeout>>>([])
+  const resetInterimEmittedRef = useRef<() => void>(() => {})
+  const handleStopRef = useRef<() => void>(() => {})
+  const stopStreamRef = useRef<() => void>(() => {})
+  const [armingCountdown, setArmingCountdown] = useState<number | null>(null)
+
+  const clearSpeedArmingTimers = useCallback(() => {
+    for (const id of armTimerIdsRef.current) {
+      clearTimeout(id)
+    }
+    armTimerIdsRef.current = []
+  }, [])
 
   /** Latest word counts + WPM from Zustand (avoids stale closures in intervals). */
   const flushSpeedWpmSnapshot = useCallback(() => {
@@ -84,15 +104,46 @@ export default function Home() {
 
   // ── Timer ───────────────────────────────────────────────────────────────────
   const handleTimerEnd = useCallback(() => {
+    clearSpeedArmingTimers()
+    setArmingCountdown(null)
+    armingEndTsRef.current = null
+    firstSpeechTsRef.current = null
+    scoringFrozenRef.current = false
     flushSpeedWpmSnapshot()
     store.finaliseConsistency()
     store.setTestState('ended')
-    stopStream()
+    stopStreamRef.current()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flushSpeedWpmSnapshot])
+  }, [flushSpeedWpmSnapshot, clearSpeedArmingTimers])
 
   const { timeRemaining, isWarning, start: startTimer, stop: stopTimer, reset: resetTimer } =
     useTimer(store.duration, handleTimerEnd)
+
+  const tryCommitSpeedEpoch = useCallback(() => {
+    const s = useTestStore.getState()
+    if (s.testState !== 'running' || s.mode !== 'speed') return
+    if (s.speedClockStartedAt != null) return
+    if (firstSpeechTsRef.current == null) return
+    const armEnd = armingEndTsRef.current
+    if (armEnd != null && Date.now() < armEnd) return
+    const epoch =
+      armEnd != null
+        ? Math.max(armEnd, firstSpeechTsRef.current)
+        : firstSpeechTsRef.current
+    useTestStore.getState().setSpeedClockStartedAt(epoch)
+    startTimeRef.current = epoch
+    scoringFrozenRef.current = false
+    resetInterimEmittedRef.current()
+    startTimer()
+  }, [startTimer])
+
+  const onFirstRecognitionActivity = useCallback(() => {
+    const s = useTestStore.getState()
+    if (s.testState !== 'running' || s.mode !== 'speed') return
+    if (firstSpeechTsRef.current != null) return
+    firstSpeechTsRef.current = Date.now()
+    tryCommitSpeedEpoch()
+  }, [tryCommitSpeedEpoch])
 
   // ── WPM tracking ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -130,9 +181,10 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store.testState, store.mode])
 
-  // ── Deepgram: one `is_final` may contain many tokens — align batch to prompt (see lib/asrPromptAlign)
+  // ── ASR finals / stable interim → prompt (see lib/asrPromptAlign)
   const handleFinalWords = useCallback(
     (tokens: string[]) => {
+      if (useTestStore.getState().speedClockStartedAt == null) return
       const { prompt, currentWordIndex, addWord, advanceWord, detectFiller } = useTestStore.getState()
       const batch = alignAsrFinalToPrompt(tokens, prompt, currentWordIndex, () => {
         detectFiller()
@@ -148,7 +200,16 @@ export default function Home() {
     [triggerWaveformError]
   )
 
-  const { micState, micStream, liveTranscript, startStream, stopStream } = useWebSpeech(handleFinalWords)
+  const { micState, micStream, liveTranscript, startStream, stopStream, resetInterimEmitted } =
+    useWebSpeech(handleFinalWords, {
+      scoringFrozenRef,
+      onFirstRecognitionActivity,
+    })
+
+  useEffect(() => {
+    resetInterimEmittedRef.current = resetInterimEmitted
+    stopStreamRef.current = stopStream
+  }, [resetInterimEmitted, stopStream])
 
   useEffect(() => {
     const t = store.fillerFlashTrigger
@@ -189,21 +250,51 @@ export default function Home() {
     if (store.prompt.length === 0) loadPrompt()
 
     if (store.mode === 'speed') {
+      scoringFrozenRef.current = true
+      firstSpeechTsRef.current = null
+      startTimeRef.current = null
+      clearSpeedArmingTimers()
+
       const didStart = await startStream()
-      if (!didStart) return
+      if (!didStart) {
+        scoringFrozenRef.current = false
+        setArmingCountdown(null)
+        armingEndTsRef.current = null
+        return
+      }
+
       store.startTest()
-      startTimeRef.current = useTestStore.getState().testStartedAt
-      startTimer()
+
+      if (SPEED_ARMING_MS > 0) {
+        armingEndTsRef.current = Date.now() + SPEED_ARMING_MS
+        setArmingCountdown(3)
+        armTimerIdsRef.current.push(window.setTimeout(() => setArmingCountdown(2), 1000))
+        armTimerIdsRef.current.push(window.setTimeout(() => setArmingCountdown(1), 2000))
+        armTimerIdsRef.current.push(
+          window.setTimeout(() => {
+            setArmingCountdown(null)
+            tryCommitSpeedEpoch()
+          }, SPEED_ARMING_MS)
+        )
+      } else {
+        armingEndTsRef.current = null
+        setArmingCountdown(null)
+      }
     } else {
       store.startTest()
       startTimeRef.current = useTestStore.getState().testStartedAt
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store.mode, store.prompt.length, loadPrompt])
+  }, [store.mode, store.prompt.length, loadPrompt, startStream, tryCommitSpeedEpoch, clearSpeedArmingTimers])
 
   const handleStop = useCallback(() => {
     const s = useTestStore.getState()
     if (s.mode === 'speed') {
+      clearSpeedArmingTimers()
+      setArmingCountdown(null)
+      armingEndTsRef.current = null
+      firstSpeechTsRef.current = null
+      scoringFrozenRef.current = false
       stopTimer()
       stopStream()
       flushSpeedWpmSnapshot()
@@ -217,29 +308,56 @@ export default function Home() {
     }
     useTestStore.getState().setTestState('ended')
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flushSpeedWpmSnapshot])
+  }, [flushSpeedWpmSnapshot, clearSpeedArmingTimers, stopTimer, stopStream])
+
+  useEffect(() => {
+    handleStopRef.current = handleStop
+  }, [handleStop])
+
+  useEffect(() => {
+    if (store.testState !== 'running' || store.mode !== 'speed') return
+    const id = window.setTimeout(() => {
+      const s = useTestStore.getState()
+      if (s.testState === 'running' && s.mode === 'speed' && s.speedClockStartedAt == null) {
+        handleStopRef.current()
+      }
+    }, SPEED_NO_SPEECH_WATCHDOG_MS)
+    return () => clearTimeout(id)
+  }, [store.testState, store.mode])
 
   const handleRetry = useCallback(() => {
     const s = useTestStore.getState()
     const last = s.prompt.join(' ')
+    clearSpeedArmingTimers()
+    setArmingCountdown(null)
+    startTimeRef.current = null
+    armingEndTsRef.current = null
+    firstSpeechTsRef.current = null
+    scoringFrozenRef.current = false
     s.resetTest()
     resetTimer(s.duration)
     const s2 = useTestStore.getState()
     const text = regeneratePrompt(s2.promptType as PromptMode, s2.duration, last, s2.customPromptText)
     s2.setPrompt(splitPrompt(text))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [clearSpeedArmingTimers])
 
   const handleNext = useCallback(() => {
     const s = useTestStore.getState()
     const last = s.prompt.join(' ')
+    clearSpeedArmingTimers()
+    setArmingCountdown(null)
+    startTimeRef.current = null
+    armingEndTsRef.current = null
+    firstSpeechTsRef.current = null
+    scoringFrozenRef.current = false
     s.resetTest()
     resetTimer(s.duration)
     const s2 = useTestStore.getState()
     const text = regeneratePrompt(s2.promptType as PromptMode, s2.duration, last, s2.customPromptText)
     s2.setPrompt(splitPrompt(text))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [clearSpeedArmingTimers])
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -253,6 +371,12 @@ export default function Home() {
         if (store.testState === 'running') handleStop()
         else if (store.testState === 'ended') handleRetry()
         else {
+          clearSpeedArmingTimers()
+          setArmingCountdown(null)
+          startTimeRef.current = null
+          armingEndTsRef.current = null
+          firstSpeechTsRef.current = null
+          scoringFrozenRef.current = false
           store.resetTest()
           resetTimer(store.duration)
         }
@@ -292,7 +416,7 @@ export default function Home() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store.testState, store.duration, handleRetry, handleNext, handleStop, handleStart])
+  }, [store.testState, store.duration, handleRetry, handleNext, handleStop, handleStart, clearSpeedArmingTimers, resetTimer])
 
   // ── Render ────────────────────────────────────────────────────────────────────
   const isRunning = store.testState === 'running'
@@ -348,6 +472,22 @@ export default function Home() {
                     store.mode === 'clarity' ? 'auto' : isIdle ? '8rem' : '12rem',
                 }}
               >
+                {store.mode === 'speed' && isRunning && armingCountdown != null ? (
+                  <div
+                    className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-lg"
+                    style={{ background: 'color-mix(in srgb, var(--bg) 55%, transparent)' }}
+                    aria-live="polite"
+                    aria-label="Countdown to start"
+                  >
+                    <span
+                      className="font-mono font-bold tabular-nums"
+                      style={{ fontSize: 'clamp(4rem, 18vw, 7rem)', color: 'var(--accent)', lineHeight: 1 }}
+                    >
+                      {armingCountdown}
+                    </span>
+                  </div>
+                ) : null}
+
                 {store.mode === 'speed' && (
                   <FillerFlash trigger={store.fillerFlashTrigger} isWarning={store.fillerWarning} />
                 )}
@@ -401,6 +541,7 @@ export default function Home() {
               confirmedWords={store.confirmedWords}
               wpmSnapshots={store.wpmSnapshots}
               testStartedAt={store.testStartedAt}
+              speedClockStartedAt={store.speedClockStartedAt}
               clarityScore={store.clarityScore}
               clarityGrade={store.clarityGrade}
               diffResult={store.diffResult}

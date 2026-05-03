@@ -1,8 +1,15 @@
 'use client'
 
-import { useRef, useCallback, useState, useEffect } from 'react'
+import { useRef, useCallback, useState, useEffect, type MutableRefObject } from 'react'
 import { useTestStore } from '@/store/testStore'
 import { tokensRoughlyMatch } from '@/lib/wordMatch'
+
+export interface UseWebSpeechOptions {
+  /** When true, recognition still runs but no tokens are emitted (arming / pre-epoch). */
+  scoringFrozenRef?: MutableRefObject<boolean>
+  /** Fires once per session when any non-empty transcript appears (interim or final). */
+  onFirstRecognitionActivity?: () => void
+}
 
 interface UseWebSpeechReturn {
   micState: 'idle' | 'requesting' | 'active' | 'denied' | 'error'
@@ -10,6 +17,8 @@ interface UseWebSpeechReturn {
   liveTranscript: string
   startStream: () => Promise<boolean>
   stopStream: () => void
+  /** Call when speed epoch commits so interim prefix state matches the prompt. */
+  resetInterimEmitted: () => void
 }
 
 function getSpeechRecognitionCtor(): SpeechRecognitionConstructor | null {
@@ -18,10 +27,54 @@ function getSpeechRecognitionCtor(): SpeechRecognitionConstructor | null {
 }
 
 /**
+ * Short-lived recognition start/stop to warm the browser + cloud pipeline (best-effort).
+ * Uses a separate instance from the live session.
+ */
+export function prewarmWebSpeechRecognition(lang: string): Promise<void> {
+  const Ctor = getSpeechRecognitionCtor()
+  if (!Ctor) return Promise.resolve()
+
+  return new Promise((resolve) => {
+    const r = new Ctor()
+    r.continuous = false
+    r.interimResults = false
+    r.lang = lang
+    let settled = false
+    const done = () => {
+      if (settled) return
+      settled = true
+      try {
+        r.onstart = null
+        r.onend = null
+        r.onerror = null
+        r.abort()
+      } catch {
+        // ignore
+      }
+      resolve()
+    }
+    r.onstart = () => {
+      window.setTimeout(done, 120)
+    }
+    r.onend = () => done()
+    r.onerror = () => done()
+    window.setTimeout(done, 2500)
+    try {
+      r.start()
+    } catch {
+      done()
+    }
+  })
+}
+
+/**
  * Browser Web Speech API — same surface as useDeepgram for A/B latency experiments.
  * `onFinalWords` receives tokens from one recognition final batch (ordered).
  */
-export function useWebSpeech(onFinalWords: (spokenTokens: string[]) => void): UseWebSpeechReturn {
+export function useWebSpeech(
+  onFinalWords: (spokenTokens: string[]) => void,
+  options?: UseWebSpeechOptions
+): UseWebSpeechReturn {
   const { micState, setMicState, settings } = useTestStore()
   const [liveTranscript, setLiveTranscript] = useState('')
   const [micStream, setMicStream] = useState<MediaStream | null>(null)
@@ -33,13 +86,25 @@ export function useWebSpeech(onFinalWords: (spokenTokens: string[]) => void): Us
   const onFinalWordsRef = useRef(onFinalWords)
   /** Tokens already sent via interim “stable prefix” flush; reconciled when `isFinal` arrives. */
   const interimEmittedTokensRef = useRef<string[]>([])
+  const scoringFrozenRef = options?.scoringFrozenRef
+  const onFirstActivityRef = useRef(options?.onFirstRecognitionActivity)
+  const firstActivityFiredRef = useRef(false)
 
   useEffect(() => {
     onFinalWordsRef.current = onFinalWords
   }, [onFinalWords])
 
+  useEffect(() => {
+    onFirstActivityRef.current = options?.onFirstRecognitionActivity
+  }, [options?.onFirstRecognitionActivity])
+
+  const resetInterimEmitted = useCallback(() => {
+    interimEmittedTokensRef.current = []
+  }, [])
+
   const stopStream = useCallback(() => {
     listeningRef.current = false
+    firstActivityFiredRef.current = false
     if (recognitionRef.current) {
       try {
         recognitionRef.current.abort()
@@ -84,14 +149,51 @@ export function useWebSpeech(onFinalWords: (spokenTokens: string[]) => void): Us
       streamRef.current = stream
       setMicStream(stream)
 
+      const lang = settings.language ?? 'en-US'
+      try {
+        await prewarmWebSpeechRecognition(lang)
+      } catch {
+        // best-effort only
+      }
+
       const recognition = new Ctor()
       recognitionRef.current = recognition
+      firstActivityFiredRef.current = false
       recognition.continuous = true
       recognition.interimResults = true
       recognition.maxAlternatives = 1
-      recognition.lang = settings.language ?? 'en-US'
+      recognition.lang = lang
 
       recognition.onresult = (event: SpeechRecognitionEvent) => {
+        let hasAnyTranscript = false
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const t = event.results[i]?.[0]?.transcript?.trim() ?? ''
+          if (t.length > 0) {
+            hasAnyTranscript = true
+            break
+          }
+        }
+        if (hasAnyTranscript && !firstActivityFiredRef.current) {
+          firstActivityFiredRef.current = true
+          onFirstActivityRef.current?.()
+        }
+
+        const frozen = scoringFrozenRef?.current ?? false
+
+        let interim = ''
+        for (let i = 0; i < event.results.length; i++) {
+          const r = event.results[i]
+          if (!r.isFinal) {
+            interim += r[0]?.transcript ?? ''
+          }
+        }
+        const interimTrim = interim.trim()
+        setLiveTranscript(interimTrim)
+
+        if (frozen) {
+          return
+        }
+
         const finalBatch: string[] = []
         for (let i = event.resultIndex; i < event.results.length; i++) {
           const r = event.results[i]
@@ -121,16 +223,6 @@ export function useWebSpeech(onFinalWords: (spokenTokens: string[]) => void): Us
           }
           interimEmittedTokensRef.current = []
         }
-
-        let interim = ''
-        for (let i = 0; i < event.results.length; i++) {
-          const r = event.results[i]
-          if (!r.isFinal) {
-            interim += r[0]?.transcript ?? ''
-          }
-        }
-        const interimTrim = interim.trim()
-        setLiveTranscript(interimTrim)
 
         // Commit complete words from interim without waiting for a pause (last token stays “live”).
         const words = interimTrim.split(/\s+/).filter(Boolean)
@@ -206,7 +298,7 @@ export function useWebSpeech(onFinalWords: (spokenTokens: string[]) => void): Us
       listeningRef.current = false
       return false
     }
-  }, [settings.language, setMicState])
+  }, [settings.language, setMicState, scoringFrozenRef])
 
-  return { micState, micStream, liveTranscript, startStream, stopStream }
+  return { micState, micStream, liveTranscript, startStream, stopStream, resetInterimEmitted }
 }

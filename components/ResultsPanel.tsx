@@ -31,6 +31,8 @@ interface ResultsPanelProps {
   confirmedWords?: WordResult[]
   wpmSnapshots?: WpmSnapshot[]
   testStartedAt?: number | null
+  /** Speed: WPM sparkline x-axis; falls back to testStartedAt */
+  speedClockStartedAt?: number | null
   clarityScore: number
   clarityGrade: 'S' | 'A' | 'B' | 'C' | 'needs work'
   diffResult: DiffWord[]
@@ -101,6 +103,7 @@ export default function ResultsPanel({
   confirmedWords = [],
   wpmSnapshots = [],
   testStartedAt = null,
+  speedClockStartedAt = null,
   clarityScore,
   clarityGrade,
   diffResult,
@@ -309,7 +312,11 @@ export default function ResultsPanel({
               </div>
 
               <div>
-                <SparklineChart wpmSnapshots={wpmSnapshots} testStartedAt={testStartedAt} height={110} />
+                <SparklineChart
+                  wpmSnapshots={wpmSnapshots}
+                  testStartedAt={mode === 'speed' ? speedClockStartedAt ?? testStartedAt : testStartedAt}
+                  height={110}
+                />
                 <p className="text-xs font-mono mt-2 uppercase tracking-wider" style={{ color: 'var(--text-stats)' }}>
                   wpm over time
                 </p>
