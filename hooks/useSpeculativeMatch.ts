@@ -1,6 +1,6 @@
 'use client'
 
-import { useLayoutEffect, useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { tokensRoughlyMatch } from '@/lib/wordMatch'
 
 export type WordStatus =
@@ -73,19 +73,10 @@ export function useSpeculativeMatch({
   confirmedWords,
   interimText,
 }: UseSpeculativeMatchProps): PromptWordState[] {
-  const [peakConfirmedCount, setPeakConfirmedCount] = useState(0)
-
-  useLayoutEffect(() => {
-    const n = confirmedWords.length
-    if (n === 0) {
-      setPeakConfirmedCount(0)
-    } else {
-      setPeakConfirmedCount((p) => Math.max(p, n))
-    }
-  }, [confirmedWords.length])
-
   return useMemo(() => {
-    const safeConfirmedCount = Math.max(peakConfirmedCount, confirmedWords.length)
+    // Use confirmedWords.length directly — the old peakConfirmedCount ratchet
+    // could lock the cursor several words ahead when interim emissions spiked.
+    const safeConfirmedCount = confirmedWords.length
     const rawInterim = tokenizeInterim(interimText)
     const interimWords = stripInterimAlignedToConfirmedProgress(rawInterim, confirmedWords)
 
@@ -124,5 +115,5 @@ export function useSpeculativeMatch({
 
       return { word: promptWord, status: 'pending' }
     })
-  }, [promptWords, confirmedWords, interimText, peakConfirmedCount])
+  }, [promptWords, confirmedWords, interimText])
 }

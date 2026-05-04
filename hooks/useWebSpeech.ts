@@ -247,49 +247,20 @@ export function useWebSpeech(
           interimEmittedTokensRef.current = []
         }
 
-        // Commit complete words from interim without waiting for a pause (last token stays “live”).
-        const words = interimTrim.split(/\s+/).filter(Boolean)
-        const stable = words.length >= 2 ? words.slice(0, -1) : []
-        const prev = interimEmittedTokensRef.current
-        let prefixOk = true
-        const n = Math.min(stable.length, prev.length)
-        for (let j = 0; j < n; j++) {
-          if (!tokensRoughlyMatch(stable[j]!, prev[j]!)) {
-            prefixOk = false
-            break
-          }
-        }
-        if (!prefixOk) {
-          interimEmittedTokensRef.current = []
-          if (interimTrim.length === 0) {
-            clearInterimDebounce()
-            setLiveTranscript('')
-          } else {
-            clearInterimDebounce()
-            interimDebounceRef.current = window.setTimeout(() => {
-              interimDebounceRef.current = null
-              setLiveTranscript(interimTrim)
-            }, 80)
-          }
-          return
-        }
-        if (stable.length > prev.length) {
-          const toEmit = stable.slice(prev.length)
-          if (toEmit.length > 0) {
-            onFinalWordsRef.current(toEmit)
-          }
-        }
-        interimEmittedTokensRef.current = stable.slice()
-
+        // Update live transcript for speculative word highlighting only.
+        // Early interim emission was removed — only isFinal results (above) advance
+        // confirmedWords. This stops the cursor from skipping multiple words at once
+        // and eliminates the double-commit race between interim and final batches.
         if (interimTrim.length === 0) {
           clearInterimDebounce()
           setLiveTranscript('')
         } else {
           clearInterimDebounce()
+          // 150ms debounce keeps highlight updates below perceptual flicker threshold.
           interimDebounceRef.current = window.setTimeout(() => {
             interimDebounceRef.current = null
             setLiveTranscript(interimTrim)
-          }, 80)
+          }, 150)
         }
       }
 

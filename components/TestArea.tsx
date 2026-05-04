@@ -34,7 +34,7 @@ function getWindowRange(wordCount: number, currentWordIndex: number) {
   return { start, end }
 }
 
-const STATUS_HYSTERESIS_MS = 100
+const STATUS_HYSTERESIS_MS = 200
 
 const STATUS_STYLES: Record<WordStatus, CSSProperties> = {
   correct: {
@@ -160,13 +160,10 @@ export default function TestArea({
     interimText: interimForSpec,
   })
 
-  const visualCaretIndex = useMemo(
-    () => wordStates.findIndex((w) => w.status === 'current'),
-    [wordStates]
-  )
-
-  const windowAnchor =
-    testActive && !isIdle && visualCaretIndex >= 0 ? visualCaretIndex : currentWordIndex
+  // Anchor the rolling window to confirmed progress only (not speculative).
+  // Using visualCaretIndex (speculative) caused the text block to re-slice on
+  // every interim event — making the whole view jump lines mid-word.
+  const windowAnchor = currentWordIndex
 
   const { start: windowStart, end: windowEnd } = useMemo(
     () => getWindowRange(words.length, windowAnchor),
