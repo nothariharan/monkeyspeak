@@ -5,9 +5,10 @@ import { AnimatePresence, motion } from 'framer-motion'
 
 import { useTestStore } from '@/store/testStore'
 import { useTimer } from '@/hooks/useTimer'
-import { useWebSpeech } from '@/hooks/useWebSpeech'
+import { useActiveSpeechProvider } from '@/hooks/useActiveSpeechProvider'
 import { generatePrompt, regeneratePrompt, type PromptMode } from '@/lib/prompts'
 import { diffWords, calcClarityScore } from '@/lib/diff'
+import { alignAsrFinalToPrompt } from '@/lib/asrPromptAlign'
 
 import Header from '@/components/Header'
 import ConfigBar from '@/components/ConfigBar'
@@ -19,13 +20,12 @@ import ClarityInput from '@/components/ClarityInput'
 import ResultsPanel from '@/components/ResultsPanel'
 import SettingsPanel from '@/components/SettingsPanel'
 import WaveformVisualiser from '@/components/WaveformVisualiser'
-import { alignAsrFinalToPrompt } from '@/lib/asrPromptAlign'
 
 function splitPrompt(text: string): string[] {
   return text.split(/\s+/).filter(Boolean)
 }
 
-/** 3–2–1 arming: recognition runs but scoring/timer wait until max(armEnd, firstSpeech). Set 0 to disable UI and arm window. */
+/** 3–2–1 arming: recognition runs but scoring/timer wait until max(armEnd, firstSpeech). */
 const SPEED_ARMING_MS = 3000
 const SPEED_NO_SPEECH_WATCHDOG_MS = 25_000
 
@@ -35,25 +35,78 @@ export default function Home() {
   const [waveformErrorFlash, setWaveformErrorFlash] = useState(false)
   const startTimeRef = useRef<number | null>(null)
   const errorFlashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const prevFillerTriggerRef = useRef<number | null>(null)
+  const prevFillerCountRef = useRef(0)
   const scoringFrozenRef = useRef(false)
   const firstSpeechTsRef = useRef<number | null>(null)
   const armingEndTsRef = useRef<number | null>(null)
-  /** Timer handles (DOM number vs Node Timeout — widen for tsc). */
   const armTimerIdsRef = useRef<Array<number | ReturnType<typeof setTimeout>>>([])
-  const resetInterimEmittedRef = useRef<() => void>(() => {})
   const handleStopRef = useRef<() => void>(() => {})
-  const stopStreamRef = useRef<() => void>(() => {})
   const [armingCountdown, setArmingCountdown] = useState<number | null>(null)
 
+  // ── Active STT provider (always both mounted; selector picks one) ──────────
+  const sttProvider = store.settings.sttProvider ?? 'webspeech'
+  const {
+    interimText,
+    confirmedWords,
+    fillerCount,
+    isListening,
+    error: sttError,
+    micStream,
+    startSession,
+    stopSession,
+    reset: resetProvider,
+  } = useActiveSpeechProvider(sttProvider)
+
   const clearSpeedArmingTimers = useCallback(() => {
-    for (const id of armTimerIdsRef.current) {
-      clearTimeout(id)
-    }
+    for (const id of armTimerIdsRef.current) clearTimeout(id)
     armTimerIdsRef.current = []
   }, [])
 
-  /** Latest word counts + WPM from Zustand (avoids stale closures in intervals). */
+  const triggerWaveformError = useCallback(() => {
+    if (errorFlashTimeoutRef.current !== null) clearTimeout(errorFlashTimeoutRef.current)
+    setWaveformErrorFlash(true)
+    errorFlashTimeoutRef.current = setTimeout(() => {
+      setWaveformErrorFlash(false)
+      errorFlashTimeoutRef.current = null
+    }, 600)
+  }, [])
+
+  useEffect(
+    () => () => {
+      if (errorFlashTimeoutRef.current !== null) clearTimeout(errorFlashTimeoutRef.current)
+    },
+    []
+  )
+
+  // ── Restore persisted settings to DOM on mount ────────────────────────────
+  useEffect(() => {
+    const { settings } = store
+    const html = document.documentElement
+    import('@/lib/themes').then(({ THEMES, applyTheme }) => {
+      const theme = THEMES[settings.theme] ?? THEMES.mocha
+      applyTheme(theme, settings.accentHex)
+    })
+    html.dataset.font = settings.font
+    html.dataset.fontsize = settings.fontSize
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // ── Timer ─────────────────────────────────────────────────────────────────
+  const handleTimerEnd = useCallback(() => {
+    clearSpeedArmingTimers()
+    setArmingCountdown(null)
+    armingEndTsRef.current = null
+    firstSpeechTsRef.current = null
+    scoringFrozenRef.current = false
+    store.finaliseConsistency()
+    store.setTestState('ended')
+    stopSession()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clearSpeedArmingTimers, stopSession])
+
+  const { timeRemaining, isWarning, start: startTimer, stop: stopTimer, reset: resetTimer } =
+    useTimer(store.duration, handleTimerEnd)
+
   const flushSpeedWpmSnapshot = useCallback(() => {
     const t0 = startTimeRef.current
     if (t0 == null) return
@@ -69,56 +122,6 @@ export default function Home() {
     s.addWpmSnapshot({ wpm: computed, timestamp: Date.now() })
   }, [])
 
-  const triggerWaveformError = useCallback(() => {
-    if (errorFlashTimeoutRef.current !== null) {
-      clearTimeout(errorFlashTimeoutRef.current)
-    }
-    setWaveformErrorFlash(true)
-    errorFlashTimeoutRef.current = setTimeout(() => {
-      setWaveformErrorFlash(false)
-      errorFlashTimeoutRef.current = null
-    }, 600)
-  }, [])
-
-  useEffect(
-    () => () => {
-      if (errorFlashTimeoutRef.current !== null) {
-        clearTimeout(errorFlashTimeoutRef.current)
-      }
-    },
-    []
-  )
-
-  // ── Restore persisted settings to DOM on mount ──────────────────────────────
-  useEffect(() => {
-    const { settings } = store
-    const html = document.documentElement
-    import('@/lib/themes').then(({ THEMES, applyTheme }) => {
-      const theme = THEMES[settings.theme] ?? THEMES.mocha
-      applyTheme(theme, settings.accentHex)
-    })
-    html.dataset.font = settings.font
-    html.dataset.fontsize = settings.fontSize
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  // ── Timer ───────────────────────────────────────────────────────────────────
-  const handleTimerEnd = useCallback(() => {
-    clearSpeedArmingTimers()
-    setArmingCountdown(null)
-    armingEndTsRef.current = null
-    firstSpeechTsRef.current = null
-    scoringFrozenRef.current = false
-    flushSpeedWpmSnapshot()
-    store.finaliseConsistency()
-    store.setTestState('ended')
-    stopStreamRef.current()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flushSpeedWpmSnapshot, clearSpeedArmingTimers])
-
-  const { timeRemaining, isWarning, start: startTimer, stop: stopTimer, reset: resetTimer } =
-    useTimer(store.duration, handleTimerEnd)
-
   const tryCommitSpeedEpoch = useCallback(() => {
     const s = useTestStore.getState()
     if (s.testState !== 'running' || s.mode !== 'speed') return
@@ -133,27 +136,79 @@ export default function Home() {
     useTestStore.getState().setSpeedClockStartedAt(epoch)
     startTimeRef.current = epoch
     scoringFrozenRef.current = false
-    resetInterimEmittedRef.current()
     startTimer()
   }, [startTimer])
 
-  const onFirstRecognitionActivity = useCallback(() => {
+  // ── confirmedWords → store (provider feeds us the array) ─────────────────
+  // Track the previous length so we only process new entries each render.
+  const prevConfirmedLenRef = useRef(0)
+
+  useEffect(() => {
     const s = useTestStore.getState()
     if (s.testState !== 'running' || s.mode !== 'speed') return
-    if (firstSpeechTsRef.current != null) return
-    firstSpeechTsRef.current = Date.now()
-    tryCommitSpeedEpoch()
-  }, [tryCommitSpeedEpoch])
+    if (scoringFrozenRef.current) return
+    if (s.speedClockStartedAt == null) return
 
-  // ── WPM tracking ────────────────────────────────────────────────────────────
+    const newWords = confirmedWords.slice(prevConfirmedLenRef.current)
+    prevConfirmedLenRef.current = confirmedWords.length
+
+    if (newWords.length === 0) return
+
+    // Detect first-speech epoch
+    if (firstSpeechTsRef.current == null) {
+      firstSpeechTsRef.current = Date.now()
+      tryCommitSpeedEpoch()
+    }
+
+    // Align new tokens to prompt and commit
+    const { prompt, currentWordIndex, addWord, advanceWord, detectFiller } = s
+    const batch = alignAsrFinalToPrompt(newWords, prompt, currentWordIndex, () => {
+      detectFiller()
+    })
+    for (const result of batch) {
+      if (!result.isCorrect) triggerWaveformError()
+      addWord(result)
+      advanceWord()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [confirmedWords])
+
+  // ── fillerCount → store ───────────────────────────────────────────────────
+  useEffect(() => {
+    const delta = fillerCount - prevFillerCountRef.current
+    prevFillerCountRef.current = fillerCount
+    if (delta <= 0) return
+    const s = useTestStore.getState()
+    if (s.testState !== 'running' || s.mode !== 'speed') return
+    for (let i = 0; i < delta; i++) {
+      s.detectFiller()
+      triggerWaveformError()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fillerCount])
+
+  // ── First speech detection (for arming epoch) ─────────────────────────────
+  // We watch isListening + interimText appearing together as a proxy for first audio
+  const firstSpeechFiredRef = useRef(false)
+  useEffect(() => {
+    if (!interimText || firstSpeechFiredRef.current) return
+    const s = useTestStore.getState()
+    if (s.testState !== 'running' || s.mode !== 'speed') return
+    firstSpeechFiredRef.current = true
+    if (firstSpeechTsRef.current == null) {
+      firstSpeechTsRef.current = Date.now()
+      tryCommitSpeedEpoch()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [interimText])
+
+  // ── WPM tracking on confirmedWords change ─────────────────────────────────
   useEffect(() => {
     const s = useTestStore.getState()
     if (s.testState !== 'running' || s.mode !== 'speed') return
     if (!startTimeRef.current) return
-
     const elapsedMs = Date.now() - startTimeRef.current
     if (elapsedMs < 3000) return
-
     const netWords = Math.max(0, s.confirmedWords.length - s.fillerCount)
     const elapsedMin = elapsedMs / 60_000
     const computed = Math.round(netWords / elapsedMin)
@@ -162,7 +217,7 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store.confirmedWords.length])
 
-  // ── WPM interval ────────────────────────────────────────────────────────────
+  // ── WPM interval ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (store.testState !== 'running' || store.mode !== 'speed') return
     const id = setInterval(() => {
@@ -181,51 +236,15 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store.testState, store.mode])
 
-  // ── ASR finals / stable interim → prompt (see lib/asrPromptAlign)
-  const handleFinalWords = useCallback(
-    (tokens: string[]) => {
-      if (useTestStore.getState().speedClockStartedAt == null) return
-      const { prompt, currentWordIndex, addWord, advanceWord, detectFiller } = useTestStore.getState()
-      const batch = alignAsrFinalToPrompt(tokens, prompt, currentWordIndex, () => {
-        detectFiller()
-      })
-      for (const result of batch) {
-        if (!result.isCorrect) {
-          triggerWaveformError()
-        }
-        addWord(result)
-        advanceWord()
-      }
-    },
-    [triggerWaveformError]
-  )
-
-  const { micState, micStream, liveTranscript, startStream, stopStream, resetInterimEmitted } =
-    useWebSpeech(handleFinalWords, {
-      scoringFrozenRef,
-      onFirstRecognitionActivity,
-    })
-
+  // ── STT error → mic state ─────────────────────────────────────────────────
   useEffect(() => {
-    resetInterimEmittedRef.current = resetInterimEmitted
-    stopStreamRef.current = stopStream
-  }, [resetInterimEmitted, stopStream])
-
-  useEffect(() => {
-    const t = store.fillerFlashTrigger
-    if (prevFillerTriggerRef.current !== null && t > prevFillerTriggerRef.current) {
-      triggerWaveformError()
-    }
-    prevFillerTriggerRef.current = t
-  }, [store.fillerFlashTrigger, triggerWaveformError])
-
-  // Sync micState to store
-  useEffect(() => {
-    store.setMicState(micState)
+    if (sttError) store.setMicState('error')
+    else if (isListening) store.setMicState('active')
+    else store.setMicState('idle')
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [micState])
+  }, [sttError, isListening])
 
-  // ── Prompt management ────────────────────────────────────────────────────────
+  // ── Prompt management ─────────────────────────────────────────────────────
   const loadPrompt = useCallback(() => {
     const s = useTestStore.getState()
     const text = generatePrompt(s.promptType as PromptMode, s.duration, s.customPromptText)
@@ -233,29 +252,30 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Load initial prompt and reload on config changes
   useEffect(() => {
     if (store.testState === 'idle') loadPrompt()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store.promptType, store.duration, store.mode])
 
-  // Ensure prompt on first mount
   useEffect(() => {
     if (store.prompt.length === 0) loadPrompt()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ── Test actions ─────────────────────────────────────────────────────────────
+  // ── Test actions ──────────────────────────────────────────────────────────
   const handleStart = useCallback(async () => {
     if (store.prompt.length === 0) loadPrompt()
 
     if (store.mode === 'speed') {
       scoringFrozenRef.current = true
       firstSpeechTsRef.current = null
+      firstSpeechFiredRef.current = false
+      prevConfirmedLenRef.current = 0
       startTimeRef.current = null
       clearSpeedArmingTimers()
+      resetProvider()
 
-      const didStart = await startStream()
+      const didStart = await startSession()
       if (!didStart) {
         scoringFrozenRef.current = false
         setArmingCountdown(null)
@@ -285,7 +305,7 @@ export default function Home() {
       startTimeRef.current = useTestStore.getState().testStartedAt
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store.mode, store.prompt.length, loadPrompt, startStream, tryCommitSpeedEpoch, clearSpeedArmingTimers])
+  }, [store.mode, store.prompt.length, loadPrompt, startSession, tryCommitSpeedEpoch, clearSpeedArmingTimers, resetProvider])
 
   const handleStop = useCallback(() => {
     const s = useTestStore.getState()
@@ -296,7 +316,7 @@ export default function Home() {
       firstSpeechTsRef.current = null
       scoringFrozenRef.current = false
       stopTimer()
-      stopStream()
+      stopSession()
       flushSpeedWpmSnapshot()
       s.finaliseConsistency()
     } else {
@@ -308,7 +328,7 @@ export default function Home() {
     }
     useTestStore.getState().setTestState('ended')
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flushSpeedWpmSnapshot, clearSpeedArmingTimers, stopTimer, stopStream])
+  }, [flushSpeedWpmSnapshot, clearSpeedArmingTimers, stopTimer, stopSession])
 
   useEffect(() => {
     handleStopRef.current = handleStop
@@ -333,14 +353,17 @@ export default function Home() {
     startTimeRef.current = null
     armingEndTsRef.current = null
     firstSpeechTsRef.current = null
+    firstSpeechFiredRef.current = false
+    prevConfirmedLenRef.current = 0
     scoringFrozenRef.current = false
+    resetProvider()
     s.resetTest()
     resetTimer(s.duration)
     const s2 = useTestStore.getState()
     const text = regeneratePrompt(s2.promptType as PromptMode, s2.duration, last, s2.customPromptText)
     s2.setPrompt(splitPrompt(text))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clearSpeedArmingTimers])
+  }, [clearSpeedArmingTimers, resetProvider])
 
   const handleNext = useCallback(() => {
     const s = useTestStore.getState()
@@ -350,20 +373,22 @@ export default function Home() {
     startTimeRef.current = null
     armingEndTsRef.current = null
     firstSpeechTsRef.current = null
+    firstSpeechFiredRef.current = false
+    prevConfirmedLenRef.current = 0
     scoringFrozenRef.current = false
+    resetProvider()
     s.resetTest()
     resetTimer(s.duration)
     const s2 = useTestStore.getState()
     const text = regeneratePrompt(s2.promptType as PromptMode, s2.duration, last, s2.customPromptText)
     s2.setPrompt(splitPrompt(text))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clearSpeedArmingTimers])
+  }, [clearSpeedArmingTimers, resetProvider])
 
-  // ── Keyboard shortcuts ────────────────────────────────────────────────────────
+  // ── Keyboard shortcuts ────────────────────────────────────────────────────
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName
-
       if (tag === 'TEXTAREA' || tag === 'INPUT') return
 
       if (e.key === 'Tab') {
@@ -376,20 +401,18 @@ export default function Home() {
           startTimeRef.current = null
           armingEndTsRef.current = null
           firstSpeechTsRef.current = null
+          firstSpeechFiredRef.current = false
+          prevConfirmedLenRef.current = 0
           scoringFrozenRef.current = false
+          resetProvider()
           store.resetTest()
           resetTimer(store.duration)
         }
       }
 
       if (e.key === 'Enter') {
-        if (store.testState === 'ended') {
-          e.preventDefault()
-          handleNext()
-        } else if (store.testState === 'idle') {
-          e.preventDefault()
-          handleStart()
-        }
+        if (store.testState === 'ended') { e.preventDefault(); handleNext() }
+        else if (store.testState === 'idle') { e.preventDefault(); handleStart() }
       }
 
       if (e.key === 'Escape' && store.testState === 'running') {
@@ -397,31 +420,20 @@ export default function Home() {
         handleStop()
       }
 
-      if (e.ctrlKey && e.key === ',') {
-        e.preventDefault()
-        setSettingsOpen((o) => !o)
-      }
-
-      if (e.ctrlKey && e.key === '1') {
-        e.preventDefault()
-        store.setMode('speed')
-      }
-
-      if (e.ctrlKey && e.key === '2') {
-        e.preventDefault()
-        store.setMode('clarity')
-      }
+      if (e.ctrlKey && e.key === ',') { e.preventDefault(); setSettingsOpen((o) => !o) }
+      if (e.ctrlKey && e.key === '1') { e.preventDefault(); store.setMode('speed') }
+      if (e.ctrlKey && e.key === '2') { e.preventDefault(); store.setMode('clarity') }
     }
 
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store.testState, store.duration, handleRetry, handleNext, handleStop, handleStart, clearSpeedArmingTimers, resetTimer])
+  }, [store.testState, store.duration, handleRetry, handleNext, handleStop, handleStart, clearSpeedArmingTimers, resetTimer, resetProvider])
 
-  // ── Render ────────────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────
   const isRunning = store.testState === 'running'
-  const isEnded = store.testState === 'ended'
-  const isIdle = store.testState === 'idle'
+  const isEnded   = store.testState === 'ended'
+  const isIdle    = store.testState === 'idle'
 
   const testExit = { opacity: 0, y: -16 }
   const testExitTransition = { duration: 0.22, ease: 'easeIn' as const }
@@ -472,6 +484,7 @@ export default function Home() {
                     store.mode === 'clarity' ? 'auto' : isIdle ? '8rem' : '12rem',
                 }}
               >
+                {/* Arming countdown overlay */}
                 {store.mode === 'speed' && isRunning && armingCountdown != null ? (
                   <div
                     className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-lg"
@@ -498,11 +511,10 @@ export default function Home() {
                       words={store.prompt}
                       confirmedWords={store.confirmedWords}
                       currentWordIndex={store.currentWordIndex}
-                      liveTranscript={liveTranscript}
+                      liveTranscript={interimText}
                       isIdle={isIdle}
                       testActive={isRunning}
                     />
-
                     {isIdle && <MicButton onStart={handleStart} micState={store.micState} />}
                   </div>
                 ) : (
@@ -519,11 +531,46 @@ export default function Home() {
               </div>
 
               {store.mode === 'speed' && (
-                <WaveformVisualiser
-                  stream={micStream}
-                  isActive={store.testState === 'running'}
-                  hasError={waveformErrorFlash}
-                />
+                <>
+                  <WaveformVisualiser
+                    stream={micStream}
+                    isActive={store.testState === 'running'}
+                    hasError={waveformErrorFlash}
+                  />
+
+                  {/* Step 7 — Provider status indicator */}
+                  {isRunning && (
+                    <div
+                      style={{
+                        position: 'fixed',
+                        bottom: '1rem',
+                        right: '1.25rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.35rem',
+                        fontSize: '0.65rem',
+                        color: '#44445a',
+                        fontFamily: 'var(--font-mono), ui-monospace, monospace',
+                        letterSpacing: '0.04em',
+                        pointerEvents: 'none',
+                        userSelect: 'none',
+                      }}
+                      aria-label={`Active STT provider: ${sttProvider}`}
+                    >
+                      <span
+                        style={{
+                          width: 6,
+                          height: 6,
+                          borderRadius: '50%',
+                          background: isListening ? '#4ade80' : '#555566',
+                          display: 'inline-block',
+                          flexShrink: 0,
+                        }}
+                      />
+                      {sttProvider === 'deepgram' ? 'deepgram' : 'browser'}
+                    </div>
+                  )}
+                </>
               )}
             </motion.div>
           ) : (

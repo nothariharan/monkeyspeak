@@ -1,25 +1,10 @@
 'use client'
 
-import { useRef, useCallback, useState, useEffect, type MutableRefObject } from 'react'
+import { useRef, useCallback, useState, useEffect } from 'react'
 import { useTestStore } from '@/store/testStore'
 import { tokensRoughlyMatch } from '@/lib/wordMatch'
-
-export interface UseWebSpeechOptions {
-  /** When true, recognition still runs but no tokens are emitted (arming / pre-epoch). */
-  scoringFrozenRef?: MutableRefObject<boolean>
-  /** Fires once per session when any non-empty transcript appears (interim or final). */
-  onFirstRecognitionActivity?: () => void
-}
-
-interface UseWebSpeechReturn {
-  micState: 'idle' | 'requesting' | 'active' | 'denied' | 'error'
-  micStream: MediaStream | null
-  liveTranscript: string
-  startStream: () => Promise<boolean>
-  stopStream: () => void
-  /** Call when speed epoch commits so interim prefix state matches the prompt. */
-  resetInterimEmitted: () => void
-}
+import { isFiller } from '@/lib/fillers'
+import type { SpeechProvider } from './useSpeechProvider'
 
 function getSpeechRecognitionCtor(): SpeechRecognitionConstructor | null {
   if (typeof window === 'undefined') return null
@@ -53,42 +38,41 @@ export function prewarmWebSpeechRecognition(lang: string): Promise<void> {
       }
       resolve()
     }
-    r.onstart = () => {
-      window.setTimeout(done, 120)
-    }
+    r.onstart = () => { window.setTimeout(done, 120) }
     r.onend = () => done()
     r.onerror = () => done()
     window.setTimeout(done, 2500)
-    try {
-      r.start()
-    } catch {
-      done()
-    }
+    try { r.start() } catch { done() }
   })
 }
 
 /**
- * Browser Web Speech API — same surface as useDeepgram for A/B latency experiments.
- * `onFinalWords` receives tokens from one recognition final batch (ordered).
+ * Browser Web Speech API shaped to the SpeechProvider interface.
+ *
+ * All existing behaviour is preserved:
+ *  - 50ms interim debounce
+ *  - interim prefix strip aligned to confirmed progress
+ *  - prewarm on startSession
+ *  - continuous restart on onend
+ *
+ * Filler detection now happens inside this hook so the interface is self-contained.
  */
-export function useWebSpeech(
-  onFinalWords: (spokenTokens: string[]) => void,
-  options?: UseWebSpeechOptions
-): UseWebSpeechReturn {
-  const { micState, setMicState, settings } = useTestStore()
-  const [liveTranscript, setLiveTranscript] = useState('')
+export function useWebSpeech(): SpeechProvider {
+  const { settings } = useTestStore()
+
+  const [interimText, setInterimText] = useState('')
+  const [confirmedWords, setConfirmedWords] = useState<string[]>([])
+  const [fillerCount, setFillerCount] = useState(0)
+  const [isListening, setIsListening] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [micStream, setMicStream] = useState<MediaStream | null>(null)
 
   const streamRef = useRef<MediaStream | null>(null)
   const recognitionRef = useRef<SpeechRecognition | null>(null)
-  /** True while the user session should keep listening (avoids stale closure in onend). */
   const listeningRef = useRef(false)
-  const onFinalWordsRef = useRef(onFinalWords)
-  /** Tokens already sent via interim “stable prefix” flush; reconciled when `isFinal` arrives. */
+
+  /** Tokens already speculatively emitted from interim; reconciled when isFinal arrives. */
   const interimEmittedTokensRef = useRef<string[]>([])
-  const scoringFrozenRef = options?.scoringFrozenRef
-  const onFirstActivityRef = useRef(options?.onFirstRecognitionActivity)
-  const firstActivityFiredRef = useRef(false)
   const interimDebounceRef = useRef<number | null>(null)
 
   const clearInterimDebounce = useCallback(() => {
@@ -98,28 +82,19 @@ export function useWebSpeech(
     }
   }, [])
 
-  useEffect(() => {
-    onFinalWordsRef.current = onFinalWords
-  }, [onFinalWords])
-
-  useEffect(() => {
-    onFirstActivityRef.current = options?.onFirstRecognitionActivity
-  }, [options?.onFirstRecognitionActivity])
-
-  const resetInterimEmitted = useCallback(() => {
-    interimEmittedTokensRef.current = []
+  const reset = useCallback(() => {
     clearInterimDebounce()
+    interimEmittedTokensRef.current = []
+    setInterimText('')
+    setConfirmedWords([])
+    setFillerCount(0)
+    setError(null)
   }, [clearInterimDebounce])
 
-  const stopStream = useCallback(() => {
+  const stopSession = useCallback(() => {
     listeningRef.current = false
-    firstActivityFiredRef.current = false
     if (recognitionRef.current) {
-      try {
-        recognitionRef.current.abort()
-      } catch {
-        // ignore
-      }
+      try { recognitionRef.current.abort() } catch { /* ignore */ }
       recognitionRef.current = null
     }
     if (streamRef.current) {
@@ -127,26 +102,22 @@ export function useWebSpeech(
       streamRef.current = null
     }
     setMicStream(null)
-    setMicState('idle')
+    setIsListening(false)
     clearInterimDebounce()
-    setLiveTranscript('')
+    setInterimText('')
     interimEmittedTokensRef.current = []
-  }, [setMicState, clearInterimDebounce])
+  }, [clearInterimDebounce])
 
-  const startStream = useCallback(async () => {
+  const startSession = useCallback(async (): Promise<boolean> => {
     const Ctor = getSpeechRecognitionCtor()
     if (!Ctor) {
-      setMicState('error')
+      setError('Web Speech API not supported in this browser')
       return false
     }
 
-    if (listeningRef.current && recognitionRef.current) {
-      return true
-    }
+    if (listeningRef.current && recognitionRef.current) return true
 
     try {
-      setMicState('requesting')
-
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: { ideal: 1 },
@@ -160,61 +131,31 @@ export function useWebSpeech(
       setMicStream(stream)
 
       const lang = settings.language ?? 'en-US'
-      try {
-        await prewarmWebSpeechRecognition(lang)
-      } catch {
-        // best-effort only
-      }
+      try { await prewarmWebSpeechRecognition(lang) } catch { /* best-effort */ }
 
       const recognition = new Ctor()
       recognitionRef.current = recognition
-      firstActivityFiredRef.current = false
       recognition.continuous = true
       recognition.interimResults = true
       recognition.maxAlternatives = 1
       recognition.lang = lang
 
       recognition.onresult = (event: SpeechRecognitionEvent) => {
-        let hasAnyTranscript = false
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const t = event.results[i]?.[0]?.transcript?.trim() ?? ''
-          if (t.length > 0) {
-            hasAnyTranscript = true
-            break
-          }
-        }
-        if (hasAnyTranscript && !firstActivityFiredRef.current) {
-          firstActivityFiredRef.current = true
-          onFirstActivityRef.current?.()
-        }
-
-        const frozen = scoringFrozenRef?.current ?? false
-
         let interim = ''
         for (let i = 0; i < event.results.length; i++) {
           const r = event.results[i]
-          if (!r.isFinal) {
-            interim += r[0]?.transcript ?? ''
-          }
+          if (!r.isFinal) interim += r[0]?.transcript ?? ''
         }
         const interimTrim = interim.trim()
 
-        if (frozen) {
-          clearInterimDebounce()
-          setLiveTranscript(interimTrim)
-          return
-        }
-
-        let hasNewFinalInEvent = false
+        // ── Handle new finals ──────────────────────────────────────────────
+        let hasNewFinal = false
         for (let i = event.resultIndex; i < event.results.length; i++) {
-          if (event.results[i]?.isFinal) {
-            hasNewFinalInEvent = true
-            break
-          }
+          if (event.results[i]?.isFinal) { hasNewFinal = true; break }
         }
-        if (hasNewFinalInEvent) {
+        if (hasNewFinal) {
           clearInterimDebounce()
-          setLiveTranscript('')
+          setInterimText('')
         }
 
         const finalBatch: string[] = []
@@ -230,38 +171,42 @@ export function useWebSpeech(
             }
           }
         }
+
         if (finalBatch.length > 0) {
+          // De-duplicate tokens already emitted via interim prefix
           const pref = interimEmittedTokensRef.current
           let i = 0
           while (
             i < finalBatch.length &&
             i < pref.length &&
             tokensRoughlyMatch(finalBatch[i]!, pref[i]!)
-          ) {
-            i++
-          }
+          ) { i++ }
           const suffix = finalBatch.slice(i)
+
           if (suffix.length > 0) {
-            onFinalWordsRef.current(suffix)
+            // Detect fillers and accumulate into state
+            let newFillers = 0
+            const realWords: string[] = []
+            for (const w of suffix) {
+              if (isFiller(w)) { newFillers++ } else { realWords.push(w) }
+            }
+            if (newFillers > 0) setFillerCount((c) => c + newFillers)
+            if (realWords.length > 0) {
+              setConfirmedWords((prev) => [...prev, ...realWords])
+            }
           }
           interimEmittedTokensRef.current = []
         }
 
-        // Update live transcript for speculative word highlighting only.
-        // Early interim emission was removed — only isFinal results (above) advance
-        // confirmedWords. This stops the cursor from skipping multiple words at once
-        // and eliminates the double-commit race between interim and final batches.
+        // ── Interim display (50ms debounce) ────────────────────────────────
         if (interimTrim.length === 0) {
           clearInterimDebounce()
-          setLiveTranscript('')
+          setInterimText('')
         } else {
           clearInterimDebounce()
-          // 50ms debounce — fast enough to feel live, slow enough to prevent cursor
-          // thrashing from rapid hypothesis revisions. Flicker is handled upstream by
-          // the lookahead cap + hysteresis, not by debounce length.
           interimDebounceRef.current = window.setTimeout(() => {
             interimDebounceRef.current = null
-            setLiveTranscript(interimTrim)
+            setInterimText(interimTrim)
           }, 50)
         }
       }
@@ -269,7 +214,7 @@ export function useWebSpeech(
       recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
         if (event.error === 'no-speech' || event.error === 'aborted') return
         listeningRef.current = false
-        setMicState('error')
+        setError(event.error)
         if (streamRef.current) {
           streamRef.current.getTracks().forEach((t) => t.stop())
           streamRef.current = null
@@ -277,16 +222,13 @@ export function useWebSpeech(
         setMicStream(null)
         recognitionRef.current = null
         clearInterimDebounce()
-        setLiveTranscript('')
+        setInterimText('')
+        setIsListening(false)
       }
 
       recognition.onend = () => {
         if (!listeningRef.current || !recognitionRef.current) return
-        try {
-          recognitionRef.current.start()
-        } catch {
-          // already started
-        }
+        try { recognitionRef.current.start() } catch { /* already started */ }
       }
 
       listeningRef.current = true
@@ -300,23 +242,37 @@ export function useWebSpeech(
           streamRef.current = null
         }
         setMicStream(null)
-        setMicState('error')
+        setIsListening(false)
         return false
       }
-      setMicState('active')
+
+      setIsListening(true)
       return true
     } catch (err: unknown) {
       const isDenied =
         err instanceof DOMException &&
         (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')
-      setMicState(isDenied ? 'denied' : 'error')
+      setError(isDenied ? 'Microphone permission denied' : 'Could not start microphone')
       setMicStream(null)
       streamRef.current = null
       recognitionRef.current = null
       listeningRef.current = false
       return false
     }
-  }, [settings.language, setMicState, scoringFrozenRef, clearInterimDebounce])
+  }, [settings.language, clearInterimDebounce])
 
-  return { micState, micStream, liveTranscript, startStream, stopStream, resetInterimEmitted }
+  // Cleanup on unmount
+  useEffect(() => () => { stopSession() }, [stopSession])
+
+  return {
+    interimText,
+    confirmedWords,
+    fillerCount,
+    isListening,
+    error,
+    micStream,
+    startSession,
+    stopSession,
+    reset,
+  }
 }

@@ -3,6 +3,8 @@
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTestStore } from '@/store/testStore'
 import type { Duration, PromptType } from '@/store/testStore'
+import type { ProviderType } from '@/hooks/useSpeechProvider'
+import { prefetchDeepgramKey } from '@/hooks/useDeepgramProvider'
 
 const SPEED_DURATIONS: Duration[] = [15, 30, 60, 120]
 const SPEED_PROMPTS:  { label: string; value: PromptType }[] = [
@@ -23,11 +25,28 @@ const ANIM = {
   exit:    { opacity: 0, y: -8, transition: { duration: 0.15 } },
 }
 
+const PROVIDERS: { label: string; value: ProviderType }[] = [
+  { label: 'browser', value: 'webspeech' },
+  { label: 'deepgram', value: 'deepgram' },
+]
+
 export default function ConfigBar() {
   const {
-    mode, duration, promptType, customPromptText,
+    mode, duration, promptType, customPromptText, testState, settings, setSttProvider,
     setDuration, setPromptType, setCustomPromptText,
   } = useTestStore()
+
+  const isRunning = testState === 'running'
+  const currentProvider = settings.sttProvider ?? 'webspeech'
+
+  const handleProviderChange = (p: ProviderType) => {
+    if (isRunning) return
+    setSttProvider(p)
+    if (p === 'deepgram') {
+      // Pre-fetch token immediately so it's warm when the user clicks start
+      prefetchDeepgramKey()
+    }
+  }
 
   const promptOptions = mode === 'speed' ? SPEED_PROMPTS : CLARITY_PROMPTS
 
@@ -71,6 +90,58 @@ export default function ConfigBar() {
           ))}
         </div>
       </div>
+
+      {/* STT provider toggle — Speed mode only */}
+      {mode === 'speed' && (
+        <div
+          className="flex items-center gap-2"
+          style={{ marginTop: '0.25rem' }}
+          role="group"
+          aria-label="Speech-to-text provider"
+        >
+          <span
+            style={{
+              fontSize: '0.68rem',
+              color: 'var(--text-muted)',
+              fontFamily: 'var(--font-mono), ui-monospace, monospace',
+              letterSpacing: '0.06em',
+              userSelect: 'none',
+            }}
+          >
+            stt
+          </span>
+
+          {PROVIDERS.map((p) => {
+            const isActive = currentProvider === p.value
+            return (
+              <button
+                key={p.value}
+                id={`stt-provider-${p.value}`}
+                onClick={() => handleProviderChange(p.value)}
+                disabled={isRunning}
+                aria-pressed={isActive}
+                aria-label={`Use ${p.label} for speech recognition`}
+                style={{
+                  fontFamily: 'var(--font-mono), ui-monospace, monospace',
+                  fontSize: '0.68rem',
+                  letterSpacing: '0.04em',
+                  padding: '2px 10px',
+                  borderRadius: '999px',
+                  border: `1px solid ${isActive ? 'var(--accent)' : 'var(--text-muted)'}`,
+                  background: isActive ? 'color-mix(in srgb, var(--accent) 12%, transparent)' : 'transparent',
+                  color: isActive ? 'var(--accent)' : 'var(--text-muted)',
+                  cursor: isRunning ? 'not-allowed' : 'pointer',
+                  opacity: isRunning ? 0.4 : 1,
+                  transition: 'all 0.15s ease',
+                  lineHeight: '1.6',
+                }}
+              >
+                {p.label}
+              </button>
+            )
+          })}
+        </div>
+      )}
 
       {/* Custom text input */}
       <AnimatePresence>

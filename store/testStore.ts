@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import type { ProviderType } from '@/hooks/useSpeechProvider'
 import { persist } from 'zustand/middleware'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -35,6 +36,7 @@ export interface Settings {
   showLiveTranscript: boolean
   smoothCaret: boolean
   language: 'en-US' | 'en-GB' | 'en-AU'
+  sttProvider: ProviderType
 }
 
 export interface WpmSnapshot {
@@ -110,6 +112,7 @@ interface TestStore {
   setDiffResult: (result: DiffWord[], score: number, grade: TestStore['clarityGrade']) => void
   updateSettings: (patch: Partial<Settings>) => void
   setMicState: (s: TestStore['micState']) => void
+  setSttProvider: (p: ProviderType) => void
   resetTest: () => void
   startTest: () => void
   setSpeedClockStartedAt: (t: number) => void
@@ -127,6 +130,7 @@ const DEFAULT_SETTINGS: Settings = {
   showLiveTranscript: true,
   smoothCaret: true,
   language: 'en-US',
+  sttProvider: 'webspeech',
 }
 
 // ─── Store ────────────────────────────────────────────────────────────────────
@@ -259,6 +263,8 @@ export const useTestStore = create<TestStore>()(
       },
 
       setMicState: (micState) => set({ micState }),
+
+      setSttProvider: (p) => set((s) => ({ settings: { ...s.settings, sttProvider: p } })),
 
       setSpeedClockStartedAt: (speedClockStartedAt) => set({ speedClockStartedAt }),
 
