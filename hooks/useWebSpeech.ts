@@ -256,11 +256,13 @@ export function useWebSpeech(
           setLiveTranscript('')
         } else {
           clearInterimDebounce()
-          // 150ms debounce keeps highlight updates below perceptual flicker threshold.
+          // 50ms debounce — fast enough to feel live, slow enough to prevent cursor
+          // thrashing from rapid hypothesis revisions. Flicker is handled upstream by
+          // the lookahead cap + hysteresis, not by debounce length.
           interimDebounceRef.current = window.setTimeout(() => {
             interimDebounceRef.current = null
             setLiveTranscript(interimTrim)
-          }, 150)
+          }, 50)
         }
       }
 

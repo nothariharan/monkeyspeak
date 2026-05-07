@@ -21,8 +21,11 @@ export interface UseSpeculativeMatchProps {
   interimText: string
 }
 
-/** Only the next N words after confirmed may use interim-based speculative/wrong styling. */
-const MAX_SPECULATIVE_LOOKAHEAD = 2
+// 4 words of lookahead: safe now that debounce/hysteresis reductions give more
+// stable speculative state. The high-water mark prevents backward jumps so
+// increasing lookahead no longer causes 3-line cursor leaps. Don't go above 4 —
+// at 5+ common words ("the", "a", "in") cause false-positive highlights.
+const MAX_SPECULATIVE_LOOKAHEAD = 4
 
 function tokenizeInterim(interimText: string): string[] {
   return interimText
@@ -63,7 +66,15 @@ function stripInterimAlignedToConfirmedProgress(
         break
       }
     }
-    if (ok) return interimTokens.slice(k)
+    if (ok) {
+      const stripped = interimTokens.slice(k)
+      // Safety bail-out: if we stripped more than (confirmedCount + 2) tokens,
+      // the match is suspiciously aggressive and likely over-stripped — return
+      // the full interim unchanged so the speculative window isn't starved.
+      // This is the root cause of the "word never highlights" stuck-cursor bug.
+      if (k > progress + 2) return interimTokens
+      return stripped
+    }
   }
   return interimTokens
 }
