@@ -1,15 +1,14 @@
+import { createClient } from '@deepgram/sdk'
 import { NextResponse } from 'next/server'
 
 /**
- * Issues a short-lived Deepgram temporary API token.
+ * Issues a short-lived Deepgram temporary token via the SDK.
  * The real DEEPGRAM_API_KEY never leaves the server.
  *
- * Deepgram temporary key docs:
- * https://developers.deepgram.com/reference/create-key
+ * deepgram.md §2.1: Use POST + deepgram.auth.grantToken()
  */
-export async function GET() {
+export async function POST() {
   const apiKey = process.env.DEEPGRAM_API_KEY
-  const projectId = process.env.DEEPGRAM_PROJECT_ID
 
   if (!apiKey) {
     return NextResponse.json(
@@ -18,40 +17,25 @@ export async function GET() {
     )
   }
 
-  // If no project ID is set, just return the key directly
-  // (for development — in production, use ephemeral tokens)
-  if (!projectId) {
-    return NextResponse.json({ key: apiKey, ttlSeconds: 3600 })
-  }
-
   try {
-    const res = await fetch(
-      `https://api.deepgram.com/v1/projects/${projectId}/keys`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Token ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          comment: 'monkeyspeak-ephemeral',
-          scopes: ['usage:write'],
-          time_to_live_in_seconds: 30,
-        }),
-      }
-    )
+    const deepgram = createClient(apiKey)
+    const { result, error } = await deepgram.auth.grantToken()
 
-    if (!res.ok) {
-      // Fallback: return the main key if ephemeral key creation fails
-      // (can happen if the account doesn't support project key management)
-      return NextResponse.json({ key: apiKey, ttlSeconds: 3600 })
+    if (error || !result?.access_token) {
+      // grantToken may fail on free-tier accounts — fall back to raw key
+      console.warn('[deepgram/token] grantToken failed, falling back to raw key:', error)
+      return NextResponse.json({ token: apiKey, ttlSeconds: 3600 })
     }
 
-    const data = await res.json()
-    // Ephemeral key POST used time_to_live_in_seconds: 30 — cache slightly less on client
-    return NextResponse.json({ key: data.result?.key ?? apiKey, ttlSeconds: 28 })
-  } catch {
-    // Network error — fall back to main key
-    return NextResponse.json({ key: apiKey, ttlSeconds: 3600 })
+    return NextResponse.json({ token: result.access_token, ttlSeconds: 28 })
+  } catch (err) {
+    console.warn('[deepgram/token] SDK error, falling back to raw key:', err)
+    // Always fall back so dev works without project-level permissions
+    return NextResponse.json({ token: apiKey, ttlSeconds: 3600 })
   }
+}
+
+// Keep GET for backward compat with any cached calls during hot-reload
+export async function GET() {
+  return POST()
 }

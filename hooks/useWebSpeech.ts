@@ -198,16 +198,13 @@ export function useWebSpeech(): SpeechProvider {
           interimEmittedTokensRef.current = []
         }
 
-        // ── Interim display (50ms debounce) ────────────────────────────────
+        // ── Interim display (immediate — no debounce needed; speculative
+        //    matching in useSpeculativeMatch handles noise suppression)
+        clearInterimDebounce()
         if (interimTrim.length === 0) {
-          clearInterimDebounce()
           setInterimText('')
         } else {
-          clearInterimDebounce()
-          interimDebounceRef.current = window.setTimeout(() => {
-            interimDebounceRef.current = null
-            setInterimText(interimTrim)
-          }, 50)
+          setInterimText(interimTrim)
         }
       }
 

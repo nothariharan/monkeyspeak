@@ -9,57 +9,70 @@ import type { SpeechProvider } from './useSpeechProvider'
 
 const TOKEN_SKEW_MS = 1500
 
-let cachedKey: string | null = null
+let cachedToken: string | null = null
 let cacheExpiresAt = 0
 
-async function fetchDeepgramKey(): Promise<string> {
+async function fetchDeepgramToken(): Promise<string> {
   const now = Date.now()
-  if (cachedKey && cacheExpiresAt > now + TOKEN_SKEW_MS) return cachedKey
+  if (cachedToken && cacheExpiresAt > now + TOKEN_SKEW_MS) return cachedToken
 
-  const res = await fetch('/api/deepgram/token')
+  const res = await fetch('/api/deepgram/token', { method: 'POST' })
   if (!res.ok) throw new Error('Failed to fetch Deepgram token')
-  const body = (await res.json()) as { key: string; ttlSeconds?: number }
+  const body = (await res.json()) as { token: string; ttlSeconds?: number }
   const ttlMs = Math.max(8_000, ((body.ttlSeconds ?? 28) * 1000) - TOKEN_SKEW_MS)
-  cachedKey = body.key
+  cachedToken = body.token
   cacheExpiresAt = now + ttlMs
-  return cachedKey
+  return cachedToken
 }
 
 /** Call when the user selects Deepgram so the token is warm by test-start time. */
 export async function prefetchDeepgramKey(): Promise<void> {
-  await fetchDeepgramKey().catch(() => {})
+  await fetchDeepgramToken().catch(() => {})
 }
 
-// ─── Deepgram connection config (from deepgram.md) ───────────────────────────
+// ─── Deepgram connection config ───────────────────────────────────────────────
+//
+// Browser WebSocket API cannot set HTTP headers. Deepgram's browser-compatible
+// auth method is to pass the token as `access_token` in the URL query string.
+// The @deepgram/sdk LiveClient hardcodes ["token", key] sub-protocols in browser
+// context (AbstractLiveClient.ts:144) which Deepgram rejects with HTTP 400.
+// We use raw WebSocket + access_token URL param instead.
+//
+// Params: deepgram.md §2.2 (only officially documented parameters)
 
-const DG_PARAMS = new URLSearchParams({
-  model:            'nova-3',
-  language:         'en-US',
-  channels:         '1',
-  smart_format:     'true',
-  interim_results:  'true',
-  utterance_end_ms: '1000',
-  vad_events:       'true',
-  endpointing:      '300',
-  filler_words:     'true',
-  encoding:         'linear16',
-  sample_rate:      '16000',
-  disfluencies:     'true',
-})
-
-const DG_WS_URL = `wss://api.deepgram.com/v1/listen?${DG_PARAMS.toString()}`
+function buildDeepgramUrl(token: string): string {
+  const params = new URLSearchParams({
+    access_token:     token,           // browser auth — header auth not possible in WS
+    model:            'nova-3',
+    language:         'en-US',
+    channels:         '1',
+    smart_format:     'true',
+    interim_results:  'true',
+    utterance_end_ms: '300',
+    vad_events:       'true',
+    endpointing:      '100',
+    filler_words:     'true',
+    encoding:         'linear16',
+    sample_rate:      '16000',
+  })
+  return `wss://api.deepgram.com/v1/listen?${params.toString()}`
+}
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 /**
  * Deepgram Nova-3 streaming STT shaped to the SpeechProvider interface.
  *
+ * Auth: access_token URL query param (the only method that works in browsers —
+ * the SDK's sub-protocol approach and header-based auth are both rejected with 400).
+ *
  * Architecture:
- *  - ScriptProcessorNode (512 sample buffer = ~32ms at 16kHz) → Int16 PCM → WebSocket
- *  - is_final: false  → setInterimText immediately (no debounce needed; Deepgram
- *                        rate-limits its own interim emissions)
- *  - is_final: true   → accumulate confirmedWords / fillerCount, clear interimText
- *  - Token pre-fetched on mount; WebSocket only opened inside startSession()
+ *  - armSession()   → opens mic + WebSocket during countdown (warm path)
+ *  - startSession() → if armed, flips activeRef → true (zero WS latency)
+ *                     otherwise full handshake (cold path)
+ *  - ScriptProcessorNode 512 samples ≈ 32ms at 16kHz → Int16 PCM → ws.send()
+ *  - is_final: false → setInterimText immediately
+ *  - is_final: true  → accumulate confirmedWords / fillerCount, clear interimText
  */
 export function useDeepgramProvider(): SpeechProvider {
   const [interimText, setInterimText]       = useState('')
@@ -74,6 +87,7 @@ export function useDeepgramProvider(): SpeechProvider {
   const processorRef = useRef<ScriptProcessorNode | null>(null)
   const contextRef   = useRef<AudioContext | null>(null)
   const activeRef    = useRef(false)
+  const armedRef     = useRef(false)
 
   // Pre-fetch token on mount so it's warm when the user starts
   useEffect(() => {
@@ -82,6 +96,7 @@ export function useDeepgramProvider(): SpeechProvider {
 
   const _teardown = useCallback(() => {
     activeRef.current = false
+    armedRef.current = false
 
     if (processorRef.current) {
       try { processorRef.current.disconnect() } catch { /* ignore */ }
@@ -115,15 +130,17 @@ export function useDeepgramProvider(): SpeechProvider {
     _teardown()
   }, [_teardown])
 
-  const startSession = useCallback(async (): Promise<boolean> => {
-    if (activeRef.current) return true
-
+  /**
+   * _openConnection — shared by armSession() and startSession().
+   * Opens the mic + WebSocket. Does NOT set activeRef (caller decides).
+   */
+  const _openConnection = useCallback(async (): Promise<boolean> => {
     setError(null)
 
-    // 1. Fetch token (usually already cached from mount prefetch)
-    let key: string
+    // 1. Fetch token (usually cached from mount prefetch)
+    let token: string
     try {
-      key = await fetchDeepgramKey()
+      token = await fetchDeepgramToken()
     } catch {
       setError('Could not get Deepgram auth token')
       return false
@@ -151,13 +168,15 @@ export function useDeepgramProvider(): SpeechProvider {
     streamRef.current = stream
     setMicStream(stream)
 
-    // 3. Open Deepgram WebSocket
-    const ws = new WebSocket(DG_WS_URL, ['token', key])
+    // 3. Open raw WebSocket with access_token in URL.
+    //    Browser WebSocket API cannot set HTTP headers, so sub-protocol and
+    //    Authorization header auth don't work. access_token URL param does.
+    const ws = new WebSocket(buildDeepgramUrl(token))
+    ws.binaryType = 'arraybuffer'
     wsRef.current = ws
 
     ws.onopen = () => {
-      // 4. AudioContext MUST be created after user gesture — do it here, inside ws.onopen
-      //    which is triggered synchronously from the user's click chain.
+      // AudioContext MUST be created after user gesture
       const AudioCtx =
         window.AudioContext ||
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
@@ -166,7 +185,6 @@ export function useDeepgramProvider(): SpeechProvider {
       if (ctx.state === 'suspended') void ctx.resume()
 
       const source = ctx.createMediaStreamSource(stream)
-      // 512 samples at 16kHz ≈ 32ms per chunk — smallest valid size, lowest capture latency
       const processor = ctx.createScriptProcessor(512, 1, 1)
       processorRef.current = processor
 
@@ -178,14 +196,12 @@ export function useDeepgramProvider(): SpeechProvider {
       }
 
       source.connect(processor)
-      // Mute the processor output to prevent mic bleed through speakers
       const mute = ctx.createGain()
       mute.gain.value = 0
       processor.connect(mute)
       mute.connect(ctx.destination)
 
-      activeRef.current = true
-      setIsListening(true)
+      if (activeRef.current) setIsListening(true)
     }
 
     ws.onmessage = (event) => {
@@ -194,7 +210,6 @@ export function useDeepgramProvider(): SpeechProvider {
         const data = JSON.parse(event.data as string) as {
           type?: string
           is_final?: boolean
-          speech_final?: boolean
           channel?: {
             alternatives?: Array<{
               transcript?: string
@@ -203,7 +218,6 @@ export function useDeepgramProvider(): SpeechProvider {
           }
         }
 
-        // Only process transcription results
         if (data.type != null && data.type !== 'Results') return
 
         const alt = data.channel?.alternatives?.[0]
@@ -213,12 +227,10 @@ export function useDeepgramProvider(): SpeechProvider {
         if (!transcript) return
 
         if (!data.is_final) {
-          // Interim — show immediately, no debounce (Deepgram already rate-limits these)
           setInterimText(transcript)
           return
         }
 
-        // Final — commit words and detect fillers
         setInterimText('')
 
         const wordObjs = alt.words ?? []
@@ -239,15 +251,17 @@ export function useDeepgramProvider(): SpeechProvider {
       }
     }
 
-    ws.onerror = () => {
+    ws.onerror = (e) => {
+      console.error('[Deepgram] WebSocket error:', e)
       setError('Deepgram connection error')
       _teardown()
     }
 
-    ws.onclose = () => {
-      if (activeRef.current) {
-        // Unexpected close while session should still be running
+    ws.onclose = (e) => {
+      console.log('[Deepgram] WebSocket closed. Code:', e.code, 'Reason:', e.reason)
+      if (activeRef.current || armedRef.current) {
         activeRef.current = false
+        armedRef.current = false
         setIsListening(false)
       }
     }
@@ -255,7 +269,34 @@ export function useDeepgramProvider(): SpeechProvider {
     return true
   }, [_teardown])
 
-  // Cleanup on unmount
+  const armSession = useCallback(async (): Promise<boolean> => {
+    if (armedRef.current || activeRef.current) return true
+    armedRef.current = true
+    const ok = await _openConnection()
+    if (!ok) armedRef.current = false
+    return ok
+  }, [_openConnection])
+
+  const startSession = useCallback(async (): Promise<boolean> => {
+    if (activeRef.current) return true
+
+    if (armedRef.current && wsRef.current) {
+      activeRef.current = true
+      if (wsRef.current.readyState === WebSocket.OPEN) {
+        setIsListening(true)
+      }
+      return true
+    }
+
+    const ok = await _openConnection()
+    if (!ok) return false
+    activeRef.current = true
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      setIsListening(true)
+    }
+    return true
+  }, [_openConnection])
+
   useEffect(() => () => { _teardown() }, [_teardown])
 
   return {
@@ -265,6 +306,7 @@ export function useDeepgramProvider(): SpeechProvider {
     isListening,
     error,
     micStream,
+    armSession,
     startSession,
     stopSession,
     reset,

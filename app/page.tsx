@@ -52,6 +52,7 @@ export default function Home() {
     isListening,
     error: sttError,
     micStream,
+    armSession,
     startSession,
     stopSession,
     reset: resetProvider,
@@ -275,6 +276,20 @@ export default function Home() {
       clearSpeedArmingTimers()
       resetProvider()
 
+      // ── Warm-connect: arm Deepgram WS+mic immediately so the 3-2-1 countdown
+      //    absorbs the TLS + WS handshake latency (no-op for WebSpeech).
+      //    We await armSession so the WS is open before startSession() runs;
+      //    startSession() then detects the armed state and returns instantly.
+      if (armSession) {
+        const armed = await armSession()
+        if (!armed) {
+          scoringFrozenRef.current = false
+          setArmingCountdown(null)
+          armingEndTsRef.current = null
+          return
+        }
+      }
+
       const didStart = await startSession()
       if (!didStart) {
         scoringFrozenRef.current = false
@@ -305,7 +320,7 @@ export default function Home() {
       startTimeRef.current = useTestStore.getState().testStartedAt
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store.mode, store.prompt.length, loadPrompt, startSession, tryCommitSpeedEpoch, clearSpeedArmingTimers, resetProvider])
+  }, [store.mode, store.prompt.length, loadPrompt, armSession, startSession, tryCommitSpeedEpoch, clearSpeedArmingTimers, resetProvider])
 
   const handleStop = useCallback(() => {
     const s = useTestStore.getState()

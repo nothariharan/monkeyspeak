@@ -20,6 +20,11 @@ export interface SpeechProviderState {
 }
 
 export interface SpeechProviderActions {
+  /**
+   * Optional warm-connect: opens mic + WS during the 3-2-1 countdown so
+   * startSession() can skip the handshake (Deepgram only).
+   */
+  armSession?: () => Promise<boolean>
   startSession: () => Promise<boolean>
   stopSession: () => void
   /** Clears interimText, confirmedWords, fillerCount, and resets internal refs. */
