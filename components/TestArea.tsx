@@ -20,9 +20,10 @@ interface TestAreaProps {
   testActive?: boolean
 }
 
-/** ~4 lines of monospace prompt at typical widths; wraps naturally inside max-height window */
+/** ~2 lines of monospace prompt at typical widths; wraps naturally inside max-height window */
 const WINDOW_WORDS = 64
 const PREFIX_BEFORE_CURRENT = 16
+const ACTIVE_VISIBLE_LINES = 2
 
 function getWindowRange(wordCount: number, currentWordIndex: number) {
   if (wordCount === 0) return { start: 0, end: 0 }
@@ -204,11 +205,11 @@ export default function TestArea({
               : 'text-left leading-relaxed'
         }`}
         style={{
-          maxWidth: '48rem',
+          maxWidth: '100%',
           ...(testActive && !isIdle
             ? {
-                /* Exactly four theme line-heights; prior bug used 2rem text with 2.25rem line cap → ~2 visible lines */
-                maxHeight: 'calc(4 * var(--test-line-height))',
+                /* Keep the active window to exactly two text lines. */
+                maxHeight: `calc(${ACTIVE_VISIBLE_LINES} * var(--test-line-height))`,
                 overflowY: 'auto',
                 WebkitOverflowScrolling: 'touch',
                 paddingBottom: 4,

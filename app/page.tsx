@@ -143,17 +143,20 @@ export default function Home() {
   // ── confirmedWords → store (provider feeds us the array) ─────────────────
   // Track the previous length so we only process new entries each render.
   const prevConfirmedLenRef = useRef(0)
+  const pendingConfirmedWordsRef = useRef<string[]>([])
 
   useEffect(() => {
     const s = useTestStore.getState()
     if (s.testState !== 'running' || s.mode !== 'speed') return
-    if (scoringFrozenRef.current) return
-    if (s.speedClockStartedAt == null) return
 
     const newWords = confirmedWords.slice(prevConfirmedLenRef.current)
     prevConfirmedLenRef.current = confirmedWords.length
 
-    if (newWords.length === 0) return
+    if (newWords.length > 0) {
+      pendingConfirmedWordsRef.current.push(...newWords)
+    }
+
+    if (pendingConfirmedWordsRef.current.length === 0) return
 
     // Detect first-speech epoch
     if (firstSpeechTsRef.current == null) {
@@ -161,8 +164,12 @@ export default function Home() {
       tryCommitSpeedEpoch()
     }
 
+    if (scoringFrozenRef.current || s.speedClockStartedAt == null) return
+
     const { prompt, currentWordIndex, addWord, advanceWord, detectFiller } = s
-    const batch = alignAsrFinalToPrompt(newWords, prompt, currentWordIndex, () => {
+    const toProcess = pendingConfirmedWordsRef.current
+    pendingConfirmedWordsRef.current = []
+    const batch = alignAsrFinalToPrompt(toProcess, prompt, currentWordIndex, () => {
       detectFiller()
     })
     for (const result of batch) {
@@ -271,6 +278,7 @@ export default function Home() {
       firstSpeechTsRef.current = null
       firstSpeechFiredRef.current = false
       prevConfirmedLenRef.current = 0
+      pendingConfirmedWordsRef.current = []
       startTimeRef.current = null
       clearSpeedArmingTimers()
       resetProvider()
@@ -368,6 +376,7 @@ export default function Home() {
     firstSpeechTsRef.current = null
     firstSpeechFiredRef.current = false
     prevConfirmedLenRef.current = 0
+    pendingConfirmedWordsRef.current = []
     scoringFrozenRef.current = false
     resetProvider()
     s.resetTest()
@@ -388,6 +397,7 @@ export default function Home() {
     firstSpeechTsRef.current = null
     firstSpeechFiredRef.current = false
     prevConfirmedLenRef.current = 0
+    pendingConfirmedWordsRef.current = []
     scoringFrozenRef.current = false
     resetProvider()
     s.resetTest()
@@ -416,6 +426,7 @@ export default function Home() {
           firstSpeechTsRef.current = null
           firstSpeechFiredRef.current = false
           prevConfirmedLenRef.current = 0
+          pendingConfirmedWordsRef.current = []
           scoringFrozenRef.current = false
           resetProvider()
           store.resetTest()
@@ -477,9 +488,9 @@ export default function Home() {
       </AnimatePresence>
 
       <main
-        className={`flex-1 flex flex-col items-center px-6 py-8 mx-auto w-full justify-center max-w-3xl ${
-          store.mode === 'speed' && !isEnded ? 'pb-[88px]' : ''
-        }`}
+        className={`flex-1 flex flex-col items-center px-6 py-8 mx-auto w-full justify-center ${
+          store.mode === 'speed' ? 'max-w-[1400px]' : 'max-w-3xl'
+        } ${store.mode === 'speed' && !isEnded ? 'pb-[88px]' : ''}`}
       >
         <AnimatePresence mode="wait">
           {!isEnded ? (
