@@ -40,6 +40,8 @@ export default function Home() {
   const firstSpeechTsRef = useRef<number | null>(null)
   const armingEndTsRef = useRef<number | null>(null)
   const armTimerIdsRef = useRef<Array<number | ReturnType<typeof setTimeout>>>([])
+  const prevConfirmedLenRef = useRef(0)
+  const pendingConfirmedWordsRef = useRef<string[]>([])
   const handleStopRef = useRef<() => void>(() => {})
   const [armingCountdown, setArmingCountdown] = useState<number | null>(null)
 
@@ -123,6 +125,25 @@ export default function Home() {
     s.addWpmSnapshot({ wpm: computed, timestamp: Date.now() })
   }, [])
 
+  const flushPendingConfirmedWords = useCallback(() => {
+    const pending = pendingConfirmedWordsRef.current
+    if (pending.length === 0) return
+
+    const s = useTestStore.getState()
+    if (s.testState !== 'running' || s.mode !== 'speed') return
+
+    pendingConfirmedWordsRef.current = []
+    const { prompt, currentWordIndex, addWord, advanceWord, detectFiller } = s
+    const batch = alignAsrFinalToPrompt(pending, prompt, currentWordIndex, () => {
+      detectFiller()
+    })
+    for (const result of batch) {
+      if (!result.isCorrect) triggerWaveformError()
+      addWord(result)
+      advanceWord()
+    }
+  }, [triggerWaveformError])
+
   const tryCommitSpeedEpoch = useCallback(() => {
     const s = useTestStore.getState()
     if (s.testState !== 'running' || s.mode !== 'speed') return
@@ -138,13 +159,11 @@ export default function Home() {
     startTimeRef.current = epoch
     scoringFrozenRef.current = false
     startTimer()
-  }, [startTimer])
+    flushPendingConfirmedWords()
+  }, [startTimer, flushPendingConfirmedWords])
 
   // ── confirmedWords → store (provider feeds us the array) ─────────────────
   // Track the previous length so we only process new entries each render.
-  const prevConfirmedLenRef = useRef(0)
-  const pendingConfirmedWordsRef = useRef<string[]>([])
-
   useEffect(() => {
     const s = useTestStore.getState()
     if (s.testState !== 'running' || s.mode !== 'speed') return
@@ -152,11 +171,7 @@ export default function Home() {
     const newWords = confirmedWords.slice(prevConfirmedLenRef.current)
     prevConfirmedLenRef.current = confirmedWords.length
 
-    if (newWords.length > 0) {
-      pendingConfirmedWordsRef.current.push(...newWords)
-    }
-
-    if (pendingConfirmedWordsRef.current.length === 0) return
+    if (newWords.length === 0) return
 
     // Detect first-speech epoch
     if (firstSpeechTsRef.current == null) {
@@ -164,12 +179,13 @@ export default function Home() {
       tryCommitSpeedEpoch()
     }
 
-    if (scoringFrozenRef.current || s.speedClockStartedAt == null) return
+    if (scoringFrozenRef.current || s.speedClockStartedAt == null) {
+      pendingConfirmedWordsRef.current.push(...newWords)
+      return
+    }
 
     const { prompt, currentWordIndex, addWord, advanceWord, detectFiller } = s
-    const toProcess = pendingConfirmedWordsRef.current
-    pendingConfirmedWordsRef.current = []
-    const batch = alignAsrFinalToPrompt(toProcess, prompt, currentWordIndex, () => {
+    const batch = alignAsrFinalToPrompt(newWords, prompt, currentWordIndex, () => {
       detectFiller()
     })
     for (const result of batch) {

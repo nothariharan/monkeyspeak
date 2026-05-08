@@ -80,8 +80,9 @@ function Word({ state, idlePreview }: { state: PromptWordState; idlePreview?: bo
 
     const now = Date.now()
     const since = now - lastChangeAtRef.current
+    const isFinalState = state.status === 'correct' || state.status === 'wrong'
 
-    if (since >= STATUS_HYSTERESIS_MS) {
+    if (isFinalState || since >= STATUS_HYSTERESIS_MS) {
       lastStatusRef.current = state.status
       lastChangeAtRef.current = now
       setStableStatus(state.status)
@@ -110,7 +111,7 @@ function Word({ state, idlePreview }: { state: PromptWordState; idlePreview?: bo
       : base
 
   return (
-    <motion.span
+    <span
       style={{
         display: 'inline-block',
         marginRight: '0.45em',
@@ -118,8 +119,6 @@ function Word({ state, idlePreview }: { state: PromptWordState; idlePreview?: bo
         transition: 'color 0.08s ease, opacity 0.08s ease',
         ...style,
       }}
-      animate={displayStatus === 'correct' ? { scale: [1, 1.04, 1] } : { scale: 1 }}
-      transition={{ duration: 0.12 }}
     >
       {state.word}
 
@@ -139,7 +138,7 @@ function Word({ state, idlePreview }: { state: PromptWordState; idlePreview?: bo
           transition={{ duration: 0.9, repeat: Infinity, ease: 'easeInOut' }}
         />
       )}
-    </motion.span>
+    </span>
   )
 }
 
@@ -164,10 +163,10 @@ export default function TestArea({
     interimText: interimForSpec,
   })
 
-  // Anchor the rolling window to confirmed progress only (not speculative).
-  // Using visualCaretIndex (speculative) caused the text block to re-slice on
-  // every interim event — making the whole view jump lines mid-word.
-  const windowAnchor = currentWordIndex
+  const hasActiveInterim = interimForSpec.trim().length > 0
+  const windowAnchor = hasActiveInterim
+    ? Math.min(currentWordIndex + 1, Math.max(0, words.length - 1))
+    : currentWordIndex
 
   const { start: windowStart, end: windowEnd } = useMemo(
     () => getWindowRange(words.length, windowAnchor),
