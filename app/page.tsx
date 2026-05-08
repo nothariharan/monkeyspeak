@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useCallback, useState, startTransition } from 'react'
+import { useEffect, useRef, useCallback, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 
 import { useTestStore } from '@/store/testStore'
@@ -25,8 +25,8 @@ function splitPrompt(text: string): string[] {
   return text.split(/\s+/).filter(Boolean)
 }
 
-/** 3–2–1 arming: recognition runs but scoring/timer wait until max(armEnd, firstSpeech). */
-const SPEED_ARMING_MS = 3000
+/** 2–1 arming: recognition runs but scoring/timer wait until max(armEnd, firstSpeech). */
+const SPEED_ARMING_MS = 2000
 const SPEED_NO_SPEECH_WATCHDOG_MS = 25_000
 
 export default function Home() {
@@ -162,16 +162,14 @@ export default function Home() {
     }
 
     const { prompt, currentWordIndex, addWord, advanceWord, detectFiller } = s
-    startTransition(() => {
-      const batch = alignAsrFinalToPrompt(newWords, prompt, currentWordIndex, () => {
-        detectFiller()
-      })
-      for (const result of batch) {
-        if (!result.isCorrect) triggerWaveformError()
-        addWord(result)
-        advanceWord()
-      }
+    const batch = alignAsrFinalToPrompt(newWords, prompt, currentWordIndex, () => {
+      detectFiller()
     })
+    for (const result of batch) {
+      if (!result.isCorrect) triggerWaveformError()
+      addWord(result)
+      advanceWord()
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [confirmedWords])
 
@@ -277,7 +275,7 @@ export default function Home() {
       clearSpeedArmingTimers()
       resetProvider()
 
-      // ── Warm-connect: arm Deepgram WS+mic immediately so the 3-2-1 countdown
+      // ── Warm-connect: arm Deepgram WS+mic immediately so the 2–1 countdown
       //    absorbs the TLS + WS handshake latency (no-op for WebSpeech).
       //    We await armSession so the WS is open before startSession() runs;
       //    startSession() then detects the armed state and returns instantly.
@@ -303,9 +301,8 @@ export default function Home() {
 
       if (SPEED_ARMING_MS > 0) {
         armingEndTsRef.current = Date.now() + SPEED_ARMING_MS
-        setArmingCountdown(3)
-        armTimerIdsRef.current.push(window.setTimeout(() => setArmingCountdown(2), 1000))
-        armTimerIdsRef.current.push(window.setTimeout(() => setArmingCountdown(1), 2000))
+        setArmingCountdown(2)
+        armTimerIdsRef.current.push(window.setTimeout(() => setArmingCountdown(1), 1000))
         armTimerIdsRef.current.push(
           window.setTimeout(() => {
             setArmingCountdown(null)

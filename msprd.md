@@ -389,7 +389,7 @@ Share as image (canvas-rendered PNG) or copy as text. No social login. No tracki
   /FillerFlash.tsx           — filler detection overlay animation
   /MicButton.tsx             — start/stop with mic state
 /hooks
-  /useDeepgram.ts            — WebSocket connection, streaming, word events
+  /useDeepgramProvider.ts    — Deepgram SDK live STT + mic (AudioWorklet)
   /useTimer.ts               — countdown with interval
   /useWpm.ts                 — word count, filler filter, wpm calc
   /useDiff.ts                — clarity mode diff engine

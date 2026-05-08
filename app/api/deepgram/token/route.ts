@@ -1,21 +1,5 @@
-import { appendFile } from 'fs/promises'
-import { join } from 'path'
 import { createClient } from '@deepgram/sdk'
 import { NextResponse } from 'next/server'
-
-// #region agent log
-async function dbgSrvToken(line: Record<string, unknown>): Promise<void> {
-  try {
-    await appendFile(
-      join(process.cwd(), 'debug-1ddc33.log'),
-      `${JSON.stringify({ sessionId: '1ddc33', runId: 'verify5', timestamp: Date.now(), ...line })}\n`,
-      'utf8'
-    )
-  } catch (e) {
-    console.warn('[debug-1ddc33/token] append failed:', e)
-  }
-}
-// #endregion
 
 function formatGrantError(err: unknown): string {
   if (err && typeof err === 'object' && 'message' in err) {
@@ -28,33 +12,26 @@ function formatGrantError(err: unknown): string {
 
 /**
  * Issues a short-lived Deepgram temporary token via the SDK.
- * The real DEEPGRAM_API_KEY never leaves the server when grantToken succeeds.
+ * When grantToken succeeds, the API key stays on the server.
  *
- * Keys without "create temporary token" / project auth scope return 403
- * (`Insufficient permissions`); we then fall back to the key so local dev still works.
- * For production, use a key that can call auth.grantToken() so the browser never sees the master key.
+ * Keys without token-grant permission return 403; we skip grant by default
+ * (fast path returns the key via env for local/dev). Enable grant with:
+ * DEEPGRAM_ENABLE_GRANT_TOKEN=true when using a scoped key that can grant.
  */
 export async function POST() {
   const apiKey = process.env.DEEPGRAM_API_KEY
+  const grantEnabled = process.env.DEEPGRAM_ENABLE_GRANT_TOKEN === 'true'
 
   if (!apiKey) {
-    await dbgSrvToken({
-      hypothesisId: 'H-srv-token',
-      location: 'deepgram/token/route.ts:POST',
-      message: 'missing DEEPGRAM_API_KEY',
-    })
     return NextResponse.json(
       { error: 'DEEPGRAM_API_KEY not configured' },
       { status: 500 }
     )
   }
 
-  await dbgSrvToken({
-    hypothesisId: 'H-srv-token',
-    location: 'deepgram/token/route.ts:POST',
-    message: 'token route ok (key present)',
-    data: { cwd: process.cwd(), nodeEnv: process.env.NODE_ENV },
-  })
+  if (!grantEnabled) {
+    return NextResponse.json({ token: apiKey, ttlSeconds: 3600 })
+  }
 
   try {
     const deepgram = createClient(apiKey)
@@ -77,7 +54,6 @@ export async function POST() {
   }
 }
 
-// Keep GET for backward compat with any cached calls during hot-reload
 export async function GET() {
   return POST()
 }

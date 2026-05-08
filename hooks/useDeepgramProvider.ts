@@ -8,58 +8,24 @@ import { isFiller } from '@/lib/fillers'
 import { useTestStore } from '@/store/testStore'
 import type { SpeechProvider } from './useSpeechProvider'
 
-// #region agent log
-function dbgAgent(entry: {
-  runId: string
-  hypothesisId: string
-  location: string
-  message: string
-  data?: Record<string, unknown>
-}): void {
-  const payload = { sessionId: '1ddc33', ...entry, timestamp: Date.now() }
-  if (typeof window !== 'undefined') {
-    // Mirror to console so we still get runtime evidence if file logging is unavailable.
-    // #region agent log
-    console.info('[agent-debug]', payload)
-    // #endregion
-  }
-  void fetch('/api/debug-agent-log', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '1ddc33' },
-    body: JSON.stringify(payload),
-  })
-    .then(async (res) => {
-      const text = await res.text().catch(() => '')
-      const row = {
-        ...payload,
-        _dbgApiStatus: res.status,
-        _dbgApiBody: text.slice(0, 400),
-      }
-      if (typeof window !== 'undefined') {
-        type W = Window & { __MS_AGENT_LOG?: unknown[] }
-        const w = window as W
-        w.__MS_AGENT_LOG = [...(w.__MS_AGENT_LOG ?? []), row].slice(-40)
-      }
-    })
-    .catch(() => {})
-  fetch('http://127.0.0.1:7324/ingest/fd637405-eeb4-445b-93bd-a5bf3520bc5e', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '1ddc33' },
-    body: JSON.stringify(payload),
-  }).catch(() => {})
-}
-// #endregion
-
-// ─── Token caching ────────────────────────────────────────────────────────────
-
 const TOKEN_SKEW_MS = 1500
+const TOKEN_REFRESH_IF_TTL_UNDER_MS = 10_000
 
 let cachedToken: string | null = null
 let cacheExpiresAt = 0
 
 async function fetchDeepgramToken(): Promise<string> {
   const now = Date.now()
-  if (cachedToken && cacheExpiresAt > now + TOKEN_SKEW_MS) return cachedToken
+  const cacheOk = !!(cachedToken && cacheExpiresAt > now + TOKEN_SKEW_MS)
+  if (cacheOk) {
+    const ttlRemainingMs = cacheExpiresAt - now
+    if (ttlRemainingMs < TOKEN_REFRESH_IF_TTL_UNDER_MS) {
+      cachedToken = null
+      cacheExpiresAt = 0
+    } else {
+      return cachedToken as string
+    }
+  }
 
   const res = await fetch('/api/deepgram/token', { method: 'POST' })
   if (!res.ok) throw new Error('Failed to fetch Deepgram token')
@@ -74,22 +40,22 @@ export async function prefetchDeepgramKey(): Promise<void> {
   await fetchDeepgramToken().catch(() => {})
 }
 
-// ─── Deepgram connection config ───────────────────────────────────────────────
-
-// Minimal handshake config for isolation debugging. Add optional params back only after stable connect.
+/** Low-latency streaming defaults for nova-3 (SDK typings may omit some WS flags). */
 function buildDgLiveOpts(language: string) {
   return {
-    model:              'nova-3' as const,
+    model: 'nova-3' as const,
     language,
-    channels:           1,
-    smart_format:       true,
-    interim_results:    true,
-    encoding:           'linear16' as const,
-    sample_rate:        16000,
+    channels: 1,
+    smart_format: true,
+    interim_results: true,
+    filler_words: true,
+    vad_events: true,
+    endpointing: 10,
+    no_delay: true,
+    encoding: 'linear16' as const,
+    sample_rate: 16000,
   }
 }
-
-// ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useDeepgramProvider(): SpeechProvider {
   const [interimText, setInterimText]       = useState('')
@@ -99,12 +65,12 @@ export function useDeepgramProvider(): SpeechProvider {
   const [error, setError]                   = useState<string | null>(null)
   const [micStream, setMicStream]           = useState<MediaStream | null>(null)
 
-  const liveRef      = useRef<LiveClient | null>(null)
-  const streamRef    = useRef<MediaStream | null>(null)
-  const processorRef = useRef<ScriptProcessorNode | null>(null)
-  const contextRef   = useRef<AudioContext | null>(null)
-  const activeRef    = useRef(false)
-  const armedRef     = useRef(false)
+  const liveRef    = useRef<LiveClient | null>(null)
+  const streamRef  = useRef<MediaStream | null>(null)
+  const workletRef = useRef<AudioWorkletNode | null>(null)
+  const contextRef = useRef<AudioContext | null>(null)
+  const activeRef  = useRef(false)
+  const armedRef   = useRef(false)
 
   useEffect(() => {
     prefetchDeepgramKey()
@@ -113,18 +79,16 @@ export function useDeepgramProvider(): SpeechProvider {
   const _teardown = useCallback(() => {
     activeRef.current = false
 
-    if (processorRef.current) {
-      try { processorRef.current.disconnect() } catch { /* ignore */ }
-      processorRef.current = null
+    if (workletRef.current) {
+      try { workletRef.current.disconnect(); workletRef.current.port.close() } catch { /* ignore */ }
+      workletRef.current = null
     }
     if (contextRef.current) {
       contextRef.current.close().catch(() => {})
       contextRef.current = null
     }
     if (liveRef.current) {
-      try {
-        liveRef.current.requestClose()
-      } catch { /* ignore */ }
+      try { liveRef.current.requestClose() } catch { /* ignore */ }
       liveRef.current = null
     }
     if (streamRef.current) {
@@ -184,62 +148,45 @@ export function useDeepgramProvider(): SpeechProvider {
     const language =
       useTestStore.getState().settings.language ?? 'en-US'
     const dgOpts = buildDgLiveOpts(language)
-    // #region agent log
-    dbgAgent({
-      runId: 'verify6',
-      hypothesisId: 'H0',
-      location: 'useDeepgramProvider.ts:_openConnection',
-      message: 'deepgram listen.live() invoked',
-      data: {
-        configSummary: {
-          language: dgOpts.language,
-          model: dgOpts.model,
-          smart_format: dgOpts.smart_format,
-          endpointing: 'omitted',
-          utterance_end_ms: 'omitted',
-          filler_words: 'omitted',
-        },
-      },
-    })
-    // #endregion
-    const live = deepgram.listen.live(dgOpts)
+    const live = deepgram.listen.live(dgOpts as Parameters<typeof deepgram.listen.live>[0])
     liveRef.current = live
 
     live.on(LiveTranscriptionEvents.Open, () => {
-      // #region agent log
-      dbgAgent({
-        runId: 'verify6',
-        hypothesisId: 'H-ok',
-        location: 'useDeepgramProvider.ts:Open',
-        message: 'deepgram ws open',
-        data: {},
-      })
-      // #endregion
-      const AudioCtx =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
-      const ctx = new AudioCtx({ sampleRate: 16000 })
-      contextRef.current = ctx
-      if (ctx.state === 'suspended') void ctx.resume()
+      void (async () => {
+        try {
+          const AudioCtx =
+            window.AudioContext ||
+            (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+          const ctx = new AudioCtx({ sampleRate: 16000 })
+          contextRef.current = ctx
+          if (ctx.state === 'suspended') await ctx.resume()
 
-      const source = ctx.createMediaStreamSource(stream)
-      const processor = ctx.createScriptProcessor(512, 1, 1)
-      processorRef.current = processor
+          await ctx.audioWorklet.addModule('/pcm-processor.worklet.js')
 
-      processor.onaudioprocess = (e) => {
-        if (live.getReadyState() !== WebSocket.OPEN) return
-        const input = e.inputBuffer.getChannelData(0)
-        const pcm16 = float32ToLinear16Pcm16k(input, ctx.sampleRate)
-        live.send(pcm16.buffer)
-      }
+          const source = ctx.createMediaStreamSource(stream)
+          const worklet = new AudioWorkletNode(ctx, 'pcm-processor')
+          workletRef.current = worklet
 
-      source.connect(processor)
-      const mute = ctx.createGain()
-      mute.gain.value = 0
-      processor.connect(mute)
-      mute.connect(ctx.destination)
+          worklet.port.onmessage = (ev: MessageEvent<Float32Array>) => {
+            if (live.getReadyState() !== WebSocket.OPEN) return
+            const input = ev.data
+            if (!input?.length) return
+            const pcm16 = float32ToLinear16Pcm16k(input, ctx.sampleRate)
+            live.send(pcm16.buffer)
+          }
 
-      if (activeRef.current) setIsListening(true)
+          const mute = ctx.createGain()
+          mute.gain.value = 0
+          source.connect(worklet)
+          worklet.connect(mute)
+          mute.connect(ctx.destination)
+
+          if (activeRef.current) setIsListening(true)
+        } catch {
+          setError('Could not start audio capture')
+          _teardown()
+        }
+      })()
     })
 
     live.on(LiveTranscriptionEvents.Transcript, (data) => {
@@ -275,45 +222,11 @@ export function useDeepgramProvider(): SpeechProvider {
 
     live.on(LiveTranscriptionEvents.Error, (err) => {
       console.error('[Deepgram] error:', err)
-      // #region agent log
-      const e = err as unknown
-      let errName: string | undefined
-      let errMessage: string | undefined
-      if (e && typeof e === 'object') {
-        if ('type' in e && typeof (e as { type?: string }).type === 'string') {
-          errName = (e as { type: string }).type
-        }
-        if ('message' in e && typeof (e as { message?: string }).message === 'string') {
-          errMessage = (e as { message: string }).message
-        }
-      }
-      dbgAgent({
-        runId: 'verify6',
-        hypothesisId: 'H5',
-        location: 'useDeepgramProvider.ts:Error',
-        message: 'deepgram ws error event',
-        data: { errName, errMessage, ctor: e?.constructor?.name },
-      })
-      // #endregion
       setError('Deepgram connection error')
       _teardown()
     })
 
-    live.on(LiveTranscriptionEvents.Close, (ev: unknown) => {
-      // #region agent log
-      const ce = ev as CloseEvent
-      dbgAgent({
-        runId: 'verify6',
-        hypothesisId: 'H1-H4',
-        location: 'useDeepgramProvider.ts:Close',
-        message: 'deepgram ws close',
-        data: {
-          code: typeof ce?.code === 'number' ? ce.code : null,
-          reason: typeof ce?.reason === 'string' ? ce.reason.slice(0, 500) : null,
-          wasClean: typeof ce?.wasClean === 'boolean' ? ce.wasClean : null,
-        },
-      })
-      // #endregion
+    live.on(LiveTranscriptionEvents.Close, () => {
       if (activeRef.current || armedRef.current) {
         activeRef.current = false
         armedRef.current = false

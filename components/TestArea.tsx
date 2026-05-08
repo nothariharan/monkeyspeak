@@ -37,7 +37,7 @@ function getWindowRange(wordCount: number, currentWordIndex: number) {
 // 80ms: prevents flicker on rapid hypothesis revisions while keeping worst-case
 // latency at ~130ms (50ms debounce + 80ms hysteresis). Previous 200ms stacked on
 // the old 150ms debounce for a 350ms worst-case that felt visibly laggy.
-const STATUS_HYSTERESIS_MS = 80
+const STATUS_HYSTERESIS_MS = 40
 
 const STATUS_STYLES: Record<WordStatus, CSSProperties> = {
   correct: {
