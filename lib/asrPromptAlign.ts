@@ -2,7 +2,10 @@ import { isFiller } from '@/lib/fillers'
 import { normalizeWordToken, tokensRoughlyMatch } from '@/lib/wordMatch'
 import type { WordResult } from '@/store/testStore'
 
-const LOOKAHEAD = 8
+// Keep aligned with `MAX_SPECULATIVE_LOOKAHEAD`: large lookahead + `tokensRoughlyMatch`
+// makes common words match the wrong occurrence and skips multiple prompt slots in one
+// final batch (visible cursor jumps). 4 is enough for short ASR lag.
+const LOOKAHEAD = 4
 
 /**
  * Map a batch of ASR tokens from one Deepgram `is_final` message onto the next

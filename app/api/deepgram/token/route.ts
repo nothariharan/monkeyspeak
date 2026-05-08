@@ -1,5 +1,6 @@
 import { createClient } from '@deepgram/sdk'
 import { NextResponse } from 'next/server'
+import { appendSessionDebugLine } from '@/lib/debugSessionLog'
 
 function formatGrantError(err: unknown): string {
   if (err && typeof err === 'object' && 'message' in err) {
@@ -21,6 +22,33 @@ function formatGrantError(err: unknown): string {
 export async function POST() {
   const apiKey = process.env.DEEPGRAM_API_KEY
   const grantEnabled = process.env.DEEPGRAM_ENABLE_GRANT_TOKEN === 'true'
+  // #region agent log
+  await appendSessionDebugLine({
+    sessionId: '26db2b',
+    runId: 'pre-fix',
+    hypothesisId: 'H0_logging_pipeline',
+    location: 'app/api/deepgram/token/route.ts:POST',
+    message: 'Token route hit for session logging pipeline check',
+    data: { grantEnabled, hasApiKey: Boolean(apiKey) },
+    timestamp: Date.now(),
+  })
+  fetch('http://127.0.0.1:7291/ingest/74562f5e-377a-4199-9293-9988125476d2', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Debug-Session-Id': '26db2b',
+    },
+    body: JSON.stringify({
+      sessionId: '26db2b',
+      runId: 'pre-fix',
+      hypothesisId: 'H0_logging_pipeline',
+      location: 'app/api/deepgram/token/route.ts:POST',
+      message: 'Token route hit for session logging pipeline check',
+      data: { grantEnabled, hasApiKey: Boolean(apiKey) },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {})
+  // #endregion
 
   if (!apiKey) {
     return NextResponse.json(

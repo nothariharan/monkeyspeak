@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import './globals.css'
+import { DebugSessionProbe } from '@/components/DebugSessionProbe'
 
 export const metadata: Metadata = {
   title: 'MonkeySpeak — Voice Speed & Clarity Benchmark',
@@ -29,6 +30,7 @@ export default function RootLayout({
         />
       </head>
       <body className="min-h-screen" style={{ background: 'var(--bg)', color: 'var(--text-active)' }}>
+        <DebugSessionProbe />
         {children}
       </body>
     </html>

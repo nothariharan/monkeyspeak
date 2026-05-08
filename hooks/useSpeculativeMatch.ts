@@ -2,6 +2,7 @@
 
 import { useMemo } from 'react'
 import { tokensRoughlyMatch } from '@/lib/wordMatch'
+import { emitDebugLog } from '@/lib/debugLog'
 
 export type WordStatus =
   | 'correct'
@@ -21,11 +22,8 @@ export interface UseSpeculativeMatchProps {
   interimText: string
 }
 
-// 4 words of lookahead: safe now that debounce/hysteresis reductions give more
-// stable speculative state. The high-water mark prevents backward jumps so
-// increasing lookahead no longer causes 3-line cursor leaps. Don't go above 4 —
-// at 5+ common words ("the", "a", "in") cause false-positive highlights.
-export const MAX_SPECULATIVE_LOOKAHEAD = 12
+// Small lookahead limits false matches on common words ("the", "to", …).
+export const MAX_SPECULATIVE_LOOKAHEAD = 4
 
 function tokenizeInterim(interimText: string): string[] {
   return interimText
@@ -91,7 +89,7 @@ export function useSpeculativeMatch({
     const rawInterim = tokenizeInterim(interimText)
     const interimWords = stripInterimAlignedToConfirmedProgress(rawInterim, confirmedWords)
 
-    return promptWords.map((promptWord, index) => {
+    const nextStates = promptWords.map((promptWord, index) => {
       const clean = cleanToken(promptWord)
 
       if (index < safeConfirmedCount) {
@@ -115,7 +113,7 @@ export function useSpeculativeMatch({
         const speculative =
           clean.length > 0 &&
           interimWord.length > 0 &&
-          (clean.startsWith(interimWord) || interimWord.startsWith(clean) || interimWord === clean)
+          (clean.startsWith(interimWord) || interimWord === clean)
         return {
           word: promptWord,
           status: speculative ? 'speculative' : 'wrong',
@@ -128,5 +126,25 @@ export function useSpeculativeMatch({
 
       return { word: promptWord, status: 'pending' }
     })
+    const speculativeCount = nextStates.filter((s) => s.status === 'speculative').length
+    const wrongCount = nextStates.filter((s) => s.status === 'wrong').length
+    emitDebugLog({
+      sessionId: '26db2b',
+      runId: 'post-fix',
+      hypothesisId: 'H3_lookahead_prefix_match',
+      location: 'hooks/useSpeculativeMatch.ts:useMemo',
+      message: 'Speculative matching snapshot',
+      data: {
+        confirmedCount: confirmedWords.length,
+        rawInterimCount: rawInterim.length,
+        alignedInterimCount: interimWords.length,
+        lookahead: MAX_SPECULATIVE_LOOKAHEAD,
+        speculativeCount,
+        wrongCount,
+        interimPreview: interimWords.slice(0, 8),
+      },
+      timestamp: Date.now(),
+    })
+    return nextStates
   }, [promptWords, confirmedWords, interimText])
 }

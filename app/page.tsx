@@ -9,6 +9,7 @@ import { useActiveSpeechProvider } from '@/hooks/useActiveSpeechProvider'
 import { generatePrompt, regeneratePrompt, type PromptMode } from '@/lib/prompts'
 import { diffWords, calcClarityScore } from '@/lib/diff'
 import { alignAsrFinalToPrompt } from '@/lib/asrPromptAlign'
+import { emitDebugLog } from '@/lib/debugLog'
 
 import Header from '@/components/Header'
 import ConfigBar from '@/components/ConfigBar'
@@ -137,6 +138,19 @@ export default function Home() {
     const batch = alignAsrFinalToPrompt(pending, prompt, currentWordIndex, () => {
       detectFiller()
     })
+    emitDebugLog({
+      sessionId: '26db2b',
+      runId: 'post-fix',
+      hypothesisId: 'H6_align_batch',
+      location: 'app/page.tsx:flushPendingConfirmedWords',
+      message: 'Pending finals aligned to prompt',
+      data: {
+        newWordTokens: pending.length,
+        batchLen: batch.length,
+        promptIndexBefore: currentWordIndex,
+      },
+      timestamp: Date.now(),
+    })
     for (const result of batch) {
       if (!result.isCorrect) triggerWaveformError()
       addWord(result)
@@ -188,6 +202,19 @@ export default function Home() {
     const { prompt, currentWordIndex, addWord, advanceWord, detectFiller } = s
     const batch = alignAsrFinalToPrompt(newWords, prompt, currentWordIndex, () => {
       detectFiller()
+    })
+    emitDebugLog({
+      sessionId: '26db2b',
+      runId: 'post-fix',
+      hypothesisId: 'H6_align_batch',
+      location: 'app/page.tsx:confirmedWordsEffect',
+      message: 'Final batch aligned to prompt',
+      data: {
+        newWordTokens: newWords.length,
+        batchLen: batch.length,
+        promptIndexBefore: currentWordIndex,
+      },
+      timestamp: Date.now(),
     })
     for (const result of batch) {
       if (!result.isCorrect) triggerWaveformError()

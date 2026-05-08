@@ -4,6 +4,7 @@ import { useRef, useCallback, useState, useEffect } from 'react'
 import { useTestStore } from '@/store/testStore'
 import { tokensRoughlyMatch } from '@/lib/wordMatch'
 import { isFiller } from '@/lib/fillers'
+import { emitDebugLog } from '@/lib/debugLog'
 import type { SpeechProvider } from './useSpeechProvider'
 
 function getSpeechRecognitionCtor(): SpeechRecognitionConstructor | null {
@@ -49,9 +50,9 @@ export function prewarmWebSpeechRecognition(lang: string): Promise<void> {
 /**
  * Browser Web Speech API shaped to the SpeechProvider interface.
  *
- * All existing behaviour is preserved:
- *  - 50ms interim debounce
- *  - interim prefix strip aligned to confirmed progress
+ * Confirmed words are final-only (monotonic). Interim complete tokens are kept
+ * only in `interimEmittedTokensRef` for final-batch dedupe, not merged into
+ * confirmed state (visual speculation lives in useSpeculativeMatch).
  *  - prewarm on startSession
  *  - continuous restart on onend
  *
@@ -59,6 +60,7 @@ export function prewarmWebSpeechRecognition(lang: string): Promise<void> {
  */
 export function useWebSpeech(): SpeechProvider {
   const { settings } = useTestStore()
+  const debugRunIdRef = useRef('post-fix')
 
   const [interimText, setInterimText] = useState('')
   const [confirmedWords, setConfirmedWords] = useState<string[]>([])
@@ -71,9 +73,8 @@ export function useWebSpeech(): SpeechProvider {
   const recognitionRef = useRef<SpeechRecognition | null>(null)
   const listeningRef = useRef(false)
 
-  /** Tokens already speculatively emitted from interim; reconciled when isFinal arrives. */
+  /** Complete interim tokens (not the trailing partial); used to strip finals only. */
   const interimEmittedTokensRef = useRef<string[]>([])
-  const speculativeIndexRef = useRef(0)
   const interimDebounceRef = useRef<number | null>(null)
 
   const clearInterimDebounce = useCallback(() => {
@@ -88,10 +89,24 @@ export function useWebSpeech(): SpeechProvider {
     interimEmittedTokensRef.current = []
     setInterimText('')
     setConfirmedWords([])
-    speculativeIndexRef.current = 0
     setFillerCount(0)
     setError(null)
   }, [clearInterimDebounce])
+
+  const debugLog = useCallback(
+    (hypothesisId: string, location: string, message: string, data: Record<string, unknown>) => {
+      emitDebugLog({
+        sessionId: '26db2b',
+        runId: debugRunIdRef.current,
+        hypothesisId,
+        location,
+        message,
+        data,
+        timestamp: Date.now(),
+      })
+    },
+    []
+  )
 
   const stopSession = useCallback(() => {
     listeningRef.current = false
@@ -108,7 +123,6 @@ export function useWebSpeech(): SpeechProvider {
     clearInterimDebounce()
     setInterimText('')
     interimEmittedTokensRef.current = []
-    speculativeIndexRef.current = 0
   }, [clearInterimDebounce])
 
   const startSession = useCallback(async (): Promise<boolean> => {
@@ -152,7 +166,9 @@ export function useWebSpeech(): SpeechProvider {
         }
         const interimTrim = interim.trim()
 
-        if (interimTrim.length > 0) {
+        if (interimTrim.length === 0) {
+          interimEmittedTokensRef.current = []
+        } else {
           const tokens = interimTrim
             .toLowerCase()
             .replace(/[^a-z0-9\s]/g, '')
@@ -160,10 +176,18 @@ export function useWebSpeech(): SpeechProvider {
             .filter(Boolean)
           if (tokens.length > 1) {
             const safeTokens = tokens.slice(0, -1)
-            setConfirmedWords((prev) => {
-              const base = speculativeIndexRef.current
-              return [...prev.slice(0, base), ...safeTokens]
-            })
+            interimEmittedTokensRef.current = safeTokens
+            debugLog(
+              'H1_final_only_confirmed',
+              'hooks/useWebSpeech.ts:onresult:interimPrefix',
+              'Interim complete tokens tracked for final dedupe only (not merged into confirmed)',
+              {
+                safeTokensLength: safeTokens.length,
+                safeTokensPreview: safeTokens.slice(0, 6),
+              }
+            )
+          } else {
+            interimEmittedTokensRef.current = []
           }
         }
 
@@ -201,6 +225,20 @@ export function useWebSpeech(): SpeechProvider {
             tokensRoughlyMatch(finalBatch[i]!, pref[i]!)
           ) { i++ }
           const suffix = finalBatch.slice(i)
+          debugLog(
+            'H2_dedupe_disconnect',
+            'hooks/useWebSpeech.ts:onresult:dedupe',
+            'Final batch dedupe against interim prefix',
+            {
+              finalBatchLength: finalBatch.length,
+              finalBatchPreview: finalBatch.slice(0, 8),
+              interimPrefixLength: pref.length,
+              interimPrefixPreview: pref.slice(0, 8),
+              dedupePrefixMatches: i,
+              suffixLength: suffix.length,
+              suffixPreview: suffix.slice(0, 8),
+            }
+          )
 
           if (suffix.length > 0) {
             // Detect fillers and accumulate into state
@@ -213,7 +251,17 @@ export function useWebSpeech(): SpeechProvider {
             if (realWords.length > 0) {
               setConfirmedWords((prev) => {
                 const next = [...prev, ...realWords]
-                speculativeIndexRef.current = next.length
+                debugLog(
+                  'H2_dedupe_disconnect',
+                  'hooks/useWebSpeech.ts:onresult:finalAppend',
+                  'Final words appended to confirmed',
+                  {
+                    prevLength: prev.length,
+                    realWordsLength: realWords.length,
+                    realWordsPreview: realWords.slice(0, 8),
+                    nextLength: next.length,
+                  }
+                )
                 return next
               })
             }
@@ -279,7 +327,7 @@ export function useWebSpeech(): SpeechProvider {
       listeningRef.current = false
       return false
     }
-  }, [settings.language, clearInterimDebounce])
+  }, [settings.language, clearInterimDebounce, debugLog])
 
   // Cleanup on unmount
   useEffect(() => () => { stopSession() }, [stopSession])

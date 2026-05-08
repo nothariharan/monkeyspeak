@@ -1,6 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  experimental: {
+    instrumentationHook: true,
+  },
   webpack: (config, { dev }) => {
     // Windows: filesystem webpack cache can desync from .next (stale chunks, missing manifests).
     // `cache: false` has been seen to leave `.next/server` incomplete (middleware-manifest missing).

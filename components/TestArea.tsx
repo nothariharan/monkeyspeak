@@ -10,6 +10,7 @@ import {
   type PromptWordState,
   type WordStatus,
 } from '@/hooks/useSpeculativeMatch'
+import { emitDebugLog } from '@/lib/debugLog'
 
 interface TestAreaProps {
   words: string[]
@@ -36,10 +37,8 @@ function getWindowRange(wordCount: number, currentWordIndex: number) {
   return { start, end }
 }
 
-// 80ms: prevents flicker on rapid hypothesis revisions while keeping worst-case
-// latency at ~130ms (50ms debounce + 80ms hysteresis). Previous 200ms stacked on
-// the old 150ms debounce for a 350ms worst-case that felt visibly laggy.
-const STATUS_HYSTERESIS_MS = 0
+/** Applies only to speculative/wrong transitions in `<Word />` (see below). */
+const STATUS_HYSTERESIS_MS = 32
 
 const STATUS_STYLES: Record<WordStatus, CSSProperties> = {
   correct: {
@@ -77,9 +76,20 @@ function Word({ state, idlePreview }: { state: PromptWordState; idlePreview?: bo
       lastChangeAtRef.current = Date.now()
       return
     }
-    setStableStatus(state.status)
-    lastStatusRef.current = state.status
-    lastChangeAtRef.current = Date.now()
+    const delay =
+      state.status === 'speculative' || state.status === 'wrong'
+    if (!delay) {
+      setStableStatus(state.status)
+      lastStatusRef.current = state.status
+      lastChangeAtRef.current = Date.now()
+      return
+    }
+    const t = window.setTimeout(() => {
+      setStableStatus(state.status)
+      lastStatusRef.current = state.status
+      lastChangeAtRef.current = Date.now()
+    }, STATUS_HYSTERESIS_MS)
+    return () => window.clearTimeout(t)
   }, [state.status, idlePreview])
 
   const displayStatus = idlePreview ? state.status : stableStatus
@@ -154,9 +164,26 @@ export default function TestArea({
         .filter((ws) => ws.status === 'speculative' || ws.status === 'correct')
         .length
     : 0
-  const windowAnchor = hasActiveInterim
-    ? Math.min(currentWordIndex + speculativeCount, Math.max(0, words.length - 1))
-    : currentWordIndex
+  const windowAnchor = currentWordIndex
+
+  useEffect(() => {
+    emitDebugLog({
+      sessionId: '26db2b',
+      runId: 'post-fix',
+      hypothesisId: 'H4_window_anchor_speculative',
+      location: 'components/TestArea.tsx:windowAnchorEffect',
+      message: 'Window anchor from confirmed cursor only',
+      data: {
+        statusHysteresisMs: STATUS_HYSTERESIS_MS,
+        hasActiveInterim,
+        currentWordIndex,
+        speculativeCount,
+        windowAnchor,
+        wordsLength: words.length,
+      },
+      timestamp: Date.now(),
+    })
+  }, [hasActiveInterim, currentWordIndex, speculativeCount, windowAnchor, words.length])
 
   const { start: windowStart, end: windowEnd } = useMemo(
     () => getWindowRange(words.length, windowAnchor),
