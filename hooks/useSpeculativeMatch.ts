@@ -25,7 +25,7 @@ export interface UseSpeculativeMatchProps {
 // stable speculative state. The high-water mark prevents backward jumps so
 // increasing lookahead no longer causes 3-line cursor leaps. Don't go above 4 —
 // at 5+ common words ("the", "a", "in") cause false-positive highlights.
-const MAX_SPECULATIVE_LOOKAHEAD = 4
+export const MAX_SPECULATIVE_LOOKAHEAD = 12
 
 function tokenizeInterim(interimText: string): string[] {
   return interimText
@@ -113,7 +113,9 @@ export function useSpeculativeMatch({
       ) {
         const interimWord = cleanToken(interimWords[interimIndex] ?? '')
         const speculative =
-          (clean.length > 0 && interimWord.length > 0 && clean.startsWith(interimWord)) || interimWord === clean
+          clean.length > 0 &&
+          interimWord.length > 0 &&
+          (clean.startsWith(interimWord) || interimWord.startsWith(clean) || interimWord === clean)
         return {
           word: promptWord,
           status: speculative ? 'speculative' : 'wrong',

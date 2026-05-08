@@ -26,7 +26,7 @@ function splitPrompt(text: string): string[] {
 }
 
 /** 2–1 arming: recognition runs but scoring/timer wait until max(armEnd, firstSpeech). */
-const SPEED_ARMING_MS = 2000
+const SPEED_ARMING_MS = 0
 const SPEED_NO_SPEECH_WATCHDOG_MS = 25_000
 
 export default function Home() {
@@ -148,13 +148,13 @@ export default function Home() {
     const s = useTestStore.getState()
     if (s.testState !== 'running' || s.mode !== 'speed') return
     if (s.speedClockStartedAt != null) return
-    if (firstSpeechTsRef.current == null) return
     const armEnd = armingEndTsRef.current
     if (armEnd != null && Date.now() < armEnd) return
+    const now = Date.now()
     const epoch =
       armEnd != null
-        ? Math.max(armEnd, firstSpeechTsRef.current)
-        : firstSpeechTsRef.current
+        ? Math.max(armEnd, firstSpeechTsRef.current ?? now)
+        : (firstSpeechTsRef.current ?? now)
     useTestStore.getState().setSpeedClockStartedAt(epoch)
     startTimeRef.current = epoch
     scoringFrozenRef.current = false
@@ -176,6 +176,7 @@ export default function Home() {
     // Detect first-speech epoch
     if (firstSpeechTsRef.current == null) {
       firstSpeechTsRef.current = Date.now()
+      armingEndTsRef.current = null
       tryCommitSpeedEpoch()
     }
 
@@ -220,6 +221,7 @@ export default function Home() {
     firstSpeechFiredRef.current = true
     if (firstSpeechTsRef.current == null) {
       firstSpeechTsRef.current = Date.now()
+      armingEndTsRef.current = null
       tryCommitSpeedEpoch()
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps

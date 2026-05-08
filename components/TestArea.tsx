@@ -6,6 +6,7 @@ import type { CSSProperties } from 'react'
 import type { WordResult } from '@/store/testStore'
 import {
   useSpeculativeMatch,
+  MAX_SPECULATIVE_LOOKAHEAD,
   type PromptWordState,
   type WordStatus,
 } from '@/hooks/useSpeculativeMatch'
@@ -22,7 +23,7 @@ interface TestAreaProps {
 
 /** ~2 lines of monospace prompt at typical widths; wraps naturally inside max-height window */
 const WINDOW_WORDS = 64
-const PREFIX_BEFORE_CURRENT = 16
+const PREFIX_BEFORE_CURRENT = 4
 const ACTIVE_VISIBLE_LINES = 2
 
 function getWindowRange(wordCount: number, currentWordIndex: number) {
@@ -38,7 +39,7 @@ function getWindowRange(wordCount: number, currentWordIndex: number) {
 // 80ms: prevents flicker on rapid hypothesis revisions while keeping worst-case
 // latency at ~130ms (50ms debounce + 80ms hysteresis). Previous 200ms stacked on
 // the old 150ms debounce for a 350ms worst-case that felt visibly laggy.
-const STATUS_HYSTERESIS_MS = 40
+const STATUS_HYSTERESIS_MS = 0
 
 const STATUS_STYLES: Record<WordStatus, CSSProperties> = {
   correct: {
@@ -76,26 +77,9 @@ function Word({ state, idlePreview }: { state: PromptWordState; idlePreview?: bo
       lastChangeAtRef.current = Date.now()
       return
     }
-    if (state.status === lastStatusRef.current) return
-
-    const now = Date.now()
-    const since = now - lastChangeAtRef.current
-    const isFinalState = state.status === 'correct' || state.status === 'wrong'
-
-    if (isFinalState || since >= STATUS_HYSTERESIS_MS) {
-      lastStatusRef.current = state.status
-      lastChangeAtRef.current = now
-      setStableStatus(state.status)
-      return
-    }
-
-    const delay = STATUS_HYSTERESIS_MS - since
-    const id = window.setTimeout(() => {
-      lastStatusRef.current = state.status
-      lastChangeAtRef.current = Date.now()
-      setStableStatus(state.status)
-    }, delay)
-    return () => clearTimeout(id)
+    setStableStatus(state.status)
+    lastStatusRef.current = state.status
+    lastChangeAtRef.current = Date.now()
   }, [state.status, idlePreview])
 
   const displayStatus = idlePreview ? state.status : stableStatus
@@ -164,8 +148,14 @@ export default function TestArea({
   })
 
   const hasActiveInterim = interimForSpec.trim().length > 0
+  const speculativeCount = hasActiveInterim
+    ? wordStates
+        .slice(currentWordIndex, currentWordIndex + MAX_SPECULATIVE_LOOKAHEAD)
+        .filter((ws) => ws.status === 'speculative' || ws.status === 'correct')
+        .length
+    : 0
   const windowAnchor = hasActiveInterim
-    ? Math.min(currentWordIndex + 1, Math.max(0, words.length - 1))
+    ? Math.min(currentWordIndex + speculativeCount, Math.max(0, words.length - 1))
     : currentWordIndex
 
   const { start: windowStart, end: windowEnd } = useMemo(

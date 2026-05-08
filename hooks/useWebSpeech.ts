@@ -73,6 +73,7 @@ export function useWebSpeech(): SpeechProvider {
 
   /** Tokens already speculatively emitted from interim; reconciled when isFinal arrives. */
   const interimEmittedTokensRef = useRef<string[]>([])
+  const speculativeIndexRef = useRef(0)
   const interimDebounceRef = useRef<number | null>(null)
 
   const clearInterimDebounce = useCallback(() => {
@@ -87,6 +88,7 @@ export function useWebSpeech(): SpeechProvider {
     interimEmittedTokensRef.current = []
     setInterimText('')
     setConfirmedWords([])
+    speculativeIndexRef.current = 0
     setFillerCount(0)
     setError(null)
   }, [clearInterimDebounce])
@@ -106,6 +108,7 @@ export function useWebSpeech(): SpeechProvider {
     clearInterimDebounce()
     setInterimText('')
     interimEmittedTokensRef.current = []
+    speculativeIndexRef.current = 0
   }, [clearInterimDebounce])
 
   const startSession = useCallback(async (): Promise<boolean> => {
@@ -131,7 +134,7 @@ export function useWebSpeech(): SpeechProvider {
       setMicStream(stream)
 
       const lang = settings.language ?? 'en-US'
-      try { await prewarmWebSpeechRecognition(lang) } catch { /* best-effort */ }
+      prewarmWebSpeechRecognition(lang).catch(() => {})
 
       const recognition = new Ctor()
       recognitionRef.current = recognition
@@ -142,11 +145,27 @@ export function useWebSpeech(): SpeechProvider {
 
       recognition.onresult = (event: SpeechRecognitionEvent) => {
         let interim = ''
-        for (let i = 0; i < event.results.length; i++) {
+        for (let i = event.resultIndex; i < event.results.length; i++) {
           const r = event.results[i]
+          if (!r) continue
           if (!r.isFinal) interim += r[0]?.transcript ?? ''
         }
         const interimTrim = interim.trim()
+
+        if (interimTrim.length > 0) {
+          const tokens = interimTrim
+            .toLowerCase()
+            .replace(/[^a-z0-9\s]/g, '')
+            .split(/\s+/)
+            .filter(Boolean)
+          if (tokens.length > 1) {
+            const safeTokens = tokens.slice(0, -1)
+            setConfirmedWords((prev) => {
+              const base = speculativeIndexRef.current
+              return [...prev.slice(0, base), ...safeTokens]
+            })
+          }
+        }
 
         // ── Handle new finals ──────────────────────────────────────────────
         let hasNewFinal = false
@@ -192,7 +211,11 @@ export function useWebSpeech(): SpeechProvider {
             }
             if (newFillers > 0) setFillerCount((c) => c + newFillers)
             if (realWords.length > 0) {
-              setConfirmedWords((prev) => [...prev, ...realWords])
+              setConfirmedWords((prev) => {
+                const next = [...prev, ...realWords]
+                speculativeIndexRef.current = next.length
+                return next
+              })
             }
           }
           interimEmittedTokensRef.current = []
