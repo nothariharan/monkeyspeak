@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useCallback, useState } from 'react'
+import { useEffect, useRef, useCallback, useState, startTransition } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 
 import { useTestStore } from '@/store/testStore'
@@ -161,16 +161,17 @@ export default function Home() {
       tryCommitSpeedEpoch()
     }
 
-    // Align new tokens to prompt and commit
     const { prompt, currentWordIndex, addWord, advanceWord, detectFiller } = s
-    const batch = alignAsrFinalToPrompt(newWords, prompt, currentWordIndex, () => {
-      detectFiller()
+    startTransition(() => {
+      const batch = alignAsrFinalToPrompt(newWords, prompt, currentWordIndex, () => {
+        detectFiller()
+      })
+      for (const result of batch) {
+        if (!result.isCorrect) triggerWaveformError()
+        addWord(result)
+        advanceWord()
+      }
     })
-    for (const result of batch) {
-      if (!result.isCorrect) triggerWaveformError()
-      addWord(result)
-      advanceWord()
-    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [confirmedWords])
 

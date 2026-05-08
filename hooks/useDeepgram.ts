@@ -105,7 +105,6 @@ export function useDeepgram(onFinalWords: (spokenTokens: string[]) => void): Use
         language: lang,
         channels: '1',
         smart_format: 'true',
-        disfluencies: 'true',
         // Keep uh/um in transcript for filler detection (otherwise often stripped)
         filler_words: 'true',
         interim_results: 'true',
