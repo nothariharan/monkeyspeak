@@ -541,22 +541,16 @@ export default function Home() {
           {!isEnded ? (
             <motion.div
               key="test"
-              className="relative w-full flex flex-col items-center"
+              className="relative w-full flex flex-col items-stretch"
               initial={false}
               exit={testExit}
               transition={testExitTransition}
             >
-              <div
-                className="relative w-full rounded-lg p-6 mb-4 flex flex-col items-center justify-center"
-                style={{
-                  minHeight:
-                    store.mode === 'clarity' ? 'auto' : isIdle ? '8rem' : '12rem',
-                }}
-              >
+              <div className="relative w-full flex flex-col">
                 {/* Arming countdown overlay */}
                 {store.mode === 'speed' && isRunning && armingCountdown != null ? (
                   <div
-                    className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-lg"
+                    className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center"
                     style={{ background: 'color-mix(in srgb, var(--bg) 55%, transparent)' }}
                     aria-live="polite"
                     aria-label="Countdown to start"
@@ -575,7 +569,7 @@ export default function Home() {
                 )}
 
                 {store.mode === 'speed' ? (
-                  <div className="flex flex-col items-center gap-12">
+                  <div className="flex flex-col w-full gap-10">
                     <TestArea
                       words={store.prompt}
                       confirmedWords={store.confirmedWords}

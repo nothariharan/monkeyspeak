@@ -32,8 +32,8 @@
   --font-mono: 'JetBrains Mono', 'Fira Code', 'Inconsolata', monospace;
 
   /* Font size scale — overridden by settings */
-  --test-font-size: 1.375rem;  /* medium */
-  --test-line-height: 2.25rem;
+  --test-font-size: 2rem;
+  --test-line-height: 3.25rem;
 }
 
 /* Accent + theme colours are applied dynamically via applyTheme() in lib/themes.ts */
@@ -45,12 +45,12 @@
 
 /* Font size overrides */
 [data-fontsize='small'] {
-  --test-font-size: 1.1rem;
-  --test-line-height: 1.875rem;
+  --test-font-size: 1.5rem;
+  --test-line-height: 2.5rem;
 }
 [data-fontsize='large'] {
-  --test-font-size: 1.75rem;
-  --test-line-height: 2.75rem;
+  --test-font-size: 2.5rem;
+  --test-line-height: 4rem;
 }
 
 /* ───────────────────────────────────────────

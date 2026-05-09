@@ -1,13 +1,15 @@
-import { appendFile, mkdir } from 'fs/promises'
-import path from 'path'
-
 const SESSION_LOG = 'debug-26db2b.log'
 
 /**
- * Writes one NDJSON line for debug session 26db2b to workspace-visible paths.
- * The HTTP ingest alone does not always mirror to the expected workspace file.
+ * Writes one NDJSON line for debug session 26db2b. Uses dynamic `import('fs/promises')`
+ * so this module is safe if something in the graph is bundled without Node `fs`
+ * (do not import from instrumentation.ts).
  */
 export async function appendSessionDebugLine(payload: Record<string, unknown>): Promise<void> {
+  const [{ appendFile, mkdir }, path] = await Promise.all([
+    import('fs/promises'),
+    import('path'),
+  ])
   const line = `${JSON.stringify(payload)}\n`
   const cwd = process.cwd()
   const rootPath = path.join(cwd, SESSION_LOG)

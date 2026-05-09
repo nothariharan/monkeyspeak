@@ -95,10 +95,10 @@ export function useSpeculativeMatch({
       if (index < safeConfirmedCount) {
         if (index < confirmedWords.length) {
           const spokenWord = cleanToken(confirmedWords[index] ?? '')
-          return {
-            word: promptWord,
-            status: spokenWord === clean ? 'correct' : 'wrong',
-          }
+        return {
+          word: promptWord,
+          status: (spokenWord === clean ? 'correct' : 'wrong') as WordStatus,
+        }
         }
         return { word: promptWord, status: 'correct' as const }
       }
@@ -116,15 +116,15 @@ export function useSpeculativeMatch({
           (clean.startsWith(interimWord) || interimWord === clean)
         return {
           word: promptWord,
-          status: speculative ? 'speculative' : 'wrong',
+          status: (speculative ? 'speculative' : 'wrong') as WordStatus,
         }
       }
 
       if (index === safeConfirmedCount + interimWords.length) {
-        return { word: promptWord, status: 'current' }
+        return { word: promptWord, status: 'current' as const }
       }
 
-      return { word: promptWord, status: 'pending' }
+      return { word: promptWord, status: 'pending' as const }
     })
     const speculativeCount = nextStates.filter((s) => s.status === 'speculative').length
     const wrongCount = nextStates.filter((s) => s.status === 'wrong').length
