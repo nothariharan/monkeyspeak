@@ -4,11 +4,27 @@
 // Neither useWebSpeech nor useDeepgramProvider are imported directly anywhere
 // outside their own hook. Everything else talks to this shape.
 
+/** A finalised word with optional per-word timing and confidence from Deepgram. */
+export interface EnrichedWord {
+  word: string
+  /** Seconds from the start of the audio stream (Deepgram only). */
+  start?: number
+  /** Seconds from the start of the audio stream (Deepgram only). */
+  end?: number
+  /** ASR confidence score 0–1 (Deepgram only). */
+  confidence?: number
+}
+
 export interface SpeechProviderState {
   /** Current interim (unconfirmed) transcript from the STT engine. */
   interimText: string
   /** Words that have been finalised by the STT engine this session. */
   confirmedWords: string[]
+  /**
+   * Parallel to confirmedWords — same index, same length.
+   * Deepgram populates start/end/confidence; WebSpeech emits word-only objects.
+   */
+  enrichedWords: EnrichedWord[]
   /** Number of filler words detected this session. */
   fillerCount: number
   /** True between startSession() and stopSession(). */

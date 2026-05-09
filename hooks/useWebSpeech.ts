@@ -335,6 +335,9 @@ export function useWebSpeech(): SpeechProvider {
   return {
     interimText,
     confirmedWords,
+    // WebSpeech API does not expose per-word timestamps or confidence scores,
+    // so enrichedWords is always empty for this provider.
+    enrichedWords: [] as import('./useSpeechProvider').EnrichedWord[],
     fillerCount,
     isListening,
     error,

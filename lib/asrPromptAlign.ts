@@ -1,6 +1,7 @@
 import { isFiller } from '@/lib/fillers'
 import { normalizeWordToken, tokensRoughlyMatch } from '@/lib/wordMatch'
 import type { WordResult } from '@/store/testStore'
+import type { EnrichedWord } from '@/hooks/useSpeechProvider'
 
 // Keep aligned with `MAX_SPECULATIVE_LOOKAHEAD`: large lookahead + `tokensRoughlyMatch`
 // makes common words match the wrong occurrence and skips multiple prompt slots in one
@@ -11,9 +12,13 @@ const LOOKAHEAD = 4
  * Map a batch of ASR tokens from one Deepgram `is_final` message onto the next
  * prompt positions. Handles: punctuation, light typos, duplicate/overlapping
  * finals, and brief ASR lag vs prompt index.
+ *
+ * Accepts EnrichedWord[] so that per-word timing and confidence from Deepgram
+ * flow through into the resulting WordResult objects for Phase 2 WPM math.
+ * WebSpeech tokens arrive as { word: string } with no timing fields.
  */
 export function alignAsrFinalToPrompt(
-  spokenTokens: string[],
+  spokenTokens: EnrichedWord[],
   prompt: string[],
   startPromptIndex: number,
   onFiller: () => void
@@ -24,7 +29,8 @@ export function alignAsrFinalToPrompt(
   const now = () => Date.now()
 
   while (ti < spokenTokens.length) {
-    const raw = spokenTokens[ti]?.trim() ?? ''
+    const token = spokenTokens[ti]!
+    const raw = token.word?.trim() ?? ''
     if (!raw) {
       ti++
       continue
@@ -45,6 +51,9 @@ export function alignAsrFinalToPrompt(
         isCorrect: false,
         isFiller: false,
         timestamp: now(),
+        startTime: token.start,
+        endTime: token.end,
+        confidence: token.confidence,
       })
       ti++
       continue
@@ -64,6 +73,9 @@ export function alignAsrFinalToPrompt(
         isCorrect: true,
         isFiller: false,
         timestamp: now(),
+        startTime: token.start,
+        endTime: token.end,
+        confidence: token.confidence,
       })
       pi++
       ti++
@@ -79,6 +91,7 @@ export function alignAsrFinalToPrompt(
     }
 
     if (found > 0) {
+      // Emit auto-filled prompt words for the skipped slots (no timing data).
       for (let s = 0; s < found; s++) {
         const missed = prompt[pi + s] ?? ''
         out.push({
@@ -94,6 +107,9 @@ export function alignAsrFinalToPrompt(
         isCorrect: true,
         isFiller: false,
         timestamp: now(),
+        startTime: token.start,
+        endTime: token.end,
+        confidence: token.confidence,
       })
       pi++
       ti++
@@ -105,6 +121,9 @@ export function alignAsrFinalToPrompt(
       isCorrect: false,
       isFiller: false,
       timestamp: now(),
+      startTime: token.start,
+      endTime: token.end,
+      confidence: token.confidence,
     })
     pi++
     ti++

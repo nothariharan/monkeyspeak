@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import { tokensRoughlyMatch } from '@/lib/wordMatch'
 import { emitDebugLog } from '@/lib/debugLog'
 
@@ -24,6 +24,10 @@ export interface UseSpeculativeMatchProps {
 
 // Small lookahead limits false matches on common words ("the", "to", …).
 export const MAX_SPECULATIVE_LOOKAHEAD = 4
+
+// Prompt words this short require an exact match rather than a prefix match
+// to avoid false highlights on "a", "an", "in", "of", "the", etc.
+const SHORT_WORD_EXACT_THRESHOLD = 3
 
 function tokenizeInterim(interimText: string): string[] {
   return interimText
@@ -82,12 +86,39 @@ export function useSpeculativeMatch({
   confirmedWords,
   interimText,
 }: UseSpeculativeMatchProps): PromptWordState[] {
+  // ── Stability buffer ────────────────────────────────────────────────────────
+  // Tracks the last 3 *aligned* interim token arrays. A position is only marked
+  // speculative once the same token has appeared there in at least 2 of the last
+  // 3 updates (~80–120 ms on Deepgram's cadence), preventing single-frame flickers
+  // on short, ambiguous phonemes.
+  //
+  // Both refs are updated synchronously during render (before useMemo) when
+  // interimText changes. Updating refs during render is a documented React
+  // pattern and is safe here because the computation is deterministic.
+  const interimHistoryRef = useRef<string[][]>([])
+  const prevInterimTextRef = useRef('')
+
   return useMemo(() => {
     // Use confirmedWords.length directly — the old peakConfirmedCount ratchet
     // could lock the cursor several words ahead when interim emissions spiked.
     const safeConfirmedCount = confirmedWords.length
     const rawInterim = tokenizeInterim(interimText)
     const interimWords = stripInterimAlignedToConfirmedProgress(rawInterim, confirmedWords)
+
+    // Update interim history for this render cycle.
+    if (interimText !== prevInterimTextRef.current) {
+      prevInterimTextRef.current = interimText
+      if (interimText === '') {
+        // Clear history when the interim is wiped between words so stale
+        // snapshots from the previous word don't affect the next word's count.
+        interimHistoryRef.current = []
+      } else {
+        const next = [...interimHistoryRef.current, interimWords]
+        interimHistoryRef.current = next.length > 3 ? next.slice(-3) : next
+      }
+    }
+
+    const history = interimHistoryRef.current
 
     const nextStates = promptWords.map((promptWord, index) => {
       const clean = cleanToken(promptWord)
@@ -110,10 +141,30 @@ export function useSpeculativeMatch({
         interimIndex < MAX_SPECULATIVE_LOOKAHEAD
       ) {
         const interimWord = cleanToken(interimWords[interimIndex] ?? '')
+
+        // Stability gate: require the same interim token to appear in this
+        // position across at least min(2, historyLen) snapshots. On the very
+        // first update historyLen is 1 so we accept it immediately (preserving
+        // the original feel); from the second update onward two consistent
+        // snapshots are required.
+        const requiredMatches = Math.min(2, history.length)
+        const stableCount = history.filter(
+          (h) => cleanToken(h[interimIndex] ?? '') === interimWord
+        ).length
+        const isStable = stableCount >= requiredMatches
+
+        // Short-word exact-match guard: for words of 1–3 characters ("a",
+        // "an", "in", "of", "the") require an exact cleaned match instead of
+        // the prefix rule. Prefix-only matching on short words produces too
+        // many false positives (e.g. "h" matching "he", "her", "here").
+        const isExactRequired = clean.length <= SHORT_WORD_EXACT_THRESHOLD
+
         const speculative =
           clean.length > 0 &&
           interimWord.length > 0 &&
-          (clean.startsWith(interimWord) || interimWord === clean)
+          isStable &&
+          (isExactRequired ? interimWord === clean : clean.startsWith(interimWord))
+
         return {
           word: promptWord,
           status: (speculative ? 'speculative' : 'wrong') as WordStatus,
@@ -139,6 +190,7 @@ export function useSpeculativeMatch({
         rawInterimCount: rawInterim.length,
         alignedInterimCount: interimWords.length,
         lookahead: MAX_SPECULATIVE_LOOKAHEAD,
+        historyDepth: history.length,
         speculativeCount,
         wrongCount,
         interimPreview: interimWords.slice(0, 8),

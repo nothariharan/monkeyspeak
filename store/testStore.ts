@@ -18,6 +18,12 @@ export interface WordResult {
   isCorrect: boolean
   isFiller: boolean
   timestamp: number
+  /** Seconds from audio-stream start when Deepgram first detected this word. */
+  startTime?: number
+  /** Seconds from audio-stream start when Deepgram finished this word. */
+  endTime?: number
+  /** ASR confidence score 0–1 as emitted by Deepgram. */
+  confidence?: number
 }
 
 export interface DiffWord {

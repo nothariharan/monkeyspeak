@@ -10,6 +10,7 @@ import { generatePrompt, regeneratePrompt, type PromptMode } from '@/lib/prompts
 import { diffWords, calcClarityScore } from '@/lib/diff'
 import { alignAsrFinalToPrompt } from '@/lib/asrPromptAlign'
 import { emitDebugLog } from '@/lib/debugLog'
+import type { EnrichedWord } from '@/hooks/useSpeechProvider'
 
 import Header from '@/components/Header'
 import ConfigBar from '@/components/ConfigBar'
@@ -42,7 +43,8 @@ export default function Home() {
   const armingEndTsRef = useRef<number | null>(null)
   const armTimerIdsRef = useRef<Array<number | ReturnType<typeof setTimeout>>>([])
   const prevConfirmedLenRef = useRef(0)
-  const pendingConfirmedWordsRef = useRef<string[]>([])
+  const prevEnrichedLenRef = useRef(0)
+  const pendingConfirmedWordsRef = useRef<EnrichedWord[]>([])
   const handleStopRef = useRef<() => void>(() => {})
   const [armingCountdown, setArmingCountdown] = useState<number | null>(null)
 
@@ -51,6 +53,7 @@ export default function Home() {
   const {
     interimText,
     confirmedWords,
+    enrichedWords,
     fillerCount,
     isListening,
     error: sttError,
@@ -138,6 +141,7 @@ export default function Home() {
     const batch = alignAsrFinalToPrompt(pending, prompt, currentWordIndex, () => {
       detectFiller()
     })
+
     emitDebugLog({
       sessionId: '26db2b',
       runId: 'post-fix',
@@ -178,6 +182,9 @@ export default function Home() {
 
   // ── confirmedWords → store (provider feeds us the array) ─────────────────
   // Track the previous length so we only process new entries each render.
+  // enrichedWords is parallel to confirmedWords — same index, same length for
+  // Deepgram; always empty [] for WebSpeech. We use it to pass per-word timing
+  // and confidence through to the aligner.
   useEffect(() => {
     const s = useTestStore.getState()
     if (s.testState !== 'running' || s.mode !== 'speed') return
@@ -185,7 +192,19 @@ export default function Home() {
     const newWords = confirmedWords.slice(prevConfirmedLenRef.current)
     prevConfirmedLenRef.current = confirmedWords.length
 
+    // Slice enrichedWords by the same window. Falls back to word-only objects
+    // when enrichedWords is empty (WebSpeech provider).
+    const newEnriched = enrichedWords.slice(prevEnrichedLenRef.current)
+    prevEnrichedLenRef.current = enrichedWords.length
+
     if (newWords.length === 0) return
+
+    // Build the EnrichedWord[] that the aligner consumes. Use Deepgram's
+    // enriched objects when available; otherwise wrap bare strings.
+    const tokensForAligner: EnrichedWord[] =
+      newEnriched.length === newWords.length
+        ? newEnriched
+        : newWords.map((w) => ({ word: w }))
 
     // Detect first-speech epoch
     if (firstSpeechTsRef.current == null) {
@@ -195,12 +214,12 @@ export default function Home() {
     }
 
     if (scoringFrozenRef.current || s.speedClockStartedAt == null) {
-      pendingConfirmedWordsRef.current.push(...newWords)
+      pendingConfirmedWordsRef.current.push(...tokensForAligner)
       return
     }
 
     const { prompt, currentWordIndex, addWord, advanceWord, detectFiller } = s
-    const batch = alignAsrFinalToPrompt(newWords, prompt, currentWordIndex, () => {
+    const batch = alignAsrFinalToPrompt(tokensForAligner, prompt, currentWordIndex, () => {
       detectFiller()
     })
     emitDebugLog({
@@ -211,6 +230,7 @@ export default function Home() {
       message: 'Final batch aligned to prompt',
       data: {
         newWordTokens: newWords.length,
+        enrichedCount: newEnriched.length,
         batchLen: batch.length,
         promptIndexBefore: currentWordIndex,
       },
@@ -222,7 +242,7 @@ export default function Home() {
       advanceWord()
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [confirmedWords])
+  }, [confirmedWords, enrichedWords])
 
   // ── fillerCount → store ───────────────────────────────────────────────────
   useEffect(() => {
@@ -323,6 +343,7 @@ export default function Home() {
       firstSpeechTsRef.current = null
       firstSpeechFiredRef.current = false
       prevConfirmedLenRef.current = 0
+      prevEnrichedLenRef.current = 0
       pendingConfirmedWordsRef.current = []
       startTimeRef.current = null
       clearSpeedArmingTimers()
@@ -421,6 +442,7 @@ export default function Home() {
     firstSpeechTsRef.current = null
     firstSpeechFiredRef.current = false
     prevConfirmedLenRef.current = 0
+    prevEnrichedLenRef.current = 0
     pendingConfirmedWordsRef.current = []
     scoringFrozenRef.current = false
     resetProvider()
@@ -442,6 +464,7 @@ export default function Home() {
     firstSpeechTsRef.current = null
     firstSpeechFiredRef.current = false
     prevConfirmedLenRef.current = 0
+    prevEnrichedLenRef.current = 0
     pendingConfirmedWordsRef.current = []
     scoringFrozenRef.current = false
     resetProvider()
@@ -471,6 +494,7 @@ export default function Home() {
           firstSpeechTsRef.current = null
           firstSpeechFiredRef.current = false
           prevConfirmedLenRef.current = 0
+          prevEnrichedLenRef.current = 0
           pendingConfirmedWordsRef.current = []
           scoringFrozenRef.current = false
           resetProvider()

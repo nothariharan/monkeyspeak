@@ -6,7 +6,7 @@ import type { LiveClient } from '@deepgram/sdk'
 import { float32ToLinear16Pcm16k } from '@/lib/pcmDownsample'
 import { isFiller } from '@/lib/fillers'
 import { useTestStore } from '@/store/testStore'
-import type { SpeechProvider } from './useSpeechProvider'
+import type { SpeechProvider, EnrichedWord } from './useSpeechProvider'
 
 const TOKEN_SKEW_MS = 1500
 const TOKEN_REFRESH_IF_TTL_UNDER_MS = 10_000
@@ -50,7 +50,11 @@ function buildDgLiveOpts(language: string) {
     interim_results: true,
     filler_words: true,
     vad_events: true,
-    endpointing: 10,
+    // 200 ms gives Deepgram enough time to avoid cutting multi-syllable words
+    // mid-utterance. The previous 10 ms was too aggressive.
+    endpointing: 200,
+    // Force a final transcript after 200 ms of silence (matches endpointing).
+    utterance_end_ms: 200,
     no_delay: true,
     encoding: 'linear16' as const,
     sample_rate: 16000,
@@ -60,20 +64,59 @@ function buildDgLiveOpts(language: string) {
 export function useDeepgramProvider(): SpeechProvider {
   const [interimText, setInterimText]       = useState('')
   const [confirmedWords, setConfirmedWords] = useState<string[]>([])
+  const [enrichedWords, setEnrichedWords]   = useState<EnrichedWord[]>([])
   const [fillerCount, setFillerCount]       = useState(0)
   const [isListening, setIsListening]       = useState(false)
   const [error, setError]                   = useState<string | null>(null)
   const [micStream, setMicStream]           = useState<MediaStream | null>(null)
 
-  const liveRef    = useRef<LiveClient | null>(null)
-  const streamRef  = useRef<MediaStream | null>(null)
-  const workletRef = useRef<AudioWorkletNode | null>(null)
-  const contextRef = useRef<AudioContext | null>(null)
-  const activeRef  = useRef(false)
-  const armedRef   = useRef(false)
+  const liveRef     = useRef<LiveClient | null>(null)
+  const prewarmRef  = useRef<LiveClient | null>(null)
+  const streamRef   = useRef<MediaStream | null>(null)
+  const workletRef  = useRef<AudioWorkletNode | null>(null)
+  const contextRef  = useRef<AudioContext | null>(null)
+  const activeRef   = useRef(false)
+  const armedRef    = useRef(false)
 
+  // ── Pre-warm the WebSocket on mount to absorb the TLS handshake ────────────
+  // The pre-warmed connection is picked up by _openConnection if still open,
+  // eliminating the handshake cost from the critical path when the user
+  // clicks Start. Token is also pre-fetched here.
   useEffect(() => {
-    prefetchDeepgramKey()
+    let cancelled = false
+
+    async function prewarm() {
+      try {
+        const token = await fetchDeepgramToken()
+        if (cancelled) return
+
+        const language = useTestStore.getState().settings.language ?? 'en-US'
+        const deepgram = createClient(token)
+        const live = deepgram.listen.live(
+          buildDgLiveOpts(language) as Parameters<typeof deepgram.listen.live>[0]
+        )
+        prewarmRef.current = live
+
+        live.on(LiveTranscriptionEvents.Error, () => {
+          if (prewarmRef.current === live) prewarmRef.current = null
+        })
+        live.on(LiveTranscriptionEvents.Close, () => {
+          if (prewarmRef.current === live) prewarmRef.current = null
+        })
+      } catch {
+        // Pre-warm is best-effort; _openConnection falls back to on-demand.
+      }
+    }
+
+    void prewarm()
+
+    return () => {
+      cancelled = true
+      if (prewarmRef.current) {
+        try { prewarmRef.current.requestClose() } catch { /* ignore */ }
+        prewarmRef.current = null
+      }
+    }
   }, [])
 
   const _teardown = useCallback(() => {
@@ -103,6 +146,7 @@ export function useDeepgramProvider(): SpeechProvider {
   const reset = useCallback(() => {
     setInterimText('')
     setConfirmedWords([])
+    setEnrichedWords([])
     setFillerCount(0)
     setError(null)
   }, [])
@@ -110,6 +154,43 @@ export function useDeepgramProvider(): SpeechProvider {
   const stopSession = useCallback(() => {
     armedRef.current = false
     _teardown()
+  }, [_teardown])
+
+  // ── Audio worklet setup (shared by pre-warmed and fresh connections) ────────
+  const _setupAudioWorklet = useCallback(async (live: LiveClient, stream: MediaStream) => {
+    try {
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+      const ctx = new AudioCtx({ sampleRate: 16000 })
+      contextRef.current = ctx
+      if (ctx.state === 'suspended') await ctx.resume()
+
+      await ctx.audioWorklet.addModule('/pcm-processor.worklet.js')
+
+      const source = ctx.createMediaStreamSource(stream)
+      const worklet = new AudioWorkletNode(ctx, 'pcm-processor')
+      workletRef.current = worklet
+
+      worklet.port.onmessage = (ev: MessageEvent<Float32Array>) => {
+        if (live.getReadyState() !== WebSocket.OPEN) return
+        const input = ev.data
+        if (!input?.length) return
+        const pcm16 = float32ToLinear16Pcm16k(input, ctx.sampleRate)
+        live.send(pcm16.buffer)
+      }
+
+      const mute = ctx.createGain()
+      mute.gain.value = 0
+      source.connect(worklet)
+      worklet.connect(mute)
+      mute.connect(ctx.destination)
+
+      if (activeRef.current) setIsListening(true)
+    } catch {
+      setError('Could not start audio capture')
+      _teardown()
+    }
   }, [_teardown])
 
   const _openConnection = useCallback(async (): Promise<boolean> => {
@@ -144,51 +225,27 @@ export function useDeepgramProvider(): SpeechProvider {
     streamRef.current = stream
     setMicStream(stream)
 
-    const deepgram = createClient(token)
-    const language =
-      useTestStore.getState().settings.language ?? 'en-US'
-    const dgOpts = buildDgLiveOpts(language)
-    const live = deepgram.listen.live(dgOpts as Parameters<typeof deepgram.listen.live>[0])
-    liveRef.current = live
+    // Use the pre-warmed WebSocket if it is already open; otherwise open fresh.
+    // This eliminates the TLS handshake from the critical path.
+    let live: LiveClient
+    const prewarmed =
+      prewarmRef.current?.getReadyState() === WebSocket.OPEN
+        ? prewarmRef.current
+        : null
 
-    live.on(LiveTranscriptionEvents.Open, () => {
-      void (async () => {
-        try {
-          const AudioCtx =
-            window.AudioContext ||
-            (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
-          const ctx = new AudioCtx({ sampleRate: 16000 })
-          contextRef.current = ctx
-          if (ctx.state === 'suspended') await ctx.resume()
+    if (prewarmed) {
+      live = prewarmed
+      prewarmRef.current = null
+      liveRef.current = live
+    } else {
+      const deepgram = createClient(token)
+      const language = useTestStore.getState().settings.language ?? 'en-US'
+      const dgOpts = buildDgLiveOpts(language)
+      live = deepgram.listen.live(dgOpts as Parameters<typeof deepgram.listen.live>[0])
+      liveRef.current = live
+    }
 
-          await ctx.audioWorklet.addModule('/pcm-processor.worklet.js')
-
-          const source = ctx.createMediaStreamSource(stream)
-          const worklet = new AudioWorkletNode(ctx, 'pcm-processor')
-          workletRef.current = worklet
-
-          worklet.port.onmessage = (ev: MessageEvent<Float32Array>) => {
-            if (live.getReadyState() !== WebSocket.OPEN) return
-            const input = ev.data
-            if (!input?.length) return
-            const pcm16 = float32ToLinear16Pcm16k(input, ctx.sampleRate)
-            live.send(pcm16.buffer)
-          }
-
-          const mute = ctx.createGain()
-          mute.gain.value = 0
-          source.connect(worklet)
-          worklet.connect(mute)
-          mute.connect(ctx.destination)
-
-          if (activeRef.current) setIsListening(true)
-        } catch {
-          setError('Could not start audio capture')
-          _teardown()
-        }
-      })()
-    })
-
+    // ── Transcript handler ─────────────────────────────────────────────────
     live.on(LiveTranscriptionEvents.Transcript, (data) => {
       if (!activeRef.current) return
 
@@ -205,19 +262,52 @@ export function useDeepgramProvider(): SpeechProvider {
 
       setInterimText('')
 
-      const wordObjs: Array<{ word: string }> = alt.words ?? []
-      const tokens =
-        wordObjs.length > 0
-          ? wordObjs.map((w) => w.word).filter(Boolean)
-          : transcript.split(/\s+/).filter(Boolean)
+      // Extract per-word timing and confidence from Deepgram's word objects.
+      // These are stored in enrichedWords (parallel to confirmedWords) for use
+      // by the aligner in Phase 2 per-word WPM calculations.
+      const wordObjs = (alt.words ?? []) as Array<{
+        word: string
+        start: number
+        end: number
+        confidence: number
+        punctuated_word?: string
+      }>
 
       let newFillers = 0
       const realWords: string[] = []
-      for (const w of tokens) {
-        if (isFiller(w)) { newFillers++ } else { realWords.push(w) }
+      const realEnriched: EnrichedWord[] = []
+
+      if (wordObjs.length > 0) {
+        for (const w of wordObjs) {
+          if (isFiller(w.word)) {
+            newFillers++
+          } else {
+            realWords.push(w.word)
+            realEnriched.push({
+              word: w.word,
+              start: w.start,
+              end: w.end,
+              confidence: w.confidence,
+            })
+          }
+        }
+      } else {
+        // Fallback when Deepgram doesn't emit word-level objects.
+        for (const w of transcript.split(/\s+/).filter(Boolean)) {
+          if (isFiller(w)) {
+            newFillers++
+          } else {
+            realWords.push(w)
+            realEnriched.push({ word: w })
+          }
+        }
       }
+
       if (newFillers > 0) setFillerCount((c) => c + newFillers)
-      if (realWords.length > 0) setConfirmedWords((prev) => [...prev, ...realWords])
+      if (realWords.length > 0) {
+        setConfirmedWords((prev) => [...prev, ...realWords])
+        setEnrichedWords((prev) => [...prev, ...realEnriched])
+      }
     })
 
     live.on(LiveTranscriptionEvents.Error, (err) => {
@@ -234,8 +324,18 @@ export function useDeepgramProvider(): SpeechProvider {
       }
     })
 
+    // Set up AudioWorklet — immediately if WS is already open (pre-warmed path),
+    // otherwise wait for the Open event.
+    if (prewarmed) {
+      void _setupAudioWorklet(live, stream)
+    } else {
+      live.on(LiveTranscriptionEvents.Open, () => {
+        void _setupAudioWorklet(live, stream)
+      })
+    }
+
     return true
-  }, [_teardown])
+  }, [_teardown, _setupAudioWorklet])
 
   const armSession = useCallback(async (): Promise<boolean> => {
     if (armedRef.current || activeRef.current) return true
@@ -270,6 +370,7 @@ export function useDeepgramProvider(): SpeechProvider {
   return {
     interimText,
     confirmedWords,
+    enrichedWords,
     fillerCount,
     isListening,
     error,
