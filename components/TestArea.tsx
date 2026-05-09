@@ -22,20 +22,14 @@ interface TestAreaProps {
   testActive?: boolean
 }
 
-/** ~2 lines of monospace prompt at typical widths; wraps naturally inside max-height window */
-const WINDOW_WORDS = 64
-const PREFIX_BEFORE_CURRENT = 4
-const ACTIVE_VISIBLE_LINES = 2
-
-function getWindowRange(wordCount: number, currentWordIndex: number) {
-  if (wordCount === 0) return { start: 0, end: 0 }
-  let start = Math.max(0, currentWordIndex - PREFIX_BEFORE_CURRENT)
-  if (start + WINDOW_WORDS > wordCount) {
-    start = Math.max(0, wordCount - WINDOW_WORDS)
-  }
-  const end = Math.min(wordCount, start + WINDOW_WORDS)
-  return { start, end }
-}
+/** Approximate words per line at typical desktop width + large test font */
+const WORDS_PER_LINE = 12
+/** Lines shown at once (matches max-height / line box) */
+const ACTIVE_VISIBLE_LINES = 3
+/** Do not reveal the next passage until this many full lines are completed */
+const LINES_BEFORE_ADVANCE = 2
+/** Max words in the visible slice */
+const WINDOW_WORDS = WORDS_PER_LINE * ACTIVE_VISIBLE_LINES
 
 /** Applies only to speculative/wrong transitions in `<Word />` (see below). */
 const STATUS_HYSTERESIS_MS = 32
@@ -157,6 +151,32 @@ export default function TestArea({
     interimText: interimForSpec,
   })
 
+  const [chunkStart, setChunkStart] = useState(0)
+
+  useEffect(() => {
+    setChunkStart(0)
+  }, [words])
+
+  useEffect(() => {
+    if (isIdle) setChunkStart(0)
+  }, [isIdle])
+
+  useEffect(() => {
+    if (!testActive || isIdle) return
+    const advanceBy = LINES_BEFORE_ADVANCE * WORDS_PER_LINE
+    const maxStart =
+      words.length <= WINDOW_WORDS ? 0 : Math.max(0, words.length - WINDOW_WORDS)
+    setChunkStart((c) => {
+      let next = c
+      while (currentWordIndex >= next + advanceBy) {
+        const candidate = next + advanceBy
+        if (candidate >= maxStart) return maxStart
+        next = candidate
+      }
+      return next
+    })
+  }, [currentWordIndex, testActive, isIdle, words.length])
+
   const hasActiveInterim = interimForSpec.trim().length > 0
   const speculativeCount = hasActiveInterim
     ? wordStates
@@ -164,31 +184,30 @@ export default function TestArea({
         .filter((ws) => ws.status === 'speculative' || ws.status === 'correct')
         .length
     : 0
-  const windowAnchor = currentWordIndex
 
   useEffect(() => {
     emitDebugLog({
       sessionId: '26db2b',
       runId: 'post-fix',
-      hypothesisId: 'H4_window_anchor_speculative',
-      location: 'components/TestArea.tsx:windowAnchorEffect',
-      message: 'Window anchor from confirmed cursor only',
+      hypothesisId: 'H4_chunk_window',
+      location: 'components/TestArea.tsx:chunkWindowEffect',
+      message: 'Chunked passage window (advance every 2 lines)',
       data: {
         statusHysteresisMs: STATUS_HYSTERESIS_MS,
         hasActiveInterim,
         currentWordIndex,
         speculativeCount,
-        windowAnchor,
+        chunkStart,
+        wordsPerLine: WORDS_PER_LINE,
         wordsLength: words.length,
       },
       timestamp: Date.now(),
     })
-  }, [hasActiveInterim, currentWordIndex, speculativeCount, windowAnchor, words.length])
+  }, [hasActiveInterim, currentWordIndex, speculativeCount, chunkStart, words.length])
 
-  const { start: windowStart, end: windowEnd } = useMemo(
-    () => getWindowRange(words.length, windowAnchor),
-    [words.length, windowAnchor]
-  )
+  const windowStart = testActive && !isIdle ? chunkStart : 0
+  const windowEnd =
+    testActive && !isIdle ? Math.min(words.length, chunkStart + WINDOW_WORDS) : words.length
 
   const visibleStates = useMemo(() => {
     if (testActive && !isIdle) {
@@ -200,34 +219,39 @@ export default function TestArea({
     return wordStates.map((ws, globalIndex) => ({ ws, globalIndex }))
   }, [wordStates, testActive, isIdle, windowStart, windowEnd])
 
-  /** Must match line box used for height — same vars as globals `.word` / settings. */
+  /** Same scale as globals `.word` / settings — active run and idle preview. */
+  const testTextStyles: CSSProperties = {
+    fontFamily: 'var(--font-mono), ui-monospace, monospace',
+    fontSize: 'var(--test-font-size)',
+    lineHeight: 'var(--test-line-height)',
+  }
+
   const activeRunStyles: CSSProperties | undefined =
-    testActive && !isIdle
-      ? {
-          fontFamily: 'var(--font-mono), ui-monospace, monospace',
-          fontSize: 'var(--test-font-size)',
-          lineHeight: 'var(--test-line-height)',
-        }
-      : undefined
+    testActive && !isIdle ? testTextStyles : undefined
 
   return (
-    <div className="flex flex-col gap-4 items-center w-full">
+    <div className="flex flex-col gap-4 items-stretch w-full">
       <div
         className={`select-none transition-all duration-300 w-full ${
           isIdle
-            ? 'leading-relaxed line-clamp-2 text-ellipsis overflow-hidden max-h-[3.5em] opacity-40 text-center'
+            ? 'text-left overflow-hidden text-ellipsis'
             : testActive
               ? 'text-left overflow-x-hidden'
               : 'text-left leading-relaxed'
         }`}
         style={{
           maxWidth: '100%',
+          ...(isIdle
+            ? {
+                ...testTextStyles,
+                maxHeight: `calc(${ACTIVE_VISIBLE_LINES} * var(--test-line-height))`,
+              }
+            : {}),
           ...(testActive && !isIdle
             ? {
-                /* Keep the active window to exactly two text lines. */
+                /* Keep the active window to exactly three text lines. */
                 maxHeight: `calc(${ACTIVE_VISIBLE_LINES} * var(--test-line-height))`,
-                overflowY: 'auto',
-                WebkitOverflowScrolling: 'touch',
+                overflowY: 'hidden',
                 paddingBottom: 4,
                 ...activeRunStyles,
               }
