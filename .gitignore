@@ -17,6 +17,9 @@
 .DS_Store
 *.pem
 
+# Cursor IDE (local only)
+.cursor/
+
 # debug
 debug-1ddc33.log
 npm-debug.log*
