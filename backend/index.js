@@ -1,11 +1,45 @@
-require('dotenv').config();
+const path = require('path');
+const fs = require('fs');
+const http = require('http');
 const express = require('express');
 const cors = require('cors');
+const WebSocket = require('ws');
+
+// Load env from repo root first (.env.local is where Next keeps DEEPGRAM_API_KEY),
+// then backend-local .env — same keys are not overwritten (dotenv default).
+require('dotenv').config({ path: path.join(__dirname, '..', '.env.local') });
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+require('dotenv').config({ path: path.join(__dirname, '.env') });
+
+/** NDJSON debug line (session b9a7e7) — read `debug-b9a7e7.log` at repo root */
+function dbgProxy(payload) {
+  const line = JSON.stringify({
+    sessionId: 'b9a7e7',
+    timestamp: Date.now(),
+    runId: 'proxy-backend',
+    ...payload,
+  });
+  try {
+    fs.appendFileSync(path.join(__dirname, '..', 'debug-b9a7e7.log'), `${line}\n`, 'utf8');
+  } catch {
+    /* ignore */
+  }
+}
 
 const app = express();
 const port = process.env.PORT || 8080;
 
-app.use(cors());
+dbgProxy({
+  hypothesisId: 'H_boot_env',
+  location: 'backend/index.js:boot',
+  message: 'backend_boot',
+  data: { hasDeepgramKey: Boolean(process.env.DEEPGRAM_API_KEY), port },
+});
+
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'OPTIONS'],
+}));
 app.use(express.json());
 
 // Issue a short-lived Deepgram temporary API token
@@ -17,13 +51,11 @@ app.get('/api/deepgram/token', async (req, res) => {
     return res.status(500).json({ error: 'DEEPGRAM_API_KEY not configured' });
   }
 
-  // If no project ID is set, return the key directly
   if (!projectId) {
     return res.json({ key: apiKey });
   }
 
   try {
-    // Dynamic import for fetch if using older node, but Node 18+ has native fetch
     const response = await fetch(
       `https://api.deepgram.com/v1/projects/${projectId}/keys`,
       {
@@ -41,14 +73,12 @@ app.get('/api/deepgram/token', async (req, res) => {
     );
 
     if (!response.ok) {
-      // Fallback: return the main key if ephemeral key creation fails
       return res.json({ key: apiKey });
     }
 
     const data = await response.json();
     return res.json({ key: data.result?.key ?? apiKey });
   } catch (err) {
-    // Network error — fall back to main key
     return res.json({ key: apiKey });
   }
 });
@@ -58,6 +88,123 @@ app.get('/', (req, res) => {
   res.send('MonkeySpeak Backend is running');
 });
 
-app.listen(port, () => {
+// ── WebSocket proxy ───────────────────────────────────────────────────────────
+// Browser connects here; backend forwards to Deepgram using server-side auth.
+// The browser never needs to send credentials — Node.js sets Authorization as
+// a proper HTTP header which the browser WebSocket API forbids.
+
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ noServer: true });
+
+/**
+ * Merge browser query params into a Deepgram /v1/listen URL.
+ * Maps `lang` → `language` (browser cannot use custom headers; we only pass lang).
+ */
+function buildDeepgramListenUrl(browserReqUrl) {
+  const incoming = new URL(browserReqUrl, 'http://127.0.0.1');
+  const p = incoming.searchParams;
+
+  if (p.has('lang') && !p.has('language')) {
+    p.set('language', p.get('lang'));
+    p.delete('lang');
+  }
+
+  const defaults = {
+    model: 'nova-3',
+    language: 'en-US',
+    encoding: 'linear16',
+    sample_rate: '16000',
+    channels: '1',
+    smart_format: 'true',
+    interim_results: 'true',
+    filler_words: 'true',
+    vad_events: 'true',
+    endpointing: '200',
+    utterance_end_ms: '200',
+    no_delay: 'true',
+  };
+  for (const [k, v] of Object.entries(defaults)) {
+    if (!p.has(k)) p.set(k, v);
+  }
+
+  return `wss://api.deepgram.com/v1/listen?${p.toString()}`;
+}
+
+server.on('upgrade', (req, socket, head) => {
+  // Accept /v1/listen (SDK-built path) and /api/deepgram/proxy (plain browser WS)
+  const isListen = req.url.startsWith('/v1/listen') || req.url.startsWith('/api/deepgram/proxy');
+  if (!isListen) {
+    socket.destroy();
+    return;
+  }
+
+  wss.handleUpgrade(req, socket, head, (browserWs) => {
+    const apiKey = process.env.DEEPGRAM_API_KEY;
+    dbgProxy({
+      hypothesisId: 'H_upgrade',
+      location: 'backend/index.js:upgrade',
+      message: 'ws_upgrade_attempt',
+      data: { url: req.url.slice(0, 200), hasApiKey: Boolean(apiKey) },
+    });
+    if (!apiKey) {
+      dbgProxy({
+        hypothesisId: 'H_no_api_key',
+        location: 'backend/index.js:upgrade',
+        message: 'missing_DEEPGRAM_API_KEY',
+        data: {},
+      });
+      browserWs.close(1011, 'DEEPGRAM_API_KEY not configured');
+      return;
+    }
+
+    const dgUrl = buildDeepgramListenUrl(req.url);
+    if (process.env.DEBUG_DG_PROXY === '1') {
+      console.log('[deepgram proxy] upstream:', dgUrl);
+    }
+
+    const dgWs = new WebSocket(dgUrl, {
+      headers: { Authorization: `Token ${apiKey}` },
+    });
+
+    dgWs.on('open', () => {
+      dbgProxy({
+        hypothesisId: 'H_dg_open',
+        location: 'backend/index.js:upgrade',
+        message: 'dg_upstream_open',
+        data: {},
+      });
+      // Forward audio from browser to Deepgram
+      browserWs.on('message', (data) => {
+        if (dgWs.readyState === WebSocket.OPEN) dgWs.send(data);
+      });
+    });
+
+    // Forward transcripts from Deepgram to browser
+    dgWs.on('message', (data) => {
+      if (browserWs.readyState === WebSocket.OPEN) browserWs.send(data);
+    });
+
+    function cleanup() {
+      if (dgWs.readyState < WebSocket.CLOSING) dgWs.close();
+      if (browserWs.readyState < WebSocket.CLOSING) browserWs.close();
+    }
+
+    dgWs.on('close', cleanup);
+    dgWs.on('error', (err) => {
+      dbgProxy({
+        hypothesisId: 'H_dg_err',
+        location: 'backend/index.js:upgrade',
+        message: 'dg_upstream_error',
+        data: { err: err && err.message ? err.message.slice(0, 400) : String(err) },
+      });
+      console.error('[dg→proxy] WS error:', err.message);
+      cleanup();
+    });
+    browserWs.on('close', cleanup);
+    browserWs.on('error', (err) => { console.error('[browser→proxy] WS error:', err.message); cleanup(); });
+  });
+});
+
+server.listen(port, () => {
   console.log(`Server listening on port ${port}`);
 });

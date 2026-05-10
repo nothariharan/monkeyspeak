@@ -1,21 +1,23 @@
 import { createClient } from '@deepgram/sdk'
 import { NextResponse } from 'next/server'
 import { createHash } from 'crypto'
+import { appendSessionDebugLine } from '@/lib/debugSessionLog'
 
 /** Avoid stale compiled handler + CDN-ish caching. */
 export const dynamic = 'force-dynamic'
 
 // #region agent log
-function dbgIngest(payload: Record<string, unknown>) {
-  return fetch('http://127.0.0.1:7291/ingest/74562f5e-377a-4199-9293-9988125476d2', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'b9a7e7' },
-    body: JSON.stringify({ sessionId: 'b9a7e7', runId: 'owner-key-run', timestamp: Date.now(), ...payload }),
-  }).catch(() => {})
-}
 function keyFingerprint(k: string | undefined): string {
   if (!k) return 'none'
   return createHash('sha256').update(k).digest('hex').slice(0, 8)
+}
+async function dbgLog(payload: Record<string, unknown>) {
+  await appendSessionDebugLine({
+    sessionId: 'b9a7e7',
+    runId: 'skip-grant-test',
+    timestamp: Date.now(),
+    ...payload,
+  })
 }
 // #endregion
 
@@ -42,6 +44,42 @@ function formatGrantError(err: unknown): string {
 }
 
 /**
+ * Server-side WS connectivity probe: tries to open a WebSocket from Node (bypasses
+ * browser restrictions) to confirm api.deepgram.com is reachable at all.
+ */
+// #region agent log
+async function probeServerSideWs(rawApiKey: string): Promise<{ ok: boolean; code?: number; reason?: string; error?: string }> {
+  try {
+    const { default: WS } = await import('ws')
+    const url = `wss://api.deepgram.com/v1/listen?model=nova-3&language=en-US&encoding=linear16&sample_rate=16000`
+    return new Promise((resolve) => {
+      // Server-side: use Authorization header (proper HTTP auth, impossible in browsers)
+      const ws = new WS(url, { headers: { Authorization: `Token ${rawApiKey}` } })
+      const timeout = setTimeout(() => {
+        ws.terminate()
+        resolve({ ok: false, error: 'timeout_5s' })
+      }, 5000)
+      ws.on('open', () => {
+        clearTimeout(timeout)
+        ws.close()
+        resolve({ ok: true })
+      })
+      ws.on('error', (err: Error) => {
+        clearTimeout(timeout)
+        resolve({ ok: false, error: err.message.slice(0, 200) })
+      })
+      ws.on('close', (code: number, reason: Buffer) => {
+        clearTimeout(timeout)
+        resolve({ ok: false, code, reason: reason.toString().slice(0, 200) })
+      })
+    })
+  } catch (e) {
+    return { ok: false, error: String(e) }
+  }
+}
+// #endregion
+
+/**
  * Issues a short-lived Deepgram JWT for the browser SDK via auth.grantToken().
  * Falls back to the raw API key only if grant fails or DEEPGRAM_SKIP_GRANT_TOKEN=true.
  */
@@ -50,16 +88,11 @@ export async function POST() {
   const skipGrant = process.env.DEEPGRAM_SKIP_GRANT_TOKEN === 'true'
 
   // #region agent log
-  await dbgIngest({
+  await dbgLog({
     hypothesisId: 'H1_server_key',
     location: 'app/api/deepgram/token/route.ts:POST',
     message: 'token_route_hit',
-    data: {
-      keyFp: keyFingerprint(apiKey),
-      keyLen: apiKey?.length ?? 0,
-      skipGrant,
-      nodeEnv: process.env.NODE_ENV,
-    },
+    data: { keyFp: keyFingerprint(apiKey), keyLen: apiKey?.length ?? 0, skipGrant },
   })
   // #endregion
 
@@ -70,13 +103,16 @@ export async function POST() {
     })
   }
 
+  let tokenToReturn = apiKey
+  let issuedVia: 'jwt' | 'api_key' = 'api_key'
+
   if (!skipGrant) {
     try {
       const deepgram = createClient(apiKey)
       const { result, error } = await deepgram.auth.grantToken()
 
       // #region agent log
-      await dbgIngest({
+      await dbgLog({
         hypothesisId: 'H2_grantToken_outcome',
         location: 'app/api/deepgram/token/route.ts:POST',
         message: 'grantToken_returned',
@@ -84,50 +120,34 @@ export async function POST() {
           hasError: Boolean(error),
           errorPreview: error ? formatGrantError(error).slice(0, 200) : null,
           hasToken: Boolean(result?.access_token),
-          tokenIsJwt: result?.access_token
-            ? result.access_token.startsWith('eyJ') && result.access_token.split('.').length === 3
-            : false,
         },
       })
       // #endregion
 
       if (!error && result?.access_token) {
-        return NextResponse.json(
-          devTokenPayload({ token: result.access_token, ttlSeconds: 28 }, 'jwt'),
-          { headers: devIssuedViaHeader('jwt') }
-        )
+        tokenToReturn = result.access_token
+        issuedVia = 'jwt'
+      } else {
+        console.warn(`[deepgram/token] grantToken unavailable; falling back to API key.`)
       }
-
-      console.warn(
-        `[deepgram/token] grantToken unavailable (${formatGrantError(error ?? 'unknown').slice(0, 200)}); falling back to API key.`
-      )
     } catch (err) {
-      // #region agent log
-      await dbgIngest({
-        hypothesisId: 'H2_grantToken_outcome',
-        location: 'app/api/deepgram/token/route.ts:POST',
-        message: 'grantToken_threw',
-        data: { errorPreview: formatGrantError(err).slice(0, 200) },
-      })
-      // #endregion
-      console.warn(
-        `[deepgram/token] grantToken threw (${formatGrantError(err).slice(0, 200)}); falling back to API key.`
-      )
+      console.warn(`[deepgram/token] grantToken threw; falling back to API key.`)
     }
   }
 
-  // #region agent log
-  await dbgIngest({
-    hypothesisId: 'H3_branch_taken',
+  // #region agent log — server-side WS probe with raw API key + Authorization header
+  const probeResult = await probeServerSideWs(apiKey)
+  await dbgLog({
+    hypothesisId: 'H6_server_ws_probe',
     location: 'app/api/deepgram/token/route.ts:POST',
-    message: 'returning_api_key_fallback',
-    data: { keyFp: keyFingerprint(apiKey) },
+    message: 'server_side_ws_probe',
+    data: { ...probeResult, issuedVia },
   })
   // #endregion
 
   return NextResponse.json(
-    devTokenPayload({ token: apiKey, ttlSeconds: 3600 }, 'api_key'),
-    { headers: devIssuedViaHeader('api_key') }
+    devTokenPayload({ token: tokenToReturn, ttlSeconds: issuedVia === 'jwt' ? 28 : 3600 }, issuedVia),
+    { headers: devIssuedViaHeader(issuedVia) }
   )
 }
 

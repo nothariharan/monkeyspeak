@@ -5,11 +5,11 @@
   "scripts": {
     "postinstall": "patch-package",
     "clean": "node -e \"const fs=require('fs');for(const p of['.next','node_modules/.cache','.turbo']){try{fs.rmSync(p,{recursive:true,force:true})}catch(e){}}\"",
-    "dev": "next dev",
+    "dev": "node server.js",
     "dev:turbo": "next dev --turbo",
-    "dev:clean": "npm run clean && next dev",
+    "dev:clean": "npm run clean && node server.js",
     "build": "next build",
-    "start": "next start",
+    "start": "NODE_ENV=production node server.js",
     "lint": "next lint"
   },
   "dependencies": {
@@ -21,6 +21,7 @@
     "onnxruntime-web": "^1.26.0",
     "react": "^18",
     "react-dom": "^18",
+    "ws": "^8.20.0",
     "zustand": "^4.5.4"
   },
   "devDependencies": {
@@ -28,6 +29,7 @@
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
+    "@types/ws": "^8.18.1",
     "autoprefixer": "^10.0.1",
     "eslint": "^8",
     "eslint-config-next": "14.2.5",
