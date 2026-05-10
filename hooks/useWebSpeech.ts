@@ -345,5 +345,8 @@ export function useWebSpeech(): SpeechProvider {
     startSession,
     stopSession,
     reset,
+    // No VAD in WebSpeech — both callbacks are no-ops
+    onSpeechStart: () => {},
+    onSpeechEnd: () => {},
   }
 }

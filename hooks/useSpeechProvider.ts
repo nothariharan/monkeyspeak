@@ -45,6 +45,17 @@ export interface SpeechProviderActions {
   stopSession: () => void
   /** Clears interimText, confirmedWords, fillerCount, and resets internal refs. */
   reset: () => void
+  /**
+   * Register a callback fired when VAD detects the start of speech.
+   * Fires within ~32ms of the first phoneme (Deepgram path only).
+   * WebSpeech implementation is a no-op.
+   */
+  onSpeechStart?: (handler: (ts: number) => void) => void
+  /**
+   * Register a callback fired when VAD detects the end of speech.
+   * WebSpeech implementation is a no-op.
+   */
+  onSpeechEnd?: (handler: (ts: number) => void) => void
 }
 
 export type SpeechProvider = SpeechProviderState & SpeechProviderActions

@@ -8,6 +8,51 @@ import { isFiller } from '@/lib/fillers'
 import { useTestStore } from '@/store/testStore'
 import type { SpeechProvider, EnrichedWord } from './useSpeechProvider'
 
+function dgErrData(err: unknown): Record<string, unknown> {
+  if (err instanceof Error) return { name: err.name, message: err.message }
+  if (err && typeof err === 'object') {
+    const o = err as Record<string, unknown>
+    const msg = o.message ?? o.error ?? o.reason
+    return {
+      keys: Object.keys(o),
+      message: typeof msg === 'string' ? msg : JSON.stringify(msg),
+    }
+  }
+  return { raw: String(err) }
+}
+
+function dbgDeepgram(payload: {
+  hypothesisId: string
+  location: string
+  message: string
+  data: Record<string, unknown>
+  runId?: string
+}) {
+  // #region agent log
+  fetch('/api/debug-log', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      sessionId: '08c9af',
+      runId: payload.runId ?? 'dg-ws',
+      timestamp: Date.now(),
+      ...payload,
+    }),
+  }).catch(() => {})
+  // #endregion
+}
+
+/** Dev-only: survives Cursor/workspace log desync — inspect via `localStorage.getItem(key)` */
+function persistDevDeepgramDebug(storageKey: string, data: Record<string, unknown>) {
+  if (process.env.NODE_ENV === 'production') return
+  try {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(storageKey, JSON.stringify({ t: Date.now(), ...data }))
+  } catch {
+    /* private mode / quota */
+  }
+}
+
 const TOKEN_SKEW_MS = 1500
 const TOKEN_REFRESH_IF_TTL_UNDER_MS = 10_000
 
@@ -28,8 +73,51 @@ async function fetchDeepgramToken(): Promise<string> {
   }
 
   const res = await fetch('/api/deepgram/token', { method: 'POST' })
-  if (!res.ok) throw new Error('Failed to fetch Deepgram token')
-  const body = (await res.json()) as { token: string; ttlSeconds?: number }
+  const issuedViaHeader = res.headers.get('X-Debug-Token-Issued-Via')
+  dbgDeepgram({
+    hypothesisId: 'H_net_token_http',
+    location: 'hooks/useDeepgramProvider.ts:fetchDeepgramToken',
+    message: 'token_fetch_response',
+    data: {
+      issuedViaHeader,
+      status: res.status,
+      /** Same-origin fetch can read this dev-only header from our route */
+      hasHeader: issuedViaHeader != null && issuedViaHeader.length > 0,
+    },
+    runId: 'dg-token-net',
+  })
+  if (!res.ok) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn('[MonkeySpeak][Deepgram token] HTTP error', {
+        status: res.status,
+        headerVia: issuedViaHeader,
+      })
+      persistDevDeepgramDebug('ms:lastDeepgramTokenDebug', {
+        ok: false,
+        status: res.status,
+        headerVia: issuedViaHeader,
+      })
+    }
+    throw new Error('Failed to fetch Deepgram token')
+  }
+  const body = (await res.json()) as {
+    token: string
+    ttlSeconds?: number
+    _debugIssuedVia?: string
+  }
+  if (process.env.NODE_ENV !== 'production') {
+    console.info('[MonkeySpeak][Deepgram token]', {
+      headerVia: issuedViaHeader,
+      bodyVia: body._debugIssuedVia ?? '(missing — old server bundle or prod build)',
+      status: res.status,
+    })
+    persistDevDeepgramDebug('ms:lastDeepgramTokenDebug', {
+      ok: true,
+      status: res.status,
+      headerVia: issuedViaHeader,
+      bodyVia: body._debugIssuedVia ?? null,
+    })
+  }
   const ttlMs = Math.max(8_000, ((body.ttlSeconds ?? 28) * 1000) - TOKEN_SKEW_MS)
   cachedToken = body.token
   cacheExpiresAt = now + ttlMs
@@ -70,18 +158,18 @@ export function useDeepgramProvider(): SpeechProvider {
   const [error, setError]                   = useState<string | null>(null)
   const [micStream, setMicStream]           = useState<MediaStream | null>(null)
 
-  const liveRef     = useRef<LiveClient | null>(null)
-  const prewarmRef  = useRef<LiveClient | null>(null)
-  const streamRef   = useRef<MediaStream | null>(null)
-  const workletRef  = useRef<AudioWorkletNode | null>(null)
-  const contextRef  = useRef<AudioContext | null>(null)
-  const activeRef   = useRef(false)
-  const armedRef    = useRef(false)
+  const liveRef           = useRef<LiveClient | null>(null)
+  const prewarmRef        = useRef<LiveClient | null>(null)
+  const streamRef         = useRef<MediaStream | null>(null)
+  const workletRef        = useRef<AudioWorkletNode | null>(null)
+  const contextRef        = useRef<AudioContext | null>(null)
+  const vadWorkerRef      = useRef<Worker | null>(null)
+  const activeRef         = useRef(false)
+  const armedRef          = useRef(false)
+  const onSpeechStartRef  = useRef<((ts: number) => void) | null>(null)
+  const onSpeechEndRef    = useRef<((ts: number) => void) | null>(null)
 
   // ── Pre-warm the WebSocket on mount to absorb the TLS handshake ────────────
-  // The pre-warmed connection is picked up by _openConnection if still open,
-  // eliminating the handshake cost from the critical path when the user
-  // clicks Start. Token is also pre-fetched here.
   useEffect(() => {
     let cancelled = false
 
@@ -90,6 +178,13 @@ export function useDeepgramProvider(): SpeechProvider {
         const token = await fetchDeepgramToken()
         if (cancelled) return
 
+        dbgDeepgram({
+          hypothesisId: 'H2_token_client_ok',
+          location: 'useDeepgramProvider.ts:prewarm',
+          message: 'token_fetched',
+          data: { tokenLen: token.length },
+        })
+
         const language = useTestStore.getState().settings.language ?? 'en-US'
         const deepgram = createClient(token)
         const live = deepgram.listen.live(
@@ -97,13 +192,41 @@ export function useDeepgramProvider(): SpeechProvider {
         )
         prewarmRef.current = live
 
-        live.on(LiveTranscriptionEvents.Error, () => {
+        live.on(LiveTranscriptionEvents.Open, () => {
+          dbgDeepgram({
+            hypothesisId: 'H4_prewarm_open',
+            location: 'useDeepgramProvider.ts:prewarm',
+            message: 'LiveTranscriptionEvents.Open',
+            data: { readyState: live.getReadyState() },
+          })
+        })
+        live.on(LiveTranscriptionEvents.Error, (err) => {
+          const errData = dgErrData(err)
+          dbgDeepgram({
+            hypothesisId: 'H5_prewarm_err',
+            location: 'useDeepgramProvider.ts:prewarm',
+            message: 'LiveTranscriptionEvents.Error',
+            data: errData,
+          })
+          persistDevDeepgramDebug('ms:lastDeepgramWsError', { ...errData, scope: 'prewarm' })
           if (prewarmRef.current === live) prewarmRef.current = null
         })
         live.on(LiveTranscriptionEvents.Close, () => {
+          dbgDeepgram({
+            hypothesisId: 'H6_prewarm_close',
+            location: 'useDeepgramProvider.ts:prewarm',
+            message: 'LiveTranscriptionEvents.Close',
+            data: { readyState: live.getReadyState() },
+          })
           if (prewarmRef.current === live) prewarmRef.current = null
         })
-      } catch {
+      } catch (e) {
+        dbgDeepgram({
+          hypothesisId: 'H2_token_client_fail',
+          location: 'useDeepgramProvider.ts:prewarm',
+          message: 'prewarm_catch',
+          data: { err: String(e) },
+        })
         // Pre-warm is best-effort; _openConnection falls back to on-demand.
       }
     }
@@ -122,6 +245,13 @@ export function useDeepgramProvider(): SpeechProvider {
   const _teardown = useCallback(() => {
     activeRef.current = false
 
+    if (vadWorkerRef.current) {
+      try {
+        vadWorkerRef.current.postMessage({ type: 'reset' })
+        vadWorkerRef.current.terminate()
+      } catch { /* ignore */ }
+      vadWorkerRef.current = null
+    }
     if (workletRef.current) {
       try { workletRef.current.disconnect(); workletRef.current.port.close() } catch { /* ignore */ }
       workletRef.current = null
@@ -172,12 +302,51 @@ export function useDeepgramProvider(): SpeechProvider {
       const worklet = new AudioWorkletNode(ctx, 'pcm-processor')
       workletRef.current = worklet
 
+      // ── Spawn VAD Worker ────────────────────────────────────────────────
+      const vadWorker = new Worker('/vad-worker.js')
+      vadWorkerRef.current = vadWorker
+
+      vadWorker.postMessage({ type: 'init' })
+
+      // Worklet → VAD Worker: forward raw Float32 samples (already 16kHz)
       worklet.port.onmessage = (ev: MessageEvent<Float32Array>) => {
-        if (live.getReadyState() !== WebSocket.OPEN) return
-        const input = ev.data
-        if (!input?.length) return
-        const pcm16 = float32ToLinear16Pcm16k(input, ctx.sampleRate)
-        live.send(pcm16.buffer)
+        if (!ev.data?.length) return
+        if (!activeRef.current) return
+        // Transfer ownership to avoid copying
+        const copy = ev.data.slice()
+        vadWorker.postMessage({ type: 'pcm', buffer: copy.buffer }, [copy.buffer])
+      }
+
+      // VAD Worker → Deepgram WebSocket (voiced frames only)
+      vadWorker.onmessage = (ev: MessageEvent) => {
+        const msg = ev.data as {
+          type: string
+          buffer?: ArrayBuffer
+          timestamp?: number
+          message?: string
+        }
+
+        if (msg.type === 'audio') {
+          if (live.getReadyState() !== WebSocket.OPEN) return
+          const f32 = new Float32Array(msg.buffer!)
+          // AudioContext runs at 16kHz, so no resampling — just float→int16
+          const pcm16 = float32ToLinear16Pcm16k(f32, 16000)
+          live.send(pcm16.buffer)
+        } else if (msg.type === 'speech_start') {
+          onSpeechStartRef.current?.(msg.timestamp!)
+        } else if (msg.type === 'speech_end') {
+          onSpeechEndRef.current?.(msg.timestamp!)
+        } else if (msg.type === 'error') {
+          // VAD model failed to load — fall back to unfiltered audio
+          console.warn('[VAD] Worker error:', msg.message, '— falling back to unfiltered audio')
+          worklet.port.onmessage = (ev2: MessageEvent<Float32Array>) => {
+            if (live.getReadyState() !== WebSocket.OPEN) return
+            const input = ev2.data
+            if (!input?.length) return
+            const pcm16 = float32ToLinear16Pcm16k(input, ctx.sampleRate)
+            live.send(pcm16.buffer)
+          }
+        }
       }
 
       const mute = ctx.createGain()
@@ -226,7 +395,6 @@ export function useDeepgramProvider(): SpeechProvider {
     setMicStream(stream)
 
     // Use the pre-warmed WebSocket if it is already open; otherwise open fresh.
-    // This eliminates the TLS handshake from the critical path.
     let live: LiveClient
     const prewarmed =
       prewarmRef.current?.getReadyState() === WebSocket.OPEN
@@ -237,7 +405,19 @@ export function useDeepgramProvider(): SpeechProvider {
       live = prewarmed
       prewarmRef.current = null
       liveRef.current = live
+      dbgDeepgram({
+        hypothesisId: 'H7_reuse_prewarm',
+        location: 'useDeepgramProvider.ts:_openConnection',
+        message: 'using_prewarmed_socket',
+        data: { readyState: live.getReadyState() },
+      })
     } else {
+      dbgDeepgram({
+        hypothesisId: 'H3_fresh_ws',
+        location: 'useDeepgramProvider.ts:_openConnection',
+        message: 'creating_new_live_client',
+        data: { tokenLen: token.length },
+      })
       const deepgram = createClient(token)
       const language = useTestStore.getState().settings.language ?? 'en-US'
       const dgOpts = buildDgLiveOpts(language)
@@ -262,9 +442,6 @@ export function useDeepgramProvider(): SpeechProvider {
 
       setInterimText('')
 
-      // Extract per-word timing and confidence from Deepgram's word objects.
-      // These are stored in enrichedWords (parallel to confirmedWords) for use
-      // by the aligner in Phase 2 per-word WPM calculations.
       const wordObjs = (alt.words ?? []) as Array<{
         word: string
         start: number
@@ -292,7 +469,6 @@ export function useDeepgramProvider(): SpeechProvider {
           }
         }
       } else {
-        // Fallback when Deepgram doesn't emit word-level objects.
         for (const w of transcript.split(/\s+/).filter(Boolean)) {
           if (isFiller(w)) {
             newFillers++
@@ -311,6 +487,14 @@ export function useDeepgramProvider(): SpeechProvider {
     })
 
     live.on(LiveTranscriptionEvents.Error, (err) => {
+      const errData = dgErrData(err)
+      dbgDeepgram({
+        hypothesisId: 'H5_session_err',
+        location: 'useDeepgramProvider.ts:_openConnection',
+        message: 'LiveTranscriptionEvents.Error',
+        data: errData,
+      })
+      persistDevDeepgramDebug('ms:lastDeepgramWsError', { ...errData, scope: 'session' })
       console.error('[Deepgram] error:', err)
       setError('Deepgram connection error')
       _teardown()
@@ -324,12 +508,16 @@ export function useDeepgramProvider(): SpeechProvider {
       }
     })
 
-    // Set up AudioWorklet — immediately if WS is already open (pre-warmed path),
-    // otherwise wait for the Open event.
     if (prewarmed) {
       void _setupAudioWorklet(live, stream)
     } else {
       live.on(LiveTranscriptionEvents.Open, () => {
+        dbgDeepgram({
+          hypothesisId: 'H4_session_open',
+          location: 'useDeepgramProvider.ts:_openConnection',
+          message: 'LiveTranscriptionEvents.Open',
+          data: { readyState: live.getReadyState() },
+        })
         void _setupAudioWorklet(live, stream)
       })
     }
@@ -365,6 +553,14 @@ export function useDeepgramProvider(): SpeechProvider {
     return true
   }, [_openConnection])
 
+  const onSpeechStart = useCallback((handler: (ts: number) => void) => {
+    onSpeechStartRef.current = handler
+  }, [])
+
+  const onSpeechEnd = useCallback((handler: (ts: number) => void) => {
+    onSpeechEndRef.current = handler
+  }, [])
+
   useEffect(() => () => { _teardown() }, [_teardown])
 
   return {
@@ -379,5 +575,7 @@ export function useDeepgramProvider(): SpeechProvider {
     startSession,
     stopSession,
     reset,
+    onSpeechStart,
+    onSpeechEnd,
   }
 }

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { useTestStore } from '@/store/testStore'
 import type { WordResult } from '@/store/testStore'
+import { netWpmFromChars } from '@/lib/stats/wpm'
 
 interface UseWpmReturn {
   wpm: number
@@ -11,9 +12,10 @@ interface UseWpmReturn {
 }
 
 /**
- * Tracks confirmed words and computes WPM every 500ms.
+ * Tracks confirmed words and computes WPM every 500ms using the MonkeyType
+ * 5-character standard (correct chars / 5 / elapsedMinutes).
  * Does not display WPM until 3 seconds have elapsed (§7.3).
- * Records 5-second snapshots for consistency calc (§7.4).
+ * Records 5-second snapshots for consistency fallback (§7.4).
  */
 export function useWpm(
   confirmedWords: WordResult[],
@@ -34,13 +36,15 @@ export function useWpm(
       return
     }
 
-    const netWords = Math.max(0, confirmedWords.length - fillerCount)
-    const elapsedMin = elapsedMs / 60_000
-    const computed = Math.round(netWords / elapsedMin)
+    const s = useTestStore.getState()
+    const correctWords = s.confirmedWords.filter((w) => w.isCorrect)
+    // +1 per word accounts for the trailing space in the 5-char standard
+    const correctChars = correctWords.reduce((sum, w) => sum + w.word.length + 1, 0)
+    const computed = netWpmFromChars(correctChars, elapsedMs / 1000)
     setWpm(computed)
 
     if (computed > peakWpm) setPeakWpm(computed)
-  }, [confirmedWords.length, fillerCount, peakWpm, setWpm, setPeakWpm, startTimeRef])
+  }, [peakWpm, setWpm, setPeakWpm, startTimeRef])
 
   const recordSnapshot = useCallback(() => {
     if (!startTimeRef.current) return

@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { ProviderType } from '@/hooks/useSpeechProvider'
 import { persist } from 'zustand/middleware'
+import { computeConsistency } from '@/lib/stats/consistency'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -76,6 +77,10 @@ interface TestStore {
   peakWpm: number
   consistency: number
   wpmSnapshots: WpmSnapshot[]
+  /** Per-word burst rawWPM values (one per correct word with Deepgram endTime). */
+  wordRawWpms: number[]
+  /** Deepgram endTime (seconds) of the last confirmed correct word; null until first correct word. */
+  lastCorrectWordEndTime: number | null
   /** Wall time when startTest() ran (session arm); null when idle */
   testStartedAt: number | null
   /** Speed mode: WPM/timer/graph epoch — set on first speech (after optional arming); null until then */
@@ -113,6 +118,8 @@ interface TestStore {
   setWpm: (wpm: number) => void
   setPeakWpm: (wpm: number) => void
   addWpmSnapshot: (snapshot: WpmSnapshot) => void
+  pushWordRawWpm: (v: number) => void
+  setLastCorrectWordEndTime: (t: number) => void
   finaliseConsistency: () => void
   setClarityTranscript: (t: string) => void
   setDiffResult: (result: DiffWord[], score: number, grade: TestStore['clarityGrade']) => void
@@ -158,6 +165,8 @@ export const useTestStore = create<TestStore>()(
       peakWpm: 0,
       consistency: 100,
       wpmSnapshots: [],
+      wordRawWpms: [],
+      lastCorrectWordEndTime: null,
       testStartedAt: null,
       speedClockStartedAt: null,
       speedTimelineEvents: [],
@@ -228,25 +237,16 @@ export const useTestStore = create<TestStore>()(
       addWpmSnapshot: (snapshot) =>
         set((s) => ({ wpmSnapshots: [...s.wpmSnapshots, snapshot] })),
 
+      pushWordRawWpm: (v) =>
+        set((s) => ({ wordRawWpms: [...s.wordRawWpms, v] })),
+
+      setLastCorrectWordEndTime: (t) => set({ lastCorrectWordEndTime: t }),
+
       finaliseConsistency: () => {
-        const { wpmSnapshots } = get()
-        if (wpmSnapshots.length < 2) {
-          set({ consistency: 100 })
-          return
-        }
-        const values = wpmSnapshots.map((s) => s.wpm)
-        const mean = values.reduce((a, b) => a + b, 0) / values.length
-        if (!mean || !Number.isFinite(mean)) {
-          set({ consistency: 100 })
-          return
-        }
-        const variance = values.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / values.length
-        const stdDev = Math.sqrt(variance)
-        const raw = 100 - (stdDev / mean) * 100
-        const consistency = Number.isFinite(raw)
-          ? Math.max(0, Math.min(100, Math.round(raw)))
-          : 100
-        set({ consistency })
+        const { wordRawWpms, wpmSnapshots } = get()
+        // Prefer per-word acoustic WPMs when available; fall back to 5-second snapshots
+        const values = wordRawWpms.length >= 2 ? wordRawWpms : wpmSnapshots.map((s) => s.wpm)
+        set({ consistency: computeConsistency(values) })
       },
 
       setClarityTranscript: (clarityTranscript) => set({ clarityTranscript }),
@@ -284,6 +284,8 @@ export const useTestStore = create<TestStore>()(
           peakWpm: 0,
           consistency: 100,
           wpmSnapshots: [],
+          wordRawWpms: [],
+          lastCorrectWordEndTime: null,
           testStartedAt: t,
           speedClockStartedAt: null,
           speedTimelineEvents: [],
@@ -307,6 +309,8 @@ export const useTestStore = create<TestStore>()(
           peakWpm: 0,
           consistency: 100,
           wpmSnapshots: [],
+          wordRawWpms: [],
+          lastCorrectWordEndTime: null,
           testStartedAt: null,
           speedClockStartedAt: null,
           speedTimelineEvents: [],

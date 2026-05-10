@@ -1,17 +1,23 @@
 import { isFiller } from '@/lib/fillers'
-import { normalizeWordToken, tokensRoughlyMatch } from '@/lib/wordMatch'
+import { normalizeWordToken } from '@/lib/wordMatch'
+import { smithWatermanAlign } from '@/lib/dpAlign'
 import type { WordResult } from '@/store/testStore'
 import type { EnrichedWord } from '@/hooks/useSpeechProvider'
 
-// Keep aligned with `MAX_SPECULATIVE_LOOKAHEAD`: large lookahead + `tokensRoughlyMatch`
-// makes common words match the wrong occurrence and skips multiple prompt slots in one
-// final batch (visible cursor jumps). 4 is enough for short ASR lag.
-const LOOKAHEAD = 4
+/**
+ * Extra prompt words beyond the spoken count to include in the alignment
+ * window. Handles large skips (speaker jumping ahead), repeated restarts,
+ * and homophones — situations where the old 4-word LOOKAHEAD would fail.
+ */
+const WINDOW_EXTRA = 16
 
 /**
  * Map a batch of ASR tokens from one Deepgram `is_final` message onto the next
- * prompt positions. Handles: punctuation, light typos, duplicate/overlapping
- * finals, and brief ASR lag vs prompt index.
+ * prompt positions using Smith-Waterman local sequence alignment.
+ *
+ * Scoring: +3 exact, +2 phonetic (Double Metaphone), +1 edit-distance ≤ 1, −1 gap.
+ * Traceback from the highest-scoring cell so unspoken trailing prompt words
+ * are never penalised.
  *
  * Accepts EnrichedWord[] so that per-word timing and confidence from Deepgram
  * flow through into the resulting WordResult objects for Phase 2 WPM math.
@@ -23,110 +29,102 @@ export function alignAsrFinalToPrompt(
   startPromptIndex: number,
   onFiller: () => void
 ): WordResult[] {
-  const out: WordResult[] = []
-  let pi = startPromptIndex
-  let ti = 0
   const now = () => Date.now()
 
-  while (ti < spokenTokens.length) {
-    const token = spokenTokens[ti]!
+  // ── 1. Separate fillers from real tokens ────────────────────────────────
+  const realTokens: EnrichedWord[] = []
+  for (const token of spokenTokens) {
     const raw = token.word?.trim() ?? ''
-    if (!raw) {
-      ti++
-      continue
-    }
-
-    const spokenNorm = normalizeWordToken(raw)
-    const spokenLower = raw.toLowerCase().trim()
-
-    if (isFiller(spokenLower)) {
+    if (!raw) continue
+    if (isFiller(raw.toLowerCase())) {
       onFiller()
-      ti++
-      continue
+    } else {
+      realTokens.push(token)
     }
+  }
 
-    if (pi >= prompt.length) {
-      out.push({
-        word: spokenNorm || spokenLower,
-        isCorrect: false,
-        isFiller: false,
-        timestamp: now(),
-        startTime: token.start,
-        endTime: token.end,
-        confidence: token.confidence,
-      })
-      ti++
-      continue
-    }
+  if (realTokens.length === 0) return []
 
-    // Duplicate / overlapping final: same token as last prompt word already consumed
-    if (pi > 0 && tokensRoughlyMatch(raw, prompt[pi - 1] ?? '')) {
-      ti++
-      continue
-    }
-
-    const expected = prompt[pi] ?? ''
-
-    if (tokensRoughlyMatch(raw, expected)) {
-      out.push({
-        word: spokenNorm || spokenLower,
-        isCorrect: true,
-        isFiller: false,
-        timestamp: now(),
-        startTime: token.start,
-        endTime: token.end,
-        confidence: token.confidence,
-      })
-      pi++
-      ti++
-      continue
-    }
-
-    let found = -1
-    for (let k = 1; k <= LOOKAHEAD && pi + k < prompt.length; k++) {
-      if (tokensRoughlyMatch(raw, prompt[pi + k] ?? '')) {
-        found = k
-        break
-      }
-    }
-
-    if (found > 0) {
-      // Emit auto-filled prompt words for the skipped slots (no timing data).
-      for (let s = 0; s < found; s++) {
-        const missed = prompt[pi + s] ?? ''
-        out.push({
-          word: normalizeWordToken(missed) || missed.toLowerCase(),
-          isCorrect: true,
-          isFiller: false,
-          timestamp: now(),
-        })
-      }
-      pi += found
-      out.push({
-        word: spokenNorm || spokenLower,
-        isCorrect: true,
-        isFiller: false,
-        timestamp: now(),
-        startTime: token.start,
-        endTime: token.end,
-        confidence: token.confidence,
-      })
-      pi++
-      ti++
-      continue
-    }
-
-    out.push({
-      word: spokenNorm || spokenLower,
+  if (startPromptIndex >= prompt.length) {
+    // Past end of prompt — mark everything incorrect
+    return realTokens.map((token) => ({
+      word: normalizeWordToken(token.word ?? '') || (token.word ?? '').toLowerCase(),
       isCorrect: false,
       isFiller: false,
       timestamp: now(),
       startTime: token.start,
       endTime: token.end,
       confidence: token.confidence,
-    })
-    pi++
-    ti++
+    }))
+  }
+
+  // ── 2. Slice prompt window ───────────────────────────────────────────────
+  const windowEnd = Math.min(prompt.length, startPromptIndex + realTokens.length + WINDOW_EXTRA)
+  const promptWindow = prompt.slice(startPromptIndex, windowEnd)
+
+  // ── 3. Run Smith-Waterman alignment ─────────────────────────────────────
+  const entries = smithWatermanAlign(realTokens, promptWindow, startPromptIndex)
+
+  if (entries.length === 0) {
+    // Aligner found no alignment at all — mark all tokens incorrect
+    return realTokens.map((token) => ({
+      word: normalizeWordToken(token.word ?? '') || (token.word ?? '').toLowerCase(),
+      isCorrect: false,
+      isFiller: false,
+      timestamp: now(),
+      startTime: token.start,
+      endTime: token.end,
+      confidence: token.confidence,
+    }))
+  }
+
+  // ── 4. Build WordResult[] from alignment entries ─────────────────────────
+  // Sort by promptIdx so results come out in prompt order.
+  const sorted = [...entries].sort((a, b) => a.promptIdx - b.promptIdx)
+
+  const out: WordResult[] = []
+
+  for (const entry of sorted) {
+    const promptWord = prompt[entry.promptIdx] ?? ''
+    const norm = normalizeWordToken(promptWord) || promptWord.toLowerCase()
+
+    if (entry.spokenIdx === null) {
+      // Gap-fill: prompt word was skipped — auto-fill as correct, no timing
+      out.push({
+        word: norm,
+        isCorrect: true,
+        isFiller: false,
+        timestamp: now(),
+      })
+    } else {
+      const token = realTokens[entry.spokenIdx]!
+      const spokenNorm =
+        normalizeWordToken(token.word ?? '') || (token.word ?? '').toLowerCase()
+
+      if (entry.matchScore >= 2) {
+        // Good phonetic or exact match
+        out.push({
+          word: spokenNorm,
+          isCorrect: true,
+          isFiller: false,
+          timestamp: now(),
+          startTime: token.start,
+          endTime: token.end,
+          confidence: token.confidence,
+        })
+      } else {
+        // Weak or gap-penalty match — incorrect
+        out.push({
+          word: spokenNorm,
+          isCorrect: false,
+          isFiller: false,
+          timestamp: now(),
+          startTime: token.start,
+          endTime: token.end,
+          confidence: token.confidence,
+        })
+      }
+    }
   }
 
   return out

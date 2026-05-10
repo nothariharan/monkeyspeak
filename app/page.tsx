@@ -10,6 +10,7 @@ import { generatePrompt, regeneratePrompt, type PromptMode } from '@/lib/prompts
 import { diffWords, calcClarityScore } from '@/lib/diff'
 import { alignAsrFinalToPrompt } from '@/lib/asrPromptAlign'
 import { emitDebugLog } from '@/lib/debugLog'
+import { netWpmFromChars, perWordRawWpm } from '@/lib/stats/wpm'
 import type { EnrichedWord } from '@/hooks/useSpeechProvider'
 
 import Header from '@/components/Header'
@@ -62,6 +63,7 @@ export default function Home() {
     startSession,
     stopSession,
     reset: resetProvider,
+    onSpeechStart,
   } = useActiveSpeechProvider(sttProvider)
 
   const clearSpeedArmingTimers = useCallback(() => {
@@ -121,9 +123,9 @@ export default function Home() {
     if (s.mode !== 'speed') return
     const elapsedMs = Date.now() - t0
     if (elapsedMs < 3000) return
-    const netWords = Math.max(0, s.confirmedWords.length - s.fillerCount)
-    const elapsedMin = elapsedMs / 60_000
-    const computed = Math.round(netWords / elapsedMin)
+    const correctWords = s.confirmedWords.filter((w) => w.isCorrect)
+    const correctChars = correctWords.reduce((sum, w) => sum + w.word.length + 1, 0)
+    const computed = netWpmFromChars(correctChars, elapsedMs / 1000)
     s.setWpm(computed)
     if (computed > s.peakWpm) s.setPeakWpm(computed)
     s.addWpmSnapshot({ wpm: computed, timestamp: Date.now() })
@@ -159,6 +161,15 @@ export default function Home() {
       if (!result.isCorrect) triggerWaveformError()
       addWord(result)
       advanceWord()
+      if (result.isCorrect && result.endTime != null) {
+        const cur = useTestStore.getState()
+        const prev = cur.lastCorrectWordEndTime
+        const delta = prev != null ? result.endTime - prev : result.endTime
+        if (delta > 0) {
+          cur.pushWordRawWpm(perWordRawWpm(result.word.length, delta))
+        }
+        cur.setLastCorrectWordEndTime(result.endTime)
+      }
     }
   }, [triggerWaveformError])
 
@@ -179,6 +190,23 @@ export default function Home() {
     startTimer()
     flushPendingConfirmedWords()
   }, [startTimer, flushPendingConfirmedWords])
+
+  // ── VAD epoch binding ─────────────────────────────────────────────────────
+  // Register the VAD speech_start callback once on mount so the first voiced
+  // frame (~32ms latency) sets firstSpeechTsRef, ~200ms earlier than waiting
+  // for the first confirmed word batch from Deepgram.
+  useEffect(() => {
+    onSpeechStart?.((ts) => {
+      const s = useTestStore.getState()
+      if (s.testState !== 'running' || s.mode !== 'speed') return
+      if (firstSpeechTsRef.current == null) {
+        firstSpeechTsRef.current = ts
+        armingEndTsRef.current = null
+        tryCommitSpeedEpoch()
+      }
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onSpeechStart])
 
   // ── confirmedWords → store (provider feeds us the array) ─────────────────
   // Track the previous length so we only process new entries each render.
@@ -240,6 +268,15 @@ export default function Home() {
       if (!result.isCorrect) triggerWaveformError()
       addWord(result)
       advanceWord()
+      if (result.isCorrect && result.endTime != null) {
+        const cur = useTestStore.getState()
+        const prev = cur.lastCorrectWordEndTime
+        const delta = prev != null ? result.endTime - prev : result.endTime
+        if (delta > 0) {
+          cur.pushWordRawWpm(perWordRawWpm(result.word.length, delta))
+        }
+        cur.setLastCorrectWordEndTime(result.endTime)
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [confirmedWords, enrichedWords])
@@ -281,9 +318,9 @@ export default function Home() {
     if (!startTimeRef.current) return
     const elapsedMs = Date.now() - startTimeRef.current
     if (elapsedMs < 3000) return
-    const netWords = Math.max(0, s.confirmedWords.length - s.fillerCount)
-    const elapsedMin = elapsedMs / 60_000
-    const computed = Math.round(netWords / elapsedMin)
+    const correctWords = s.confirmedWords.filter((w) => w.isCorrect)
+    const correctChars = correctWords.reduce((sum, w) => sum + w.word.length + 1, 0)
+    const computed = netWpmFromChars(correctChars, elapsedMs / 1000)
     s.setWpm(computed)
     if (computed > s.peakWpm) s.setPeakWpm(computed)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -298,8 +335,9 @@ export default function Home() {
       if (s.testState !== 'running' || s.mode !== 'speed') return
       const elapsedMs = Date.now() - startTimeRef.current
       if (elapsedMs < 3000) return
-      const netWords = Math.max(0, s.confirmedWords.length - s.fillerCount)
-      const computed = Math.round(netWords / (elapsedMs / 60_000))
+      const correctWords = s.confirmedWords.filter((w) => w.isCorrect)
+      const correctChars = correctWords.reduce((sum, w) => sum + w.word.length + 1, 0)
+      const computed = netWpmFromChars(correctChars, elapsedMs / 1000)
       s.setWpm(computed)
       if (computed > s.peakWpm) s.setPeakWpm(computed)
       s.addWpmSnapshot({ wpm: computed, timestamp: Date.now() })
