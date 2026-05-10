@@ -1,6 +1,26 @@
 import { createClient } from '@deepgram/sdk'
 import { NextResponse } from 'next/server'
+import { appendDebug08Line } from '@/lib/debug08'
 import { appendSessionDebugLine } from '@/lib/debugSessionLog'
+
+/** Avoid stale compiled handler + CDN-ish caching during local debugging */
+export const dynamic = 'force-dynamic'
+
+const DEBUG_INGEST_URL = process.env.DEBUG_INGEST_URL
+
+function devIssuedViaHeader(issuedVia: 'jwt' | 'api_key' | 'none'): HeadersInit {
+  if (process.env.NODE_ENV !== 'development') return {}
+  return { 'X-Debug-Token-Issued-Via': issuedVia }
+}
+
+/** Dev-only: readable in Network response JSON when log files desync from this workspace */
+function devTokenPayload(
+  base: { token: string; ttlSeconds: number },
+  via: 'jwt' | 'api_key'
+): { token: string; ttlSeconds: number; _debugIssuedVia?: string } {
+  if (process.env.NODE_ENV !== 'development') return base
+  return { ...base, _debugIssuedVia: via }
+}
 
 function formatGrantError(err: unknown): string {
   if (err && typeof err === 'object' && 'message' in err) {
@@ -12,74 +32,104 @@ function formatGrantError(err: unknown): string {
 }
 
 /**
- * Issues a short-lived Deepgram temporary token via the SDK.
- * When grantToken succeeds, the API key stays on the server.
- *
- * Keys without token-grant permission return 403; we skip grant by default
- * (fast path returns the key via env for local/dev). Enable grant with:
- * DEEPGRAM_ENABLE_GRANT_TOKEN=true when using a scoped key that can grant.
+ * Issues a short-lived Deepgram token for the browser SDK.
+ * Prefers `auth.grantToken()` (JWT, stays off the client bundle) when the key allows it.
+ * Falls back to returning the API key only if grant fails or `DEEPGRAM_SKIP_GRANT_TOKEN=true`.
  */
 export async function POST() {
   const apiKey = process.env.DEEPGRAM_API_KEY
-  const grantEnabled = process.env.DEEPGRAM_ENABLE_GRANT_TOKEN === 'true'
+  const skipGrant = process.env.DEEPGRAM_SKIP_GRANT_TOKEN === 'true'
   // #region agent log
-  await appendSessionDebugLine({
-    sessionId: '26db2b',
-    runId: 'pre-fix',
-    hypothesisId: 'H0_logging_pipeline',
+  const tokenProbePayload = {
+    sessionId: '08c9af',
+    runId: 'post-fix',
+    hypothesisId: 'H2_token_route',
     location: 'app/api/deepgram/token/route.ts:POST',
-    message: 'Token route hit for session logging pipeline check',
-    data: { grantEnabled, hasApiKey: Boolean(apiKey) },
+    message: 'Token route hit',
+    data: { skipGrant, hasApiKey: Boolean(apiKey), hasProjectId: Boolean(process.env.DEEPGRAM_PROJECT_ID) },
     timestamp: Date.now(),
-  })
-  fetch('http://127.0.0.1:7291/ingest/74562f5e-377a-4199-9293-9988125476d2', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Debug-Session-Id': '26db2b',
-    },
-    body: JSON.stringify({
-      sessionId: '26db2b',
-      runId: 'pre-fix',
-      hypothesisId: 'H0_logging_pipeline',
-      location: 'app/api/deepgram/token/route.ts:POST',
-      message: 'Token route hit for session logging pipeline check',
-      data: { grantEnabled, hasApiKey: Boolean(apiKey) },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {})
+  }
+  const probeRecord = tokenProbePayload as unknown as Record<string, unknown>
+  await appendDebug08Line(probeRecord)
+  await appendSessionDebugLine(probeRecord)
+  if (DEBUG_INGEST_URL) {
+    fetch(DEBUG_INGEST_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Debug-Session-Id': '08c9af',
+      },
+      body: JSON.stringify(tokenProbePayload),
+    }).catch(() => {})
+  }
   // #endregion
 
   if (!apiKey) {
-    return NextResponse.json(
-      { error: 'DEEPGRAM_API_KEY not configured' },
-      { status: 500 }
-    )
+    const errBody =
+      process.env.NODE_ENV === 'development'
+        ? { error: 'DEEPGRAM_API_KEY not configured', _debugIssuedVia: 'none' as const }
+        : { error: 'DEEPGRAM_API_KEY not configured' }
+    return NextResponse.json(errBody, { status: 500, headers: devIssuedViaHeader('none') })
   }
 
-  if (!grantEnabled) {
-    return NextResponse.json({ token: apiKey, ttlSeconds: 3600 })
-  }
+  if (!skipGrant) {
+    try {
+      const deepgram = createClient(apiKey)
+      const projectId = process.env.DEEPGRAM_PROJECT_ID
+      // Use the project-scoped endpoint when DEEPGRAM_PROJECT_ID is set.
+      // Without a project ID, Deepgram returns FORBIDDEN even for valid keys.
+      const grantEndpoint = projectId
+        ? (`:version/projects/${projectId}/auth/grant` as const)
+        : undefined
+      const { result, error } = await deepgram.auth.grantToken(grantEndpoint)
 
-  try {
-    const deepgram = createClient(apiKey)
-    const { result, error } = await deepgram.auth.grantToken()
+      if (!error && result?.access_token) {
+        // #region agent log
+        const jwtRec = {
+          sessionId: '08c9af',
+          runId: 'post-fix',
+          hypothesisId: 'H3_token_issued',
+          location: 'app/api/deepgram/token/route.ts:POST',
+          message: 'token_ready',
+          data: { issuedVia: 'jwt' },
+          timestamp: Date.now(),
+        } as Record<string, unknown>
+        await appendDebug08Line(jwtRec)
+        await appendSessionDebugLine(jwtRec)
+        // #endregion
+        return NextResponse.json(devTokenPayload({ token: result.access_token, ttlSeconds: 28 }, 'jwt'), {
+          headers: devIssuedViaHeader('jwt'),
+        })
+      }
 
-    if (error || !result?.access_token) {
       const hint = formatGrantError(error ?? 'unknown')
       console.warn(
-        `[deepgram/token] grantToken unavailable (${hint.slice(0, 200)}); responding with API key (prefer a key with token grant permissions).`
+        `[deepgram/token] grantToken unavailable (${hint.slice(0, 200)}); falling back to API key.`
       )
-      return NextResponse.json({ token: apiKey, ttlSeconds: 3600 })
+    } catch (err) {
+      console.warn(
+        `[deepgram/token] grantToken threw (${formatGrantError(err).slice(0, 200)}); falling back to API key.`
+      )
     }
-
-    return NextResponse.json({ token: result.access_token, ttlSeconds: 28 })
-  } catch (err) {
-    console.warn(
-      `[deepgram/token] grantToken threw (${formatGrantError(err).slice(0, 200)}); falling back to API key.`
-    )
-    return NextResponse.json({ token: apiKey, ttlSeconds: 3600 })
   }
+
+  // #region agent log
+  const keyRec = {
+    sessionId: '08c9af',
+    runId: 'post-fix',
+    hypothesisId: 'H3_token_issued',
+    location: 'app/api/deepgram/token/route.ts:POST',
+    message: 'token_ready',
+    data: { issuedVia: 'api_key' },
+    timestamp: Date.now(),
+  } as Record<string, unknown>
+  await appendDebug08Line(keyRec)
+  await appendSessionDebugLine(keyRec)
+  // #endregion
+
+  return NextResponse.json(devTokenPayload({ token: apiKey, ttlSeconds: 3600 }, 'api_key'), {
+    headers: devIssuedViaHeader('api_key'),
+  })
 }
 
 export async function GET() {

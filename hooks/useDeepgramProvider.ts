@@ -34,7 +34,7 @@ function dbgDeepgram(payload: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       sessionId: '08c9af',
-      runId: payload.runId ?? 'dg-ws',
+      runId: payload.runId ?? 'post-fix',
       timestamp: Date.now(),
       ...payload,
     }),
@@ -178,11 +178,15 @@ export function useDeepgramProvider(): SpeechProvider {
         const token = await fetchDeepgramToken()
         if (cancelled) return
 
+        // #region agent log
+        const _pwIsJwt = token.startsWith('eyJ') && token.split('.').length === 3
+        // #endregion
         dbgDeepgram({
           hypothesisId: 'H2_token_client_ok',
           location: 'useDeepgramProvider.ts:prewarm',
           message: 'token_fetched',
-          data: { tokenLen: token.length },
+          data: { tokenLen: token.length, prefix: token.slice(0, 6), isJwt: _pwIsJwt },
+          runId: 'post-fix',
         })
 
         const language = useTestStore.getState().settings.language ?? 'en-US'
@@ -211,12 +215,16 @@ export function useDeepgramProvider(): SpeechProvider {
           persistDevDeepgramDebug('ms:lastDeepgramWsError', { ...errData, scope: 'prewarm' })
           if (prewarmRef.current === live) prewarmRef.current = null
         })
-        live.on(LiveTranscriptionEvents.Close, () => {
+        live.on(LiveTranscriptionEvents.Close, (closeEvent: unknown) => {
+          // #region agent log
+          const ce = closeEvent as { code?: number; reason?: string; wasClean?: boolean } | null
+          console.warn('[DG:prewarm:close]', { code: ce?.code, reason: ce?.reason, wasClean: ce?.wasClean })
+          // #endregion
           dbgDeepgram({
             hypothesisId: 'H6_prewarm_close',
             location: 'useDeepgramProvider.ts:prewarm',
             message: 'LiveTranscriptionEvents.Close',
-            data: { readyState: live.getReadyState() },
+            data: { code: ce?.code, reason: ce?.reason, wasClean: ce?.wasClean, readyState: live.getReadyState() },
           })
           if (prewarmRef.current === live) prewarmRef.current = null
         })
@@ -412,11 +420,14 @@ export function useDeepgramProvider(): SpeechProvider {
         data: { readyState: live.getReadyState() },
       })
     } else {
+      // #region agent log
+      const _isJwt = token.startsWith('eyJ') && token.split('.').length === 3
+      // #endregion
       dbgDeepgram({
         hypothesisId: 'H3_fresh_ws',
         location: 'useDeepgramProvider.ts:_openConnection',
         message: 'creating_new_live_client',
-        data: { tokenLen: token.length },
+        data: { tokenLen: token.length, prefix: token.slice(0, 6), isJwt: _isJwt },
       })
       const deepgram = createClient(token)
       const language = useTestStore.getState().settings.language ?? 'en-US'
@@ -500,7 +511,17 @@ export function useDeepgramProvider(): SpeechProvider {
       _teardown()
     })
 
-    live.on(LiveTranscriptionEvents.Close, () => {
+    live.on(LiveTranscriptionEvents.Close, (closeEvent: unknown) => {
+      // #region agent log
+      const ce2 = closeEvent as { code?: number; reason?: string; wasClean?: boolean } | null
+      console.warn('[DG:session:close]', { code: ce2?.code, reason: ce2?.reason, wasClean: ce2?.wasClean })
+      dbgDeepgram({
+        hypothesisId: 'H1_close_code',
+        location: 'useDeepgramProvider.ts:_openConnection.Close',
+        message: 'session_ws_close',
+        data: { code: ce2?.code, reason: ce2?.reason, wasClean: ce2?.wasClean, readyState: live.getReadyState() },
+      })
+      // #endregion
       if (activeRef.current || armedRef.current) {
         activeRef.current = false
         armedRef.current = false

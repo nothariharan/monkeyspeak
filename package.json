@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "postinstall": "patch-package",
     "clean": "node -e \"const fs=require('fs');for(const p of['.next','node_modules/.cache','.turbo']){try{fs.rmSync(p,{recursive:true,force:true})}catch(e){}}\"",
     "dev": "next dev",
     "dev:turbo": "next dev --turbo",
@@ -12,7 +13,7 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@deepgram/sdk": "^3.9.0",
+    "@deepgram/sdk": "3.13.0",
     "double-metaphone": "^2.0.1",
     "fast-levenshtein": "^3.0.0",
     "framer-motion": "^11.3.19",
@@ -30,6 +31,7 @@
     "autoprefixer": "^10.0.1",
     "eslint": "^8",
     "eslint-config-next": "14.2.5",
+    "patch-package": "8.0.1",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
     "typescript": "^5"

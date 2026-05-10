@@ -53,7 +53,7 @@ const STATUS_STYLES: Record<WordStatus, CSSProperties> = {
     fontWeight: 400,
   },
   pending: {
-    color: '#2e2e38',
+    color: 'var(--text-muted)',
     fontWeight: 400,
   },
 }

@@ -1,0 +1,36 @@
+diff --git a/node_modules/@deepgram/sdk/dist/main/packages/AbstractLiveClient.js b/node_modules/@deepgram/sdk/dist/main/packages/AbstractLiveClient.js
+index d436e05..291454b 100644
+--- a/node_modules/@deepgram/sdk/dist/main/packages/AbstractLiveClient.js
++++ b/node_modules/@deepgram/sdk/dist/main/packages/AbstractLiveClient.js
+@@ -134,7 +134,12 @@ class AbstractLiveClient extends AbstractClient_1.AbstractClient {
+          * Native websocket transport (browser)
+          */
+         if (NATIVE_WEBSOCKET_AVAILABLE) {
+-            this.conn = new WebSocket(requestUrl, ["token", this.namespaceOptions.key]);
++            const _dgKey = this.namespaceOptions.key;
++            const _dgJwt =
++                typeof _dgKey === "string" &&
++                _dgKey.startsWith("eyJ") &&
++                _dgKey.split(".").length === 3;
++            this.conn = new WebSocket(requestUrl, [_dgJwt ? "bearer" : "token", _dgKey]);
+             this.setupConnection();
+             return;
+         }
+diff --git a/node_modules/@deepgram/sdk/dist/module/packages/AbstractLiveClient.js b/node_modules/@deepgram/sdk/dist/module/packages/AbstractLiveClient.js
+index f4e183d..354a1fa 100644
+--- a/node_modules/@deepgram/sdk/dist/module/packages/AbstractLiveClient.js
++++ b/node_modules/@deepgram/sdk/dist/module/packages/AbstractLiveClient.js
+@@ -108,7 +108,12 @@ export class AbstractLiveClient extends AbstractClient {
+          * Native websocket transport (browser)
+          */
+         if (NATIVE_WEBSOCKET_AVAILABLE) {
+-            this.conn = new WebSocket(requestUrl, ["token", this.namespaceOptions.key]);
++            const _dgKey = this.namespaceOptions.key;
++            const _dgJwt =
++                typeof _dgKey === "string" &&
++                _dgKey.startsWith("eyJ") &&
++                _dgKey.split(".").length === 3;
++            this.conn = new WebSocket(requestUrl, [_dgJwt ? "bearer" : "token", _dgKey]);
+             this.setupConnection();
+             return;
+         }

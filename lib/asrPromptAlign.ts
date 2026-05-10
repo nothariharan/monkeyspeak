@@ -102,9 +102,10 @@ export function alignAsrFinalToPrompt(
         normalizeWordToken(token.word ?? '') || (token.word ?? '').toLowerCase()
 
       if (entry.matchScore >= 2) {
-        // Good phonetic or exact match
+        // Good phonetic or exact match — store the prompt word so the display
+        // string-comparison in useSpeculativeMatch always resolves to 'correct'.
         out.push({
-          word: spokenNorm,
+          word: norm,
           isCorrect: true,
           isFiller: false,
           timestamp: now(),
@@ -124,6 +125,38 @@ export function alignAsrFinalToPrompt(
           confidence: token.confidence,
         })
       }
+    }
+  }
+
+  // ── 5. Recover spoken words dropped by the local alignment window ───────────
+  // Smith-Waterman only traces back through the highest-scoring contiguous
+  // region. Any spoken tokens before/after that window are simply absent from
+  // `entries`. Those missing words must still advance currentWordIndex so
+  // speculative matching stays aligned with the right prompt positions.
+  const coveredSpoken = new Set(
+    entries.filter((e) => e.spokenIdx !== null).map((e) => e.spokenIdx!)
+  )
+  const lastPromptIdx =
+    sorted.length > 0
+      ? sorted[sorted.length - 1]!.promptIdx
+      : startPromptIndex - 1
+
+  let nextDropIdx = lastPromptIdx + 1
+  for (let i = 0; i < realTokens.length; i++) {
+    if (!coveredSpoken.has(i)) {
+      const token = realTokens[i]!
+      const droppedNorm =
+        normalizeWordToken(token.word ?? '') || (token.word ?? '').toLowerCase()
+      out.push({
+        word: droppedNorm,
+        isCorrect: false,
+        isFiller: false,
+        timestamp: now(),
+        startTime: token.start,
+        endTime: token.end,
+        confidence: token.confidence,
+      })
+      nextDropIdx++
     }
   }
 
