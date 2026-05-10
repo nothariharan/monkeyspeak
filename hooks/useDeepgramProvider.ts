@@ -29,12 +29,12 @@ function dbgDeepgram(payload: {
   runId?: string
 }) {
   // #region agent log
-  fetch('/api/debug-log', {
+  fetch('http://127.0.0.1:7291/ingest/74562f5e-377a-4199-9293-9988125476d2', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'b9a7e7' },
     body: JSON.stringify({
-      sessionId: '08c9af',
-      runId: payload.runId ?? 'post-fix',
+      sessionId: 'b9a7e7',
+      runId: payload.runId ?? 'owner-key-run',
       timestamp: Date.now(),
       ...payload,
     }),
@@ -58,6 +58,16 @@ const TOKEN_REFRESH_IF_TTL_UNDER_MS = 10_000
 
 let cachedToken: string | null = null
 let cacheExpiresAt = 0
+
+/**
+ * Module-level availability flag.
+ * null  = untested yet
+ * true  = WebSocket opened at least once
+ * false = WebSocket auth failed (close 1006); Deepgram is unusable with current key
+ */
+let _deepgramAvailable: boolean | null = null
+export function getDeepgramAvailability(): boolean | null { return _deepgramAvailable }
+export function resetDeepgramAvailability(): void { _deepgramAvailable = null }
 
 async function fetchDeepgramToken(): Promise<string> {
   const now = Date.now()
@@ -121,6 +131,25 @@ async function fetchDeepgramToken(): Promise<string> {
   const ttlMs = Math.max(8_000, ((body.ttlSeconds ?? 28) * 1000) - TOKEN_SKEW_MS)
   cachedToken = body.token
   cacheExpiresAt = now + ttlMs
+  // #region agent log
+  fetch('/api/debug-log', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      sessionId: 'b9a7e7',
+      runId: 'dg-ws-close',
+      hypothesisId: 'H3_token_type',
+      location: 'useDeepgramProvider.ts:fetchDeepgramToken',
+      message: 'token_acquired',
+      data: {
+        isJwt: cachedToken.startsWith('eyJ') && cachedToken.split('.').length === 3,
+        tokenLen: cachedToken.length,
+        issuedVia: body._debugIssuedVia ?? 'unknown',
+      },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {})
+  // #endregion
   return cachedToken
 }
 
@@ -173,21 +202,21 @@ export function useDeepgramProvider(): SpeechProvider {
   useEffect(() => {
     let cancelled = false
 
+    // #region agent log
+    dbgDeepgram({
+      hypothesisId: 'H4_bundle_marker',
+      location: 'useDeepgramProvider.ts:useEffect',
+      message: 'hook_mounted_marker',
+      data: { buildStamp: 'owner-key-attempt-1', mountedAt: Date.now() },
+      runId: 'owner-key-run',
+    })
+    // #endregion
+
     async function prewarm() {
       try {
         const token = await fetchDeepgramToken()
         if (cancelled) return
 
-        // #region agent log
-        const _pwIsJwt = token.startsWith('eyJ') && token.split('.').length === 3
-        // #endregion
-        dbgDeepgram({
-          hypothesisId: 'H2_token_client_ok',
-          location: 'useDeepgramProvider.ts:prewarm',
-          message: 'token_fetched',
-          data: { tokenLen: token.length, prefix: token.slice(0, 6), isJwt: _pwIsJwt },
-          runId: 'post-fix',
-        })
 
         const language = useTestStore.getState().settings.language ?? 'en-US'
         const deepgram = createClient(token)
@@ -197,6 +226,7 @@ export function useDeepgramProvider(): SpeechProvider {
         prewarmRef.current = live
 
         live.on(LiveTranscriptionEvents.Open, () => {
+          _deepgramAvailable = true
           dbgDeepgram({
             hypothesisId: 'H4_prewarm_open',
             location: 'useDeepgramProvider.ts:prewarm',
@@ -212,20 +242,43 @@ export function useDeepgramProvider(): SpeechProvider {
             message: 'LiveTranscriptionEvents.Error',
             data: errData,
           })
+          // #region agent log
+          fetch('/api/debug-log', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sessionId: 'b9a7e7',
+              runId: 'dg-ws-close',
+              hypothesisId: 'H2_ws_error_event',
+              location: 'useDeepgramProvider.ts:prewarm.Error',
+              message: 'prewarm_ws_error',
+              data: errData,
+              timestamp: Date.now(),
+            }),
+          }).catch(() => {})
+          // #endregion
           persistDevDeepgramDebug('ms:lastDeepgramWsError', { ...errData, scope: 'prewarm' })
+          _deepgramAvailable = false
           if (prewarmRef.current === live) prewarmRef.current = null
         })
-        live.on(LiveTranscriptionEvents.Close, (closeEvent: unknown) => {
+        live.on(LiveTranscriptionEvents.Close, (...args: unknown[]) => {
           // #region agent log
-          const ce = closeEvent as { code?: number; reason?: string; wasClean?: boolean } | null
-          console.warn('[DG:prewarm:close]', { code: ce?.code, reason: ce?.reason, wasClean: ce?.wasClean })
+          const _ce = (args[0] ?? {}) as { code?: number; reason?: string; wasClean?: boolean }
+          fetch('/api/debug-log', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sessionId: 'b9a7e7',
+              runId: 'dg-ws-close',
+              hypothesisId: 'H1_ws_close_code',
+              location: 'useDeepgramProvider.ts:prewarm.Close',
+              message: 'prewarm_ws_closed',
+              data: { code: _ce.code ?? 'none', reason: _ce.reason ?? '', wasClean: _ce.wasClean ?? false },
+              timestamp: Date.now(),
+            }),
+          }).catch(() => {})
           // #endregion
-          dbgDeepgram({
-            hypothesisId: 'H6_prewarm_close',
-            location: 'useDeepgramProvider.ts:prewarm',
-            message: 'LiveTranscriptionEvents.Close',
-            data: { code: ce?.code, reason: ce?.reason, wasClean: ce?.wasClean, readyState: live.getReadyState() },
-          })
+          if (_ce.code === 1006) _deepgramAvailable = false
           if (prewarmRef.current === live) prewarmRef.current = null
         })
       } catch (e) {
@@ -420,14 +473,11 @@ export function useDeepgramProvider(): SpeechProvider {
         data: { readyState: live.getReadyState() },
       })
     } else {
-      // #region agent log
-      const _isJwt = token.startsWith('eyJ') && token.split('.').length === 3
-      // #endregion
       dbgDeepgram({
         hypothesisId: 'H3_fresh_ws',
         location: 'useDeepgramProvider.ts:_openConnection',
         message: 'creating_new_live_client',
-        data: { tokenLen: token.length, prefix: token.slice(0, 6), isJwt: _isJwt },
+        data: { tokenLen: token.length },
       })
       const deepgram = createClient(token)
       const language = useTestStore.getState().settings.language ?? 'en-US'
@@ -505,23 +555,46 @@ export function useDeepgramProvider(): SpeechProvider {
         message: 'LiveTranscriptionEvents.Error',
         data: errData,
       })
+      // #region agent log
+      fetch('/api/debug-log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: 'b9a7e7',
+          runId: 'dg-ws-close',
+          hypothesisId: 'H2_ws_error_event',
+          location: 'useDeepgramProvider.ts:_openConnection.Error',
+          message: 'session_ws_error',
+          data: errData,
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {})
+      // #endregion
       persistDevDeepgramDebug('ms:lastDeepgramWsError', { ...errData, scope: 'session' })
       console.error('[Deepgram] error:', err)
-      setError('Deepgram connection error')
+      _deepgramAvailable = false
+      setError('Deepgram unavailable — API key lacks transcription permissions. Using Web Speech instead.')
       _teardown()
     })
 
-    live.on(LiveTranscriptionEvents.Close, (closeEvent: unknown) => {
+    live.on(LiveTranscriptionEvents.Close, (...args: unknown[]) => {
       // #region agent log
-      const ce2 = closeEvent as { code?: number; reason?: string; wasClean?: boolean } | null
-      console.warn('[DG:session:close]', { code: ce2?.code, reason: ce2?.reason, wasClean: ce2?.wasClean })
-      dbgDeepgram({
-        hypothesisId: 'H1_close_code',
-        location: 'useDeepgramProvider.ts:_openConnection.Close',
-        message: 'session_ws_close',
-        data: { code: ce2?.code, reason: ce2?.reason, wasClean: ce2?.wasClean, readyState: live.getReadyState() },
-      })
+      const _ce2 = (args[0] ?? {}) as { code?: number; reason?: string; wasClean?: boolean }
+      fetch('/api/debug-log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: 'b9a7e7',
+          runId: 'dg-ws-close',
+          hypothesisId: 'H1_ws_close_code',
+          location: 'useDeepgramProvider.ts:_openConnection.Close',
+          message: 'session_ws_closed',
+          data: { code: _ce2.code ?? 'none', reason: _ce2.reason ?? '', wasClean: _ce2.wasClean ?? false },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {})
       // #endregion
+      if (_ce2.code === 1006) _deepgramAvailable = false
       if (activeRef.current || armedRef.current) {
         activeRef.current = false
         armedRef.current = false
@@ -530,9 +603,33 @@ export function useDeepgramProvider(): SpeechProvider {
     })
 
     if (prewarmed) {
+      _deepgramAvailable = true
       void _setupAudioWorklet(live, stream)
-    } else {
-      live.on(LiveTranscriptionEvents.Open, () => {
+      return true
+    }
+
+    // Wait for the WebSocket to actually open (or fail) before reporting success.
+    // This makes armSession() correctly return false when Deepgram rejects the connection,
+    // instead of returning true and then erroring out asynchronously mid-test.
+    return new Promise<boolean>((resolve) => {
+      let settled = false
+      const settle = (ok: boolean) => {
+        if (!settled) { settled = true; resolve(ok) }
+      }
+
+      const clearWatchdog = (() => {
+        const tid = window.setTimeout(() => {
+          setError('Deepgram connection timed out — using Web Speech instead.')
+          _deepgramAvailable = false
+          _teardown()
+          settle(false)
+        }, 8_000)
+        return () => clearTimeout(tid)
+      })()
+
+      live.once(LiveTranscriptionEvents.Open, () => {
+        clearWatchdog()
+        _deepgramAvailable = true
         dbgDeepgram({
           hypothesisId: 'H4_session_open',
           location: 'useDeepgramProvider.ts:_openConnection',
@@ -540,10 +637,15 @@ export function useDeepgramProvider(): SpeechProvider {
           data: { readyState: live.getReadyState() },
         })
         void _setupAudioWorklet(live, stream)
+        settle(true)
       })
-    }
 
-    return true
+      live.once(LiveTranscriptionEvents.Error, () => {
+        clearWatchdog()
+        // _deepgramAvailable = false and setError already handled by the live.on Error above
+        settle(false)
+      })
+    })
   }, [_teardown, _setupAudioWorklet])
 
   const armSession = useCallback(async (): Promise<boolean> => {

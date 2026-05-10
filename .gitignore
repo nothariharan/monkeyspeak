@@ -21,7 +21,7 @@
 .cursor/
 
 # debug
-debug-1ddc33.log
+debug-*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
