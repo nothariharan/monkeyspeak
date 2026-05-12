@@ -2,7 +2,6 @@
 
 import { useMemo, useRef } from 'react'
 import { tokensRoughlyMatch } from '@/lib/wordMatch'
-import { emitDebugLog } from '@/lib/debugLog'
 
 export type WordStatus =
   | 'correct'
@@ -176,26 +175,6 @@ export function useSpeculativeMatch({
       }
 
       return { word: promptWord, status: 'pending' as const }
-    })
-    const speculativeCount = nextStates.filter((s) => s.status === 'speculative').length
-    const wrongCount = nextStates.filter((s) => s.status === 'wrong').length
-    emitDebugLog({
-      sessionId: '26db2b',
-      runId: 'post-fix',
-      hypothesisId: 'H3_lookahead_prefix_match',
-      location: 'hooks/useSpeculativeMatch.ts:useMemo',
-      message: 'Speculative matching snapshot',
-      data: {
-        confirmedCount: confirmedWords.length,
-        rawInterimCount: rawInterim.length,
-        alignedInterimCount: interimWords.length,
-        lookahead: MAX_SPECULATIVE_LOOKAHEAD,
-        historyDepth: history.length,
-        speculativeCount,
-        wrongCount,
-        interimPreview: interimWords.slice(0, 8),
-      },
-      timestamp: Date.now(),
     })
     return nextStates
   }, [promptWords, confirmedWords, interimText])

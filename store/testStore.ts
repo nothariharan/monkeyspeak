@@ -131,6 +131,9 @@ interface TestStore {
   setSpeedClockStartedAt: (t: number) => void
 }
 
+// Tracks pending filler-warning reset timers so they can be cancelled on reset.
+const fillerWarningTimers: ReturnType<typeof setTimeout>[] = []
+
 // ─── Default settings ─────────────────────────────────────────────────────────
 
 const DEFAULT_SETTINGS: Settings = {
@@ -220,13 +223,16 @@ export const useTestStore = create<TestStore>()(
           fillerWarning: isWarning,
           speedTimelineEvents,
         })
-        // Reset recent count after 10s
-        setTimeout(() => {
+        // Reset recent count after 10s; track the timer so reset can cancel it.
+        const tid = setTimeout(() => {
           set((cur) => ({
             recentFillerCount: Math.max(0, cur.recentFillerCount - 1),
             fillerWarning: cur.recentFillerCount - 1 >= 3,
           }))
+          const idx = fillerWarningTimers.indexOf(tid)
+          if (idx !== -1) fillerWarningTimers.splice(idx, 1)
         }, recentWindow)
+        fillerWarningTimers.push(tid)
       },
 
       advanceWord: () =>
@@ -257,11 +263,11 @@ export const useTestStore = create<TestStore>()(
       updateSettings: (patch) => {
         const newSettings = { ...get().settings, ...patch }
         set({ settings: newSettings })
-        // Apply to DOM
         if (typeof document !== 'undefined') {
-          const { applyTheme, THEMES } = require('@/lib/themes')
-          const theme = THEMES[newSettings.theme]
-          applyTheme(theme, newSettings.accentHex)
+          import('@/lib/themes').then(({ applyTheme, THEMES }) => {
+            const theme = THEMES[newSettings.theme]
+            applyTheme(theme, newSettings.accentHex)
+          })
           const html = document.documentElement
           if (patch.font)     html.dataset.font      = newSettings.font
           if (patch.fontSize) html.dataset.fontsize  = newSettings.fontSize
@@ -275,6 +281,7 @@ export const useTestStore = create<TestStore>()(
       setSpeedClockStartedAt: (speedClockStartedAt) => set({ speedClockStartedAt }),
 
       startTest: () => {
+        fillerWarningTimers.splice(0).forEach(clearTimeout)
         const t = Date.now()
         set({
           testState: 'running',
@@ -300,7 +307,8 @@ export const useTestStore = create<TestStore>()(
         })
       },
 
-      resetTest: () =>
+      resetTest: () => {
+        fillerWarningTimers.splice(0).forEach(clearTimeout)
         set({
           testState: 'idle',
           confirmedWords: [],
@@ -322,7 +330,8 @@ export const useTestStore = create<TestStore>()(
           diffResult: [],
           clarityScore: 0,
           micState: 'idle',
-        }),
+        })
+      },
     }),
     {
       name: 'monkeyspeak-settings',

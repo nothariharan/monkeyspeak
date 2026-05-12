@@ -4,7 +4,6 @@ import { useRef, useCallback, useState, useEffect } from 'react'
 import { useTestStore } from '@/store/testStore'
 import { tokensRoughlyMatch } from '@/lib/wordMatch'
 import { isFiller } from '@/lib/fillers'
-import { emitDebugLog } from '@/lib/debugLog'
 import type { SpeechProvider } from './useSpeechProvider'
 
 function getSpeechRecognitionCtor(): SpeechRecognitionConstructor | null {
@@ -60,7 +59,6 @@ export function prewarmWebSpeechRecognition(lang: string): Promise<void> {
  */
 export function useWebSpeech(): SpeechProvider {
   const { settings } = useTestStore()
-  const debugRunIdRef = useRef('post-fix')
 
   const [interimText, setInterimText] = useState('')
   const [confirmedWords, setConfirmedWords] = useState<string[]>([])
@@ -92,21 +90,6 @@ export function useWebSpeech(): SpeechProvider {
     setFillerCount(0)
     setError(null)
   }, [clearInterimDebounce])
-
-  const debugLog = useCallback(
-    (hypothesisId: string, location: string, message: string, data: Record<string, unknown>) => {
-      emitDebugLog({
-        sessionId: '26db2b',
-        runId: debugRunIdRef.current,
-        hypothesisId,
-        location,
-        message,
-        data,
-        timestamp: Date.now(),
-      })
-    },
-    []
-  )
 
   const stopSession = useCallback(() => {
     listeningRef.current = false
@@ -164,6 +147,10 @@ export function useWebSpeech(): SpeechProvider {
           if (!r) continue
           if (!r.isFinal) interim += r[0]?.transcript ?? ''
         }
+        // #region agent log
+        const _wsHasFinal = Array.from({length: event.results.length - event.resultIndex}, (_, k) => event.results[event.resultIndex + k]?.isFinal).some(Boolean)
+        fetch('http://127.0.0.1:7291/ingest/74562f5e-377a-4199-9293-9988125476d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'260cc1'},body:JSON.stringify({sessionId:'260cc1',hypothesisId:'E',location:'useWebSpeech.ts:143',message:'WebSpeech onresult fired',data:{interimTrim:interim.trim().slice(0,60),hasFinal:_wsHasFinal,ts:Date.now()},timestamp:Date.now()})}).catch(()=>{})
+        // #endregion
         const interimTrim = interim.trim()
 
         if (interimTrim.length === 0) {
@@ -177,15 +164,6 @@ export function useWebSpeech(): SpeechProvider {
           if (tokens.length > 1) {
             const safeTokens = tokens.slice(0, -1)
             interimEmittedTokensRef.current = safeTokens
-            debugLog(
-              'H1_final_only_confirmed',
-              'hooks/useWebSpeech.ts:onresult:interimPrefix',
-              'Interim complete tokens tracked for final dedupe only (not merged into confirmed)',
-              {
-                safeTokensLength: safeTokens.length,
-                safeTokensPreview: safeTokens.slice(0, 6),
-              }
-            )
           } else {
             interimEmittedTokensRef.current = []
           }
@@ -225,20 +203,6 @@ export function useWebSpeech(): SpeechProvider {
             tokensRoughlyMatch(finalBatch[i]!, pref[i]!)
           ) { i++ }
           const suffix = finalBatch.slice(i)
-          debugLog(
-            'H2_dedupe_disconnect',
-            'hooks/useWebSpeech.ts:onresult:dedupe',
-            'Final batch dedupe against interim prefix',
-            {
-              finalBatchLength: finalBatch.length,
-              finalBatchPreview: finalBatch.slice(0, 8),
-              interimPrefixLength: pref.length,
-              interimPrefixPreview: pref.slice(0, 8),
-              dedupePrefixMatches: i,
-              suffixLength: suffix.length,
-              suffixPreview: suffix.slice(0, 8),
-            }
-          )
 
           if (suffix.length > 0) {
             // Detect fillers and accumulate into state
@@ -249,21 +213,7 @@ export function useWebSpeech(): SpeechProvider {
             }
             if (newFillers > 0) setFillerCount((c) => c + newFillers)
             if (realWords.length > 0) {
-              setConfirmedWords((prev) => {
-                const next = [...prev, ...realWords]
-                debugLog(
-                  'H2_dedupe_disconnect',
-                  'hooks/useWebSpeech.ts:onresult:finalAppend',
-                  'Final words appended to confirmed',
-                  {
-                    prevLength: prev.length,
-                    realWordsLength: realWords.length,
-                    realWordsPreview: realWords.slice(0, 8),
-                    nextLength: next.length,
-                  }
-                )
-                return next
-              })
+              setConfirmedWords((prev) => [...prev, ...realWords])
             }
           }
           interimEmittedTokensRef.current = []
@@ -327,7 +277,7 @@ export function useWebSpeech(): SpeechProvider {
       listeningRef.current = false
       return false
     }
-  }, [settings.language, clearInterimDebounce, debugLog])
+  }, [settings.language, clearInterimDebounce])
 
   // Cleanup on unmount
   useEffect(() => () => { stopSession() }, [stopSession])

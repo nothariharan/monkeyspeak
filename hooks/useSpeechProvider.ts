@@ -1,8 +1,6 @@
 'use client'
 
 // ─── Shared STT provider interface ──────────────────────────────────────────
-// Neither useWebSpeech nor useDeepgramProvider are imported directly anywhere
-// outside their own hook. Everything else talks to this shape.
 
 /** A finalised word with optional per-word timing and confidence from Deepgram. */
 export interface EnrichedWord {

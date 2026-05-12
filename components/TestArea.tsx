@@ -10,8 +10,6 @@ import {
   type PromptWordState,
   type WordStatus,
 } from '@/hooks/useSpeculativeMatch'
-import { emitDebugLog } from '@/lib/debugLog'
-
 interface TestAreaProps {
   words: string[]
   confirmedWords: WordResult[]
@@ -70,9 +68,9 @@ function Word({ state, idlePreview }: { state: PromptWordState; idlePreview?: bo
       lastChangeAtRef.current = Date.now()
       return
     }
-    const delay =
+    const shouldDelay =
       state.status === 'speculative' || state.status === 'wrong'
-    if (!delay) {
+    if (!shouldDelay) {
       setStableStatus(state.status)
       lastStatusRef.current = state.status
       lastChangeAtRef.current = Date.now()
@@ -145,6 +143,14 @@ export default function TestArea({
 
   const interimForSpec = testActive && !isIdle ? liveTranscript : ''
 
+  // #region agent log
+  useEffect(() => {
+    if (!testActive || isIdle || !liveTranscript) return
+    fetch('http://127.0.0.1:7291/ingest/74562f5e-377a-4199-9293-9988125476d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'260cc1'},body:JSON.stringify({sessionId:'260cc1',hypothesisId:'D',location:'TestArea.tsx:144',message:'liveTranscript prop changed — React render with new interim text',data:{liveTranscript,ts:Date.now()},timestamp:Date.now()})}).catch(()=>{})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveTranscript])
+  // #endregion
+
   const wordStates = useSpeculativeMatch({
     promptWords: words,
     confirmedWords: confirmedStrings,
@@ -184,26 +190,6 @@ export default function TestArea({
         .filter((ws) => ws.status === 'speculative' || ws.status === 'correct')
         .length
     : 0
-
-  useEffect(() => {
-    emitDebugLog({
-      sessionId: '26db2b',
-      runId: 'post-fix',
-      hypothesisId: 'H4_chunk_window',
-      location: 'components/TestArea.tsx:chunkWindowEffect',
-      message: 'Chunked passage window (advance every 2 lines)',
-      data: {
-        statusHysteresisMs: STATUS_HYSTERESIS_MS,
-        hasActiveInterim,
-        currentWordIndex,
-        speculativeCount,
-        chunkStart,
-        wordsPerLine: WORDS_PER_LINE,
-        wordsLength: words.length,
-      },
-      timestamp: Date.now(),
-    })
-  }, [hasActiveInterim, currentWordIndex, speculativeCount, chunkStart, words.length])
 
   const windowStart = testActive && !isIdle ? chunkStart : 0
   const windowEnd =

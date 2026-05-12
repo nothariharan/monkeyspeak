@@ -1,5 +1,4 @@
 const path = require('path');
-const fs = require('fs');
 const http = require('http');
 const express = require('express');
 const cors = require('cors');
@@ -11,30 +10,8 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env.local') });
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 
-/** NDJSON debug line (session b9a7e7) — read `debug-b9a7e7.log` at repo root */
-function dbgProxy(payload) {
-  const line = JSON.stringify({
-    sessionId: 'b9a7e7',
-    timestamp: Date.now(),
-    runId: 'proxy-backend',
-    ...payload,
-  });
-  try {
-    fs.appendFileSync(path.join(__dirname, '..', 'debug-b9a7e7.log'), `${line}\n`, 'utf8');
-  } catch {
-    /* ignore */
-  }
-}
-
 const app = express();
 const port = process.env.PORT || 8080;
-
-dbgProxy({
-  hypothesisId: 'H_boot_env',
-  location: 'backend/index.js:boot',
-  message: 'backend_boot',
-  data: { hasDeepgramKey: Boolean(process.env.DEEPGRAM_API_KEY), port },
-});
 
 app.use(cors({
   origin: '*',
@@ -78,7 +55,7 @@ app.get('/api/deepgram/token', async (req, res) => {
 
     const data = await response.json();
     return res.json({ key: data.result?.key ?? apiKey });
-  } catch (err) {
+  } catch {
     return res.json({ key: apiKey });
   }
 });
@@ -136,19 +113,7 @@ server.on('upgrade', (req, socket, head) => {
 
   wss.handleUpgrade(req, socket, head, (browserWs) => {
     const apiKey = process.env.DEEPGRAM_API_KEY;
-    dbgProxy({
-      hypothesisId: 'H_upgrade',
-      location: 'backend/index.js:upgrade',
-      message: 'ws_upgrade_attempt',
-      data: { url: req.url.slice(0, 200), hasApiKey: Boolean(apiKey) },
-    });
     if (!apiKey) {
-      dbgProxy({
-        hypothesisId: 'H_no_api_key',
-        location: 'backend/index.js:upgrade',
-        message: 'missing_DEEPGRAM_API_KEY',
-        data: {},
-      });
       browserWs.close(1011, 'DEEPGRAM_API_KEY not configured');
       return;
     }
@@ -163,12 +128,6 @@ server.on('upgrade', (req, socket, head) => {
     });
 
     dgWs.on('open', () => {
-      dbgProxy({
-        hypothesisId: 'H_dg_open',
-        location: 'backend/index.js:upgrade',
-        message: 'dg_upstream_open',
-        data: {},
-      });
       // Forward audio from browser to Deepgram
       browserWs.on('message', (data) => {
         if (dgWs.readyState === WebSocket.OPEN) dgWs.send(data);
@@ -187,12 +146,6 @@ server.on('upgrade', (req, socket, head) => {
 
     dgWs.on('close', cleanup);
     dgWs.on('error', (err) => {
-      dbgProxy({
-        hypothesisId: 'H_dg_err',
-        location: 'backend/index.js:upgrade',
-        message: 'dg_upstream_error',
-        data: { err: err && err.message ? err.message.slice(0, 400) : String(err) },
-      });
       console.error('[dg→proxy] WS error:', err.message);
       cleanup();
     });

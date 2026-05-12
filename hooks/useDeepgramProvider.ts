@@ -6,28 +6,6 @@ import { isFiller } from '@/lib/fillers'
 import { useTestStore } from '@/store/testStore'
 import type { SpeechProvider, EnrichedWord } from './useSpeechProvider'
 
-// ── Debug logging ─────────────────────────────────────────────────────────────
-function dbgDeepgram(payload: {
-  hypothesisId: string
-  location: string
-  message: string
-  data: Record<string, unknown>
-  runId?: string
-}) {
-  // #region agent log
-  fetch('/api/debug-log', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      sessionId: 'b9a7e7',
-      runId: payload.runId ?? 'proxy-run',
-      timestamp: Date.now(),
-      ...payload,
-    }),
-  }).catch(() => {})
-  // #endregion
-}
-
 // ── Deepgram JSON wire types ──────────────────────────────────────────────────
 interface DgWord {
   word: string
@@ -106,45 +84,16 @@ export function useDeepgramProvider(): SpeechProvider {
   useEffect(() => {
     let cancelled = false
 
-    // #region agent log
-    dbgDeepgram({
-      hypothesisId: 'H6_proxy_mount',
-      location: 'useDeepgramProvider.ts:useEffect',
-      message: 'hook_mounted_marker',
-      data: {
-        proxyEnv: process.env.NEXT_PUBLIC_DEEPGRAM_PROXY_URL ?? 'none',
-        buildStamp: 'proxy-v3-backend-lang-map',
-      },
-      runId: 'proxy-run',
-    })
-    // #endregion
-
     async function prewarm() {
       const language = useTestStore.getState().settings.language ?? 'en-US'
       let url: string
       try {
         url = buildProxyUrl(language)
-      } catch (e) {
-        dbgDeepgram({
-          hypothesisId: 'H2_token_client_fail',
-          location: 'useDeepgramProvider.ts:prewarm',
-          message: 'prewarm_bad_env',
-          data: { err: String(e) },
-          runId: 'proxy-run',
-        })
+      } catch {
         return
       }
 
       const probe = await probeProxyBackendReachable()
-      // #region agent log
-      dbgDeepgram({
-        hypothesisId: 'H_http_probe',
-        location: 'useDeepgramProvider.ts:prewarm',
-        message: 'proxy_http_probe',
-        data: { origin: proxyHttpOrigin(), ...probe },
-        runId: 'proxy-run',
-      })
-      // #endregion
       if (!probe.ok) {
         setError(
           'Deepgram proxy is offline. Start the backend from the project folder: cd backend then node index.js (listen on port 8080), then refresh this page.'
@@ -158,40 +107,13 @@ export function useDeepgramProvider(): SpeechProvider {
 
       ws.onopen = () => {
         if (cancelled) { ws.close(); return }
-        // #region agent log
-        dbgDeepgram({
-          hypothesisId: 'H4_prewarm_open',
-          location: 'useDeepgramProvider.ts:prewarm',
-          message: 'prewarm_proxy_open',
-          data: { url },
-          runId: 'proxy-run',
-        })
-        // #endregion
       }
 
       ws.onerror = () => {
-        // #region agent log
-        dbgDeepgram({
-          hypothesisId: 'H5_prewarm_err',
-          location: 'useDeepgramProvider.ts:prewarm',
-          message: 'prewarm_proxy_error',
-          data: { readyState: ws.readyState, url },
-          runId: 'proxy-run',
-        })
-        // #endregion
         if (prewarmRef.current === ws) prewarmRef.current = null
       }
 
-      ws.onclose = (ev) => {
-        // #region agent log
-        dbgDeepgram({
-          hypothesisId: 'H1_ws_close_code',
-          location: 'useDeepgramProvider.ts:prewarm',
-          message: 'prewarm_proxy_closed',
-          data: { code: ev.code, reason: ev.reason, wasClean: ev.wasClean },
-          runId: 'proxy-run',
-        })
-        // #endregion
+      ws.onclose = () => {
         if (prewarmRef.current === ws) prewarmRef.current = null
       }
     }
@@ -270,10 +192,16 @@ export function useDeepgramProvider(): SpeechProvider {
       if (!transcript) return
 
       if (!r.is_final) {
+        // #region agent log
+        fetch('http://127.0.0.1:7291/ingest/74562f5e-377a-4199-9293-9988125476d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'260cc1'},body:JSON.stringify({sessionId:'260cc1',hypothesisId:'B',location:'useDeepgramProvider.ts:195',message:'DG interim result received',data:{transcript,isFinal:false,speechFinal:r.speech_final,ts:Date.now()},timestamp:Date.now()})}).catch(()=>{})
+        // #endregion
         setInterimText(transcript)
         return
       }
 
+      // #region agent log
+      fetch('http://127.0.0.1:7291/ingest/74562f5e-377a-4199-9293-9988125476d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'260cc1'},body:JSON.stringify({sessionId:'260cc1',hypothesisId:'C',location:'useDeepgramProvider.ts:202',message:'DG FINAL result received (is_final=true)',data:{transcript,speechFinal:r.speech_final,ts:Date.now()},timestamp:Date.now()})}).catch(()=>{})
+      // #endregion
       setInterimText('')
 
       const wordObjs = (alt.words ?? []) as DgWord[]
@@ -406,15 +334,9 @@ export function useDeepgramProvider(): SpeechProvider {
       liveRef.current = prewarmed
       prewarmed.onmessage = _handleDgMessage
       prewarmed.onerror = () => { setError('Deepgram proxy error'); _teardown() }
-      prewarmed.onclose = (ev) => {
-        // #region agent log
-        dbgDeepgram({ hypothesisId: 'H1_ws_close_code', location: 'useDeepgramProvider.ts:prewarmed.Close', message: 'session_ws_closed', data: { code: ev.code, reason: ev.reason }, runId: 'proxy-run' })
-        // #endregion
+      prewarmed.onclose = () => {
         if (activeRef.current || armedRef.current) { activeRef.current = false; armedRef.current = false; setIsListening(false) }
       }
-      // #region agent log
-      dbgDeepgram({ hypothesisId: 'H7_reuse_prewarm', location: 'useDeepgramProvider.ts:_openConnection', message: 'using_prewarmed_proxy_ws', data: {}, runId: 'proxy-run' })
-      // #endregion
       void _setupAudioWorklet(prewarmed, stream)
       return true
     }
@@ -428,13 +350,6 @@ export function useDeepgramProvider(): SpeechProvider {
     }
 
     const probe = await probeProxyBackendReachable()
-    dbgDeepgram({
-      hypothesisId: 'H_http_probe',
-      location: 'useDeepgramProvider.ts:_openConnection',
-      message: 'proxy_http_probe',
-      data: { origin: proxyHttpOrigin(), ...probe },
-      runId: 'proxy-run',
-    })
     if (!probe.ok) {
       setError(
         'Deepgram proxy is offline. Start the backend from the project folder: cd backend then node index.js (listen on port 8080), then try again.'
@@ -444,10 +359,6 @@ export function useDeepgramProvider(): SpeechProvider {
       setMicStream(null)
       return false
     }
-
-    // #region agent log
-    dbgDeepgram({ hypothesisId: 'H3_fresh_ws', location: 'useDeepgramProvider.ts:_openConnection', message: 'opening_fresh_proxy_ws', data: { url }, runId: 'proxy-run' })
-    // #endregion
 
     return new Promise<boolean>((resolve) => {
       const ws = new WebSocket(url)
@@ -462,9 +373,6 @@ export function useDeepgramProvider(): SpeechProvider {
 
       ws.onopen = () => {
         clearWatchdog()
-        // #region agent log
-        dbgDeepgram({ hypothesisId: 'H4_session_open', location: 'useDeepgramProvider.ts:_openConnection', message: 'proxy_ws_open', data: { url }, runId: 'proxy-run' })
-        // #endregion
         void _setupAudioWorklet(ws, stream)
         settle(true)
       }
@@ -473,19 +381,13 @@ export function useDeepgramProvider(): SpeechProvider {
 
       ws.onerror = () => {
         clearWatchdog()
-        // #region agent log
-        dbgDeepgram({ hypothesisId: 'H5_session_err', location: 'useDeepgramProvider.ts:_openConnection', message: 'proxy_ws_error', data: {}, runId: 'proxy-run' })
-        // #endregion
         setError('Deepgram proxy connection failed')
         _teardown()
         settle(false)
       }
 
-      ws.onclose = (ev) => {
+      ws.onclose = () => {
         clearWatchdog()
-        // #region agent log
-        dbgDeepgram({ hypothesisId: 'H1_ws_close_code', location: 'useDeepgramProvider.ts:_openConnection.Close', message: 'session_ws_closed', data: { code: ev.code, reason: ev.reason, wasClean: ev.wasClean }, runId: 'proxy-run' })
-        // #endregion
         if (activeRef.current || armedRef.current) { activeRef.current = false; armedRef.current = false; setIsListening(false) }
         settle(false)
       }

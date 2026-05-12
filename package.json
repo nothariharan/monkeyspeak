@@ -10,7 +10,7 @@
     "dev:turbo": "next dev --turbo",
     "dev:clean": "npm run clean && next dev",
     "build": "next build",
-    "start": "NODE_ENV=production node server.js",
+    "start": "cross-env NODE_ENV=production node server.js",
     "lint": "next lint"
   },
   "dependencies": {
@@ -32,6 +32,7 @@
     "@types/react-dom": "^18",
     "@types/ws": "^8.18.1",
     "autoprefixer": "^10.0.1",
+    "cross-env": "^10.1.0",
     "eslint": "^8",
     "eslint-config-next": "14.2.5",
     "patch-package": "8.0.1",
