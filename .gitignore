@@ -24,6 +24,10 @@
 
 # debug
 debug-*.log
+# Local agent / Deepgram debug NDJSON & snapshots (do not commit)
+trace-b9a7e7.ndjson
+b9a7e7-agent.ndjson
+b9-debug-ring.json
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

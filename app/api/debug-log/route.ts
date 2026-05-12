@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { appendSessionDebugLine } from '@/lib/debugSessionLog'
 import { appendDebug08Line } from '@/lib/debug08'
+import { appendTraceB9 } from '@/lib/traceB9'
 
 const DEBUG_INGEST_URL = process.env.DEBUG_INGEST_URL
 
@@ -9,6 +10,7 @@ export async function POST(req: Request) {
     const payload = await req.json()
     await appendDebug08Line(payload as Record<string, unknown>)
     await appendSessionDebugLine(payload as Record<string, unknown>)
+    await appendTraceB9(payload as Record<string, unknown>)
     if (DEBUG_INGEST_URL) {
       await fetch(DEBUG_INGEST_URL, {
         method: 'POST',
