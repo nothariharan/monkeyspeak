@@ -5,9 +5,10 @@
   "scripts": {
     "postinstall": "patch-package",
     "clean": "node -e \"const fs=require('fs');for(const p of['.next','node_modules/.cache','.turbo']){try{fs.rmSync(p,{recursive:true,force:true})}catch(e){}}\"",
-    "dev": "node server.js",
+    "dev": "next dev",
+    "dev:backend": "node backend/index.js",
     "dev:turbo": "next dev --turbo",
-    "dev:clean": "npm run clean && node server.js",
+    "dev:clean": "npm run clean && next dev",
     "build": "next build",
     "start": "NODE_ENV=production node server.js",
     "lint": "next lint"
