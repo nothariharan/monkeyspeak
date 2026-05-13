@@ -53,6 +53,7 @@ export default function Home() {
   // Tracks currentWordIndex before any optimistic advances in the current interim window
   const optimisticBaseIndexRef = useRef(0)
   const [armingCountdown, setArmingCountdown] = useState<number | null>(null)
+  const [startError, setStartError] = useState<string | null>(null)
 
   // ── Active STT provider (always both mounted; selector picks one) ──────────
   const sttProvider = store.settings.sttProvider ?? 'webspeech'
@@ -233,8 +234,6 @@ export default function Home() {
     if (s.testState !== 'running' || s.mode !== 'speed') return
     if (s.speedClockStartedAt == null) return
     if (!interimText) return
-    // Cap to avoid over-advancing on fast bursts
-    if (optimisticCountRef.current >= 2) return
 
     const cwi = s.currentWordIndex
     const current = pageWordStates[cwi]
@@ -242,8 +241,7 @@ export default function Home() {
 
     if (
       current?.status === 'speculative' &&
-      next !== undefined &&
-      next.status !== 'pending'
+      next?.status === 'speculative'
     ) {
       const promptWord = s.prompt[cwi]
       if (!promptWord) return
@@ -462,6 +460,7 @@ export default function Home() {
 
   // ── Test actions ──────────────────────────────────────────────────────────
   const handleStart = useCallback(async () => {
+    setStartError(null)
     if (store.prompt.length === 0) loadPrompt()
 
     if (store.mode === 'speed') {
@@ -487,6 +486,7 @@ export default function Home() {
           scoringFrozenRef.current = false
           setArmingCountdown(null)
           armingEndTsRef.current = null
+          setStartError(sttError)
           return
         }
       }
@@ -496,6 +496,7 @@ export default function Home() {
         scoringFrozenRef.current = false
         setArmingCountdown(null)
         armingEndTsRef.current = null
+        setStartError(sttError)
         return
       }
 
@@ -565,6 +566,7 @@ export default function Home() {
 
   const handleRetry = useCallback(() => {
     setIsPersonalBest(false)
+    setStartError(null)
     const s = useTestStore.getState()
     const last = s.prompt.join(' ')
     clearSpeedArmingTimers()
@@ -616,6 +618,7 @@ export default function Home() {
 
   const handleNext = useCallback(() => {
     setIsPersonalBest(false)
+    setStartError(null)
     const s = useTestStore.getState()
     const last = s.prompt.join(' ')
     clearSpeedArmingTimers()
@@ -769,7 +772,39 @@ export default function Home() {
                       testActive={isRunning}
                       blindMode={store.settings.blindMode}
                     />
-                    {isIdle && <MicButton onStart={handleStart} micState={store.micState} />}
+                    {isIdle && (
+                      <div className="flex flex-col items-center gap-3 w-full">
+                        {startError && (
+                          <div
+                            role="alert"
+                            style={{
+                              background: 'color-mix(in srgb, var(--error, #f87171) 15%, var(--bg))',
+                              border: '1px solid var(--error, #f87171)',
+                              borderRadius: '0.5rem',
+                              padding: '0.5rem 1rem',
+                              color: 'var(--fg)',
+                              fontSize: '0.85rem',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: '1rem',
+                              maxWidth: 480,
+                              width: '100%',
+                            }}
+                          >
+                            <span>{startError}</span>
+                            <button
+                              onClick={() => setStartError(null)}
+                              aria-label="Dismiss error"
+                              style={{ cursor: 'pointer', opacity: 0.7, background: 'none', border: 'none', color: 'inherit', fontSize: '1rem', lineHeight: 1, padding: 0 }}
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        )}
+                        <MicButton onStart={handleStart} micState={store.micState} />
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <ClarityInput

@@ -329,7 +329,12 @@ export function useDeepgramProvider(): SpeechProvider {
       prewarmed.onmessage = _handleDgMessage
       prewarmed.onerror = () => { setError('Deepgram proxy error'); _teardown() }
       prewarmed.onclose = () => {
-        if (activeRef.current || armedRef.current) { activeRef.current = false; armedRef.current = false; setIsListening(false) }
+        if (activeRef.current) {
+          setError('Connection lost — press Enter to retry')
+          _teardown()
+        } else if (armedRef.current) {
+          activeRef.current = false; armedRef.current = false; setIsListening(false)
+        }
       }
       void _setupAudioWorklet(prewarmed, stream)
       return true
@@ -382,7 +387,12 @@ export function useDeepgramProvider(): SpeechProvider {
 
       ws.onclose = () => {
         clearWatchdog()
-        if (activeRef.current || armedRef.current) { activeRef.current = false; armedRef.current = false; setIsListening(false) }
+        if (activeRef.current) {
+          setError('Connection lost — press Enter to retry')
+          _teardown()
+        } else if (armedRef.current) {
+          activeRef.current = false; armedRef.current = false; setIsListening(false)
+        }
         settle(false)
       }
     })
