@@ -25,10 +25,12 @@ ort.env.wasm.numThreads = 1
 // Explicitly point to the WASM binary in the same public/ folder
 ort.env.wasm.wasmPaths = './'
 
-const SAMPLE_RATE        = 16000
-const FRAME_SAMPLES      = 512   // 32ms @ 16 kHz — Silero v5 requirement
-const PAD_FRAMES         = 7     // ~224ms pre-speech padding to avoid clipping onsets
-const SILENT_FRAMES_END  = 9     // ~288ms of silence → speech_end
+const SAMPLE_RATE            = 16000
+const FRAME_SAMPLES          = 512   // 32ms @ 16 kHz — Silero v5 requirement
+const PAD_FRAMES             = 7     // ~224ms pre-speech padding to avoid clipping onsets
+const SILENT_FRAMES_END_MIN  = 5     // ~160ms — for fast speakers (inter-word gap < 40ms)
+const SILENT_FRAMES_END_MAX  = 8     // ~256ms — for slow/paused speakers
+const SILENT_FRAMES_END_DEF  = 6     // ~192ms — default
 
 let session         = null
 let stateH          = null   // LSTM hidden state [2, 1, 64]
@@ -37,6 +39,29 @@ let frameBuffer     = new Float32Array(0)
 let padBuffer       = []     // circular ring of recent frames (max PAD_FRAMES)
 let isSpeechActive  = false
 let silentFrames    = 0
+
+// Dynamic threshold: track timestamps of recent speech_start events to gauge pace
+const speechStartTimes = []   // ring buffer of last 4 speech_start timestamps
+let dynamicSilentFramesEnd = SILENT_FRAMES_END_DEF
+
+function updateDynamicThreshold() {
+  if (speechStartTimes.length < 2) {
+    dynamicSilentFramesEnd = SILENT_FRAMES_END_DEF
+    return
+  }
+  const gaps = []
+  for (let i = 1; i < speechStartTimes.length; i++) {
+    gaps.push(speechStartTimes[i] - speechStartTimes[i - 1])
+  }
+  const avgGapMs = gaps.reduce((a, b) => a + b, 0) / gaps.length
+  if (avgGapMs < 400) {
+    dynamicSilentFramesEnd = SILENT_FRAMES_END_MIN   // fast speaker
+  } else if (avgGapMs > 900) {
+    dynamicSilentFramesEnd = SILENT_FRAMES_END_MAX   // slow speaker
+  } else {
+    dynamicSilentFramesEnd = SILENT_FRAMES_END_DEF
+  }
+}
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -99,6 +124,8 @@ self.onmessage = async (ev) => {
     padBuffer      = []
     isSpeechActive = false
     silentFrames   = 0
+    speechStartTimes.length = 0
+    dynamicSilentFramesEnd = SILENT_FRAMES_END_DEF
     return
   }
 
@@ -132,6 +159,10 @@ self.onmessage = async (ev) => {
         if (!isSpeechActive) {
           isSpeechActive = true
           silentFrames   = 0
+          const now = Date.now()
+          speechStartTimes.push(now)
+          if (speechStartTimes.length > 4) speechStartTimes.shift()
+          updateDynamicThreshold()
           // Flush pre-speech pad buffer so the onset isn't clipped
           for (const padFrame of padBuffer) {
             const copy = padFrame.slice()
@@ -153,7 +184,7 @@ self.onmessage = async (ev) => {
           const copy = frame.slice()
           postMessage({ type: 'audio', buffer: copy.buffer }, [copy.buffer])
           silentFrames++
-          if (silentFrames >= SILENT_FRAMES_END) {
+          if (silentFrames >= dynamicSilentFramesEnd) {
             isSpeechActive = false
             postMessage({ type: 'speech_end', timestamp: Date.now() })
           }

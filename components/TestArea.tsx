@@ -1,15 +1,15 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useCallback, useState } from 'react'
 import { motion } from 'framer-motion'
 import type { CSSProperties } from 'react'
 import type { WordResult } from '@/store/testStore'
 import {
   useSpeculativeMatch,
-  MAX_SPECULATIVE_LOOKAHEAD,
   type PromptWordState,
   type WordStatus,
 } from '@/hooks/useSpeculativeMatch'
+
 interface TestAreaProps {
   words: string[]
   confirmedWords: WordResult[]
@@ -18,16 +18,14 @@ interface TestAreaProps {
   isIdle?: boolean
   /** When true, show a rolling window (~4 lines) instead of the full prompt */
   testActive?: boolean
+  /** When true, suppress wrong-word coloring mid-test (blind mode) */
+  blindMode?: boolean
 }
 
-/** Approximate words per line at typical desktop width + large test font */
-const WORDS_PER_LINE = 12
-/** Lines shown at once (matches max-height / line box) */
+/** Lines shown in the viewport during an active test */
 const ACTIVE_VISIBLE_LINES = 3
-/** Do not reveal the next passage until this many full lines are completed */
-const LINES_BEFORE_ADVANCE = 2
-/** Max words in the visible slice */
-const WINDOW_WORDS = WORDS_PER_LINE * ACTIVE_VISIBLE_LINES
+/** Number of completed lines before the container scrolls */
+const LINES_BEFORE_SCROLL = 1
 
 /** Applies only to speculative/wrong transitions in `<Word />` (see below). */
 const STATUS_HYSTERESIS_MS = 32
@@ -56,35 +54,36 @@ const STATUS_STYLES: Record<WordStatus, CSSProperties> = {
   },
 }
 
-function Word({ state, idlePreview }: { state: PromptWordState; idlePreview?: boolean }) {
-  const lastStatusRef = useRef<WordStatus>(state.status)
-  const lastChangeAtRef = useRef(Date.now())
+function Word({
+  state,
+  idlePreview,
+  wordRef,
+}: {
+  state: PromptWordState
+  idlePreview?: boolean
+  wordRef?: (el: HTMLSpanElement | null) => void
+}) {
   const [stableStatus, setStableStatus] = useState<WordStatus>(state.status)
 
   useEffect(() => {
     if (idlePreview) {
       setStableStatus(state.status)
-      lastStatusRef.current = state.status
-      lastChangeAtRef.current = Date.now()
       return
     }
-    const shouldDelay =
-      state.status === 'speculative' || state.status === 'wrong'
+    const shouldDelay = state.status === 'speculative' || state.status === 'wrong'
     if (!shouldDelay) {
       setStableStatus(state.status)
-      lastStatusRef.current = state.status
-      lastChangeAtRef.current = Date.now()
       return
     }
     const t = window.setTimeout(() => {
       setStableStatus(state.status)
-      lastStatusRef.current = state.status
-      lastChangeAtRef.current = Date.now()
     }, STATUS_HYSTERESIS_MS)
     return () => window.clearTimeout(t)
   }, [state.status, idlePreview])
 
-  const displayStatus = idlePreview ? state.status : stableStatus
+  // The delay only applies to speculative/wrong; all other transitions are immediate
+  const shouldDelay = state.status === 'speculative' || state.status === 'wrong'
+  const displayStatus = idlePreview || !shouldDelay ? state.status : stableStatus
 
   const base = STATUS_STYLES[displayStatus]
   const style: CSSProperties =
@@ -98,6 +97,7 @@ function Word({ state, idlePreview }: { state: PromptWordState; idlePreview?: bo
 
   return (
     <span
+      ref={wordRef}
       style={{
         display: 'inline-block',
         marginRight: '0.45em',
@@ -135,6 +135,7 @@ export default function TestArea({
   liveTranscript,
   isIdle = false,
   testActive = false,
+  blindMode = false,
 }: TestAreaProps) {
   const confirmedStrings = useMemo(
     () => confirmedWords.map((c) => c.word),
@@ -143,112 +144,107 @@ export default function TestArea({
 
   const interimForSpec = testActive && !isIdle ? liveTranscript : ''
 
-  // #region agent log
-  useEffect(() => {
-    if (!testActive || isIdle || !liveTranscript) return
-    fetch('http://127.0.0.1:7291/ingest/74562f5e-377a-4199-9293-9988125476d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'260cc1'},body:JSON.stringify({sessionId:'260cc1',hypothesisId:'D',location:'TestArea.tsx:144',message:'liveTranscript prop changed — React render with new interim text',data:{liveTranscript,ts:Date.now()},timestamp:Date.now()})}).catch(()=>{})
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [liveTranscript])
-  // #endregion
-
   const wordStates = useSpeculativeMatch({
     promptWords: words,
     confirmedWords: confirmedStrings,
     interimText: interimForSpec,
+    blindMode: testActive && !isIdle ? blindMode : false,
   })
 
-  const [chunkStart, setChunkStart] = useState(0)
+  // ── Continuous scroll via CSS translateY ──────────────────────────────────
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const wordRefsMap = useRef<Map<number, HTMLSpanElement>>(new Map())
 
-  useEffect(() => {
-    setChunkStart(0)
-  }, [words])
+  const setWordRef = useCallback((index: number) => (el: HTMLSpanElement | null) => {
+    if (el) {
+      wordRefsMap.current.set(index, el)
+    } else {
+      wordRefsMap.current.delete(index)
+    }
+  }, [])
 
+  // Reset scroll offset when the prompt changes or test becomes idle
   useEffect(() => {
-    if (isIdle) setChunkStart(0)
-  }, [isIdle])
+    if (!containerRef.current) return
+    containerRef.current.style.transform = 'translateY(0)'
+    containerRef.current.style.transition = 'none'
+  }, [words, isIdle])
 
   useEffect(() => {
     if (!testActive || isIdle) return
-    const advanceBy = LINES_BEFORE_ADVANCE * WORDS_PER_LINE
-    const maxStart =
-      words.length <= WINDOW_WORDS ? 0 : Math.max(0, words.length - WINDOW_WORDS)
-    setChunkStart((c) => {
-      let next = c
-      while (currentWordIndex >= next + advanceBy) {
-        const candidate = next + advanceBy
-        if (candidate >= maxStart) return maxStart
-        next = candidate
-      }
-      return next
-    })
-  }, [currentWordIndex, testActive, isIdle, words.length])
+    const container = containerRef.current
+    if (!container) return
 
-  const hasActiveInterim = interimForSpec.trim().length > 0
-  const speculativeCount = hasActiveInterim
-    ? wordStates
-        .slice(currentWordIndex, currentWordIndex + MAX_SPECULATIVE_LOOKAHEAD)
-        .filter((ws) => ws.status === 'speculative' || ws.status === 'correct')
-        .length
-    : 0
+    const currentEl = wordRefsMap.current.get(currentWordIndex)
+    if (!currentEl) return
 
-  const windowStart = testActive && !isIdle ? chunkStart : 0
-  const windowEnd =
-    testActive && !isIdle ? Math.min(words.length, chunkStart + WINDOW_WORDS) : words.length
+    const containerRect = container.parentElement?.getBoundingClientRect()
+    if (!containerRect) return
 
-  const visibleStates = useMemo(() => {
-    if (testActive && !isIdle) {
-      return wordStates.slice(windowStart, windowEnd).map((ws, localI) => ({
-        ws,
-        globalIndex: windowStart + localI,
-      }))
-    }
-    return wordStates.map((ws, globalIndex) => ({ ws, globalIndex }))
-  }, [wordStates, testActive, isIdle, windowStart, windowEnd])
+    // Compute the line height from the element itself
+    const lineHeight = parseFloat(getComputedStyle(currentEl).lineHeight) || currentEl.offsetHeight
 
-  /** Same scale as globals `.word` / settings — active run and idle preview. */
+    // How many lines from the top of the container to the current word
+    const wordTop = currentEl.offsetTop
+    // Only scroll when the current word has moved past LINES_BEFORE_SCROLL visible lines
+    const scrollThreshold = LINES_BEFORE_SCROLL * lineHeight
+    const targetTranslate = wordTop > scrollThreshold ? -(wordTop - scrollThreshold) : 0
+
+    container.style.transition = 'transform 0.2s ease'
+    container.style.transform = `translateY(${targetTranslate}px)`
+  }, [currentWordIndex, testActive, isIdle])
+
+  const visibleStates = useMemo(
+    () => wordStates.map((ws, globalIndex) => ({ ws, globalIndex })),
+    [wordStates]
+  )
+
   const testTextStyles: CSSProperties = {
     fontFamily: 'var(--font-mono), ui-monospace, monospace',
     fontSize: 'var(--test-font-size)',
     lineHeight: 'var(--test-line-height)',
   }
 
-  const activeRunStyles: CSSProperties | undefined =
-    testActive && !isIdle ? testTextStyles : undefined
-
   return (
     <div className="flex flex-col gap-4 items-stretch w-full">
+      {/* Outer clip box — fixed height during active test */}
       <div
-        className={`select-none transition-all duration-300 w-full ${
-          isIdle
-            ? 'text-left overflow-hidden text-ellipsis'
-            : testActive
-              ? 'text-left overflow-x-hidden'
-              : 'text-left leading-relaxed'
-        }`}
         style={{
           maxWidth: '100%',
           ...(isIdle
             ? {
                 ...testTextStyles,
                 maxHeight: `calc(${ACTIVE_VISIBLE_LINES} * var(--test-line-height))`,
+                overflow: 'hidden',
               }
-            : {}),
-          ...(testActive && !isIdle
-            ? {
-                /* Keep the active window to exactly three text lines. */
-                maxHeight: `calc(${ACTIVE_VISIBLE_LINES} * var(--test-line-height))`,
-                overflowY: 'hidden',
-                paddingBottom: 4,
-                ...activeRunStyles,
-              }
-            : {}),
+            : testActive
+              ? {
+                  maxHeight: `calc(${ACTIVE_VISIBLE_LINES} * var(--test-line-height))`,
+                  overflow: 'hidden',
+                  paddingBottom: 4,
+                }
+              : {}),
         }}
         aria-label="Speaking prompt"
         aria-live="polite"
       >
-        {visibleStates.map(({ ws, globalIndex }) => (
-          <Word key={`${globalIndex}-${ws.word}`} state={ws} idlePreview={isIdle} />
-        ))}
+        {/* Inner container — this is what we translateY */}
+        <div
+          ref={containerRef}
+          className="select-none w-full text-left"
+          style={{
+            ...(testActive && !isIdle ? testTextStyles : {}),
+          }}
+        >
+          {visibleStates.map(({ ws, globalIndex }) => (
+            <Word
+              key={`${globalIndex}-${ws.word}`}
+              state={ws}
+              idlePreview={isIdle}
+              wordRef={testActive && !isIdle ? setWordRef(globalIndex) : undefined}
+            />
+          ))}
+        </div>
       </div>
     </div>
   )

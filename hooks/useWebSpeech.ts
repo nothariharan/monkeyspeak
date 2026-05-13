@@ -147,10 +147,6 @@ export function useWebSpeech(): SpeechProvider {
           if (!r) continue
           if (!r.isFinal) interim += r[0]?.transcript ?? ''
         }
-        // #region agent log
-        const _wsHasFinal = Array.from({length: event.results.length - event.resultIndex}, (_, k) => event.results[event.resultIndex + k]?.isFinal).some(Boolean)
-        fetch('http://127.0.0.1:7291/ingest/74562f5e-377a-4199-9293-9988125476d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'260cc1'},body:JSON.stringify({sessionId:'260cc1',hypothesisId:'E',location:'useWebSpeech.ts:143',message:'WebSpeech onresult fired',data:{interimTrim:interim.trim().slice(0,60),hasFinal:_wsHasFinal,ts:Date.now()},timestamp:Date.now()})}).catch(()=>{})
-        // #endregion
         const interimTrim = interim.trim()
 
         if (interimTrim.length === 0) {

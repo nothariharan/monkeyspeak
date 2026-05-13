@@ -83,3 +83,33 @@ export function regeneratePrompt(
   }
   return generatePrompt(mode, duration)
 }
+
+/**
+ * Build a practice prompt biased toward words the user missed or substituted.
+ * 70% of slots are filled by sampling from missedWords (with repetition);
+ * 30% are random words from COMMON_WORDS so the prompt isn't pure repetition.
+ */
+export function generatePracticePrompt(missedWords: string[], duration: number): string {
+  const wordCount = WORD_COUNTS[duration] ?? 90
+  if (missedWords.length === 0) return generatePrompt('sentences', duration)
+
+  const pool = [...new Set(missedWords.filter(Boolean))]
+  const fillCount = Math.round(wordCount * 0.7)
+  const padCount = wordCount - fillCount
+
+  const result: string[] = []
+  let shuffledPool = shuffle(pool)
+  let pi = 0
+  for (let i = 0; i < fillCount; i++) {
+    if (pi >= shuffledPool.length) {
+      shuffledPool = shuffle(pool)
+      pi = 0
+    }
+    result.push(shuffledPool[pi++]!)
+  }
+
+  const padWords = pickWords(COMMON_WORDS, padCount)
+  result.push(...padWords)
+
+  return shuffle(result).join(' ')
+}

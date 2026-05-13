@@ -94,11 +94,14 @@ function buildDeepgramListenUrl(browserReqUrl) {
     channels: '1',
     smart_format: 'true',
     interim_results: 'true',
-    endpointing: '300',
+    // Client may override endpointing via ?endpointing=N query param (e.g. 100 for lower latency)
+    endpointing: '150',
   };
   for (const [k, v] of Object.entries(defaults)) {
     if (!p.has(k)) p.set(k, v);
   }
+  // Forward any additional client-supplied Deepgram params (utterance_end_ms, etc.)
+  // All unrecognised params are passed through as-is to allow experimentation.
 
   return `wss://api.deepgram.com/v1/listen?${p.toString()}`;
 }

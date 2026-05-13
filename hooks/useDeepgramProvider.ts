@@ -192,16 +192,10 @@ export function useDeepgramProvider(): SpeechProvider {
       if (!transcript) return
 
       if (!r.is_final) {
-        // #region agent log
-        fetch('http://127.0.0.1:7291/ingest/74562f5e-377a-4199-9293-9988125476d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'260cc1'},body:JSON.stringify({sessionId:'260cc1',hypothesisId:'B',location:'useDeepgramProvider.ts:195',message:'DG interim result received',data:{transcript,isFinal:false,speechFinal:r.speech_final,ts:Date.now()},timestamp:Date.now()})}).catch(()=>{})
-        // #endregion
         setInterimText(transcript)
         return
       }
 
-      // #region agent log
-      fetch('http://127.0.0.1:7291/ingest/74562f5e-377a-4199-9293-9988125476d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'260cc1'},body:JSON.stringify({sessionId:'260cc1',hypothesisId:'C',location:'useDeepgramProvider.ts:202',message:'DG FINAL result received (is_final=true)',data:{transcript,speechFinal:r.speech_final,ts:Date.now()},timestamp:Date.now()})}).catch(()=>{})
-      // #endregion
       setInterimText('')
 
       const wordObjs = (alt.words ?? []) as DgWord[]
@@ -300,7 +294,7 @@ export function useDeepgramProvider(): SpeechProvider {
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'KeepAlive' }))
         }
-      }, 8_000)
+      }, 3_000)
 
       if (activeRef.current) setIsListening(true)
     } catch {

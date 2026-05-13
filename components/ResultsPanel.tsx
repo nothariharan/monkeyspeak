@@ -21,6 +21,7 @@ type SpeedRecognizedItem = {
 interface ResultsPanelProps {
   mode: 'speed' | 'clarity'
   wpm: number
+  rawWpm?: number
   wordCount: number
   fillerCount: number
   peakWpm: number
@@ -36,8 +37,11 @@ interface ResultsPanelProps {
   clarityScore: number
   clarityGrade: 'S' | 'A' | 'B' | 'C' | 'needs work'
   diffResult: DiffWord[]
+  isPersonalBest?: boolean
+  personalBestWpm?: number
   onRetry: () => void
   onNext: () => void
+  onPractice?: () => void
 }
 
 const GRADE_COLOR: Record<string, string> = {
@@ -93,6 +97,7 @@ function StatRowItem({ label, value, colorVar }: { label: string; value: number;
 export default function ResultsPanel({
   mode,
   wpm,
+  rawWpm = 0,
   wordCount,
   fillerCount,
   peakWpm,
@@ -107,8 +112,11 @@ export default function ResultsPanel({
   clarityScore,
   clarityGrade,
   diffResult,
+  isPersonalBest = false,
+  personalBestWpm,
   onRetry,
   onNext,
+  onPractice,
 }: ResultsPanelProps) {
   /** Expected prompt words + counts (unchanged semantics). */
   const speedPromptReview = useMemo(() => {
@@ -292,24 +300,59 @@ export default function ResultsPanel({
 
             <div className="min-w-0 flex flex-col gap-8">
               <div>
-                <span
-                  className="font-mono font-semibold block"
-                  style={{ fontSize: '3.5rem', color: 'var(--accent)', lineHeight: 1 }}
-                  aria-label={`${wpm} words per minute`}
-                >
-                  {wpm}
-                </span>
-                <span className="text-sm font-mono" style={{ color: 'var(--text-stats)' }}>
-                  wpm
-                </span>
+                <div className="flex items-end gap-3">
+                  <span
+                    className="font-mono font-semibold"
+                    style={{ fontSize: '3.5rem', color: 'var(--accent)', lineHeight: 1 }}
+                    aria-label={`${wpm} words per minute`}
+                  >
+                    {wpm}
+                  </span>
+                  {isPersonalBest && (
+                    <span
+                      title="Personal best!"
+                      style={{ color: 'var(--accent)', marginBottom: '0.35rem' }}
+                      aria-label="Personal best"
+                    >
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M5 16L3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5zm2 3h10v-2H7v2z"/>
+                      </svg>
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-baseline gap-3">
+                  <span className="text-sm font-mono" style={{ color: 'var(--text-stats)' }}>
+                    wpm
+                  </span>
+                  {isPersonalBest && (
+                    <span className="text-xs font-mono" style={{ color: 'var(--accent)' }}>
+                      new personal best!
+                    </span>
+                  )}
+                  {!isPersonalBest && personalBestWpm != null && personalBestWpm > 0 && (
+                    <span className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>
+                      best {personalBestWpm}
+                    </span>
+                  )}
+                </div>
               </div>
 
-              <div className="grid gap-6" style={{ gridTemplateColumns: '1fr 1fr' }}>
-                <StatCell label="words spoken" value={wordCount} />
-                <StatCell label="fillers removed" value={fillerCount} />
-                <StatCell label="peak wpm" value={peakWpm} />
-                <StatCell label="consistency" value={consistencyDisplay} />
-              </div>
+              {/* Accuracy */}
+              {(() => {
+                const attempted = Math.min(confirmedWords.length, prompt.length)
+                const correct = confirmedWords.slice(0, attempted).filter((w) => w.isCorrect).length
+                const accuracy = attempted > 0 ? Math.round((correct / attempted) * 100) : 0
+                return (
+                  <div className="grid gap-6" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                    <StatCell label="words spoken" value={wordCount} />
+                    <StatCell label="fillers removed" value={fillerCount} />
+                    <StatCell label="peak wpm" value={peakWpm} />
+                    <StatCell label="consistency" value={consistencyDisplay} />
+                    <StatCell label="accuracy" value={`${accuracy}%`} />
+                    {rawWpm > 0 && <StatCell label="raw wpm" value={rawWpm} />}
+                  </div>
+                )
+              })()}
 
               <div>
                 <SparklineChart
@@ -329,6 +372,11 @@ export default function ResultsPanel({
                 <button type="button" id="btn-next" onClick={onNext} className="pill-btn px-4 py-2">
                   next test
                 </button>
+                {onPractice && (speedPromptReview?.counts.missed ?? 0) + (speedPromptReview?.counts.substituted ?? 0) > 0 && (
+                  <button type="button" id="btn-practice" onClick={onPractice} className="pill-btn px-4 py-2">
+                    practice missed
+                  </button>
+                )}
                 <button type="button" id="btn-share" onClick={handleShare} className="pill-btn px-4 py-2">
                   share
                 </button>

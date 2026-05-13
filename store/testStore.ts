@@ -25,12 +25,19 @@ export interface WordResult {
   endTime?: number
   /** ASR confidence score 0–1 as emitted by Deepgram. */
   confidence?: number
+  /** True while the word has been advanced optimistically but not yet reconciled with a Deepgram final. */
+  isOptimistic?: boolean
 }
 
 export interface DiffWord {
   word: string
   tag: 'correct' | 'substituted' | 'missed' | 'added'
   expected?: string
+}
+
+export interface PersonalBestEntry {
+  wpm: number
+  date: string
 }
 
 export interface Settings {
@@ -42,8 +49,11 @@ export interface Settings {
   fillerFlash: boolean
   showLiveTranscript: boolean
   smoothCaret: boolean
+  blindMode: boolean
   language: 'en-US' | 'en-GB' | 'en-AU'
   sttProvider: ProviderType
+  /** Keyed by `speed-${duration}s-${promptType}` */
+  personalBests: Record<string, PersonalBestEntry>
 }
 
 export interface WpmSnapshot {
@@ -74,6 +84,7 @@ interface TestStore {
   confirmedWords: WordResult[]
   fillerCount: number
   wpm: number
+  rawWpm: number
   peakWpm: number
   consistency: number
   wpmSnapshots: WpmSnapshot[]
@@ -113,9 +124,12 @@ interface TestStore {
   setCustomPromptText: (text: string) => void
   setPrompt: (words: string[]) => void
   addWord: (result: WordResult) => void
+  optimisticAdvanceWord: (result: WordResult) => void
+  patchWord: (index: number, patch: Partial<WordResult>) => void
   detectFiller: () => void
   advanceWord: () => void
   setWpm: (wpm: number) => void
+  setRawWpm: (wpm: number) => void
   setPeakWpm: (wpm: number) => void
   addWpmSnapshot: (snapshot: WpmSnapshot) => void
   pushWordRawWpm: (v: number) => void
@@ -126,6 +140,8 @@ interface TestStore {
   updateSettings: (patch: Partial<Settings>) => void
   setMicState: (s: TestStore['micState']) => void
   setSttProvider: (p: ProviderType) => void
+  /** Returns true if this was a new personal best. */
+  checkAndUpdatePersonalBest: (key: string, wpm: number) => boolean
   resetTest: () => void
   startTest: () => void
   setSpeedClockStartedAt: (t: number) => void
@@ -145,8 +161,10 @@ const DEFAULT_SETTINGS: Settings = {
   fillerFlash: true,
   showLiveTranscript: true,
   smoothCaret: true,
+  blindMode: false,
   language: 'en-US',
   sttProvider: 'webspeech',
+  personalBests: {},
 }
 
 // ─── Store ────────────────────────────────────────────────────────────────────
@@ -165,6 +183,7 @@ export const useTestStore = create<TestStore>()(
       confirmedWords: [],
       fillerCount: 0,
       wpm: 0,
+      rawWpm: 0,
       peakWpm: 0,
       consistency: 100,
       wpmSnapshots: [],
@@ -198,6 +217,25 @@ export const useTestStore = create<TestStore>()(
           const t0 = s.speedClockStartedAt ?? s.testStartedAt
           const speedTimelineEvents =
             s.testState === 'running' && t0 != null && !result.isCorrect
+              ? [...s.speedTimelineEvents, { atMs: Date.now() - t0, kind: 'wrong_word' as const }]
+              : s.speedTimelineEvents
+          return { confirmedWords, speedTimelineEvents }
+        }),
+
+      optimisticAdvanceWord: (result) =>
+        set((s) => ({
+          confirmedWords: [...s.confirmedWords, { ...result, isOptimistic: true }],
+          currentWordIndex: s.currentWordIndex + 1,
+        })),
+
+      patchWord: (index, patch) =>
+        set((s) => {
+          if (index < 0 || index >= s.confirmedWords.length) return {}
+          const confirmedWords = [...s.confirmedWords]
+          confirmedWords[index] = { ...confirmedWords[index]!, ...patch }
+          const t0 = s.speedClockStartedAt ?? s.testStartedAt
+          const speedTimelineEvents =
+            patch.isCorrect === false && s.testState === 'running' && t0 != null
               ? [...s.speedTimelineEvents, { atMs: Date.now() - t0, kind: 'wrong_word' as const }]
               : s.speedTimelineEvents
           return { confirmedWords, speedTimelineEvents }
@@ -239,6 +277,7 @@ export const useTestStore = create<TestStore>()(
         set((s) => ({ currentWordIndex: s.currentWordIndex + 1 })),
 
       setWpm: (wpm) => set({ wpm }),
+      setRawWpm: (rawWpm) => set({ rawWpm }),
       setPeakWpm: (peakWpm) => set({ peakWpm }),
       addWpmSnapshot: (snapshot) =>
         set((s) => ({ wpmSnapshots: [...s.wpmSnapshots, snapshot] })),
@@ -278,6 +317,24 @@ export const useTestStore = create<TestStore>()(
 
       setSttProvider: (p) => set((s) => ({ settings: { ...s.settings, sttProvider: p } })),
 
+      checkAndUpdatePersonalBest: (key, wpm) => {
+        const bests = get().settings.personalBests ?? {}
+        const current = bests[key]
+        if (!current || wpm > current.wpm) {
+          set((s) => ({
+            settings: {
+              ...s.settings,
+              personalBests: {
+                ...(s.settings.personalBests ?? {}),
+                [key]: { wpm, date: new Date().toISOString() },
+              },
+            },
+          }))
+          return true
+        }
+        return false
+      },
+
       setSpeedClockStartedAt: (speedClockStartedAt) => set({ speedClockStartedAt }),
 
       startTest: () => {
@@ -288,6 +345,7 @@ export const useTestStore = create<TestStore>()(
           confirmedWords: [],
           fillerCount: 0,
           wpm: 0,
+          rawWpm: 0,
           peakWpm: 0,
           consistency: 100,
           wpmSnapshots: [],
@@ -314,6 +372,7 @@ export const useTestStore = create<TestStore>()(
           confirmedWords: [],
           fillerCount: 0,
           wpm: 0,
+          rawWpm: 0,
           peakWpm: 0,
           consistency: 100,
           wpmSnapshots: [],
@@ -337,6 +396,23 @@ export const useTestStore = create<TestStore>()(
       name: 'monkeyspeak-settings',
       // Only persist settings, not transient test state
       partialize: (state) => ({ settings: state.settings }),
+      // Deep-merge persisted settings with DEFAULT_SETTINGS so any new fields
+      // added after a user first ran the app always get their default values.
+      merge: (persisted, current) => {
+        const p = persisted as { settings?: Partial<Settings> }
+        return {
+          ...current,
+          settings: {
+            ...DEFAULT_SETTINGS,
+            ...(p?.settings ?? {}),
+            // Ensure object fields that may be missing are always present
+            personalBests: {
+              ...DEFAULT_SETTINGS.personalBests,
+              ...(p?.settings?.personalBests ?? {}),
+            },
+          },
+        }
+      },
     }
   )
 )

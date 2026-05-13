@@ -6,10 +6,11 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { useTestStore } from '@/store/testStore'
 import { useTimer } from '@/hooks/useTimer'
 import { useActiveSpeechProvider } from '@/hooks/useActiveSpeechProvider'
-import { generatePrompt, regeneratePrompt, type PromptMode } from '@/lib/prompts'
+import { generatePrompt, regeneratePrompt, generatePracticePrompt, type PromptMode } from '@/lib/prompts'
 import { diffWords, calcClarityScore } from '@/lib/diff'
 import { alignAsrFinalToPrompt } from '@/lib/asrPromptAlign'
-import { netWpmFromChars, perWordRawWpm } from '@/lib/stats/wpm'
+import { netWpmFromChars, rawWpmFromChars, perWordRawWpm } from '@/lib/stats/wpm'
+import { useSpeculativeMatch } from '@/hooks/useSpeculativeMatch'
 import type { EnrichedWord } from '@/hooks/useSpeechProvider'
 
 import Header from '@/components/Header'
@@ -35,6 +36,7 @@ export default function Home() {
   const store = useTestStore()
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [waveformErrorFlash, setWaveformErrorFlash] = useState(false)
+  const [isPersonalBest, setIsPersonalBest] = useState(false)
   const startTimeRef = useRef<number | null>(null)
   const errorFlashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const prevFillerCountRef = useRef(0)
@@ -46,6 +48,10 @@ export default function Home() {
   const prevEnrichedLenRef = useRef(0)
   const pendingConfirmedWordsRef = useRef<EnrichedWord[]>([])
   const handleStopRef = useRef<() => void>(() => {})
+  // Optimistic advancement: tracks how many words were advanced before DG final
+  const optimisticCountRef = useRef(0)
+  // Tracks currentWordIndex before any optimistic advances in the current interim window
+  const optimisticBaseIndexRef = useRef(0)
   const [armingCountdown, setArmingCountdown] = useState<number | null>(null)
 
   // ── Active STT provider (always both mounted; selector picks one) ──────────
@@ -64,6 +70,16 @@ export default function Home() {
     reset: resetProvider,
     onSpeechStart,
   } = useActiveSpeechProvider(sttProvider)
+
+  // Page-level speculative match — drives optimistic word advancement.
+  // Mirrors the inputs passed to TestArea so decisions stay in sync.
+  const isRunning = store.testState === 'running'
+  const confirmedStringsForSpec = store.confirmedWords.map((c) => c.word)
+  const pageWordStates = useSpeculativeMatch({
+    promptWords: store.prompt,
+    confirmedWords: confirmedStringsForSpec,
+    interimText: isRunning && store.mode === 'speed' ? interimText : '',
+  })
 
   const clearSpeedArmingTimers = useCallback(() => {
     for (const id of armTimerIdsRef.current) clearTimeout(id)
@@ -100,21 +116,8 @@ export default function Home() {
   }, [])
 
   // ── Timer ─────────────────────────────────────────────────────────────────
-  const handleTimerEnd = useCallback(() => {
-    clearSpeedArmingTimers()
-    setArmingCountdown(null)
-    armingEndTsRef.current = null
-    firstSpeechTsRef.current = null
-    scoringFrozenRef.current = false
-    store.finaliseConsistency()
-    store.setTestState('ended')
-    stopSession()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clearSpeedArmingTimers, stopSession])
-
-  const { timeRemaining, isWarning, start: startTimer, stop: stopTimer, reset: resetTimer } =
-    useTimer(store.duration, handleTimerEnd)
-
+  // Defined before handleTimerEnd so the timer-end callback can flush a final
+  // WPM snapshot before evaluating the personal-best threshold.
   const flushSpeedWpmSnapshot = useCallback(() => {
     const t0 = startTimeRef.current
     if (t0 == null) return
@@ -124,11 +127,35 @@ export default function Home() {
     if (elapsedMs < 3000) return
     const correctWords = s.confirmedWords.filter((w) => w.isCorrect)
     const correctChars = correctWords.reduce((sum, w) => sum + w.word.length + 1, 0)
+    const allChars = s.confirmedWords.reduce((sum, w) => sum + w.word.length + 1, 0)
     const computed = netWpmFromChars(correctChars, elapsedMs / 1000)
     s.setWpm(computed)
+    s.setRawWpm(rawWpmFromChars(allChars, elapsedMs / 1000))
     if (computed > s.peakWpm) s.setPeakWpm(computed)
     s.addWpmSnapshot({ wpm: computed, timestamp: Date.now() })
   }, [])
+
+  const handleTimerEnd = useCallback(() => {
+    clearSpeedArmingTimers()
+    setArmingCountdown(null)
+    armingEndTsRef.current = null
+    firstSpeechTsRef.current = null
+    scoringFrozenRef.current = false
+    // Flush the final WPM snapshot so the personal-best check uses
+    // accurate values rather than whatever the 150 ms interval last wrote.
+    flushSpeedWpmSnapshot()
+    store.finaliseConsistency()
+    const s = useTestStore.getState()
+    const pbKey = `speed-${s.duration}s-${s.promptType}`
+    const newBest = s.checkAndUpdatePersonalBest(pbKey, s.wpm)
+    setIsPersonalBest(newBest)
+    store.setTestState('ended')
+    stopSession()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clearSpeedArmingTimers, stopSession, flushSpeedWpmSnapshot])
+
+  const { timeRemaining, isWarning, start: startTimer, stop: stopTimer, reset: resetTimer } =
+    useTimer(store.duration, handleTimerEnd)
 
   const flushPendingConfirmedWords = useCallback(() => {
     const pending = pendingConfirmedWordsRef.current
@@ -138,6 +165,8 @@ export default function Home() {
     if (s.testState !== 'running' || s.mode !== 'speed') return
 
     pendingConfirmedWordsRef.current = []
+    optimisticCountRef.current = 0
+    optimisticBaseIndexRef.current = 0
     const { prompt, currentWordIndex, addWord, advanceWord, detectFiller } = s
     const batch = alignAsrFinalToPrompt(pending, prompt, currentWordIndex, () => {
       detectFiller()
@@ -194,6 +223,45 @@ export default function Home() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onSpeechStart])
 
+  // ── Optimistic word advancement ───────────────────────────────────────────
+  // When the speculative match is stable at currentWordIndex AND the next word
+  // has also started appearing, we have high confidence the current word was
+  // spoken correctly. Advance immediately rather than waiting for is_final.
+  // The DG final handler reconciles and patches any mismatches afterward.
+  useEffect(() => {
+    const s = useTestStore.getState()
+    if (s.testState !== 'running' || s.mode !== 'speed') return
+    if (s.speedClockStartedAt == null) return
+    if (!interimText) return
+    // Cap to avoid over-advancing on fast bursts
+    if (optimisticCountRef.current >= 2) return
+
+    const cwi = s.currentWordIndex
+    const current = pageWordStates[cwi]
+    const next = pageWordStates[cwi + 1]
+
+    if (
+      current?.status === 'speculative' &&
+      next !== undefined &&
+      next.status !== 'pending'
+    ) {
+      const promptWord = s.prompt[cwi]
+      if (!promptWord) return
+      // Record base index on the first optimistic advance in this interim window
+      if (optimisticCountRef.current === 0) {
+        optimisticBaseIndexRef.current = cwi
+      }
+      s.optimisticAdvanceWord({
+        word: promptWord,
+        isCorrect: true,
+        isFiller: false,
+        timestamp: Date.now(),
+      })
+      optimisticCountRef.current++
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageWordStates, interimText])
+
   // ── confirmedWords → store (provider feeds us the array) ─────────────────
   // Track the previous length so we only process new entries each render.
   // enrichedWords is parallel to confirmedWords — same index, same length for
@@ -232,24 +300,68 @@ export default function Home() {
       return
     }
 
-    const { prompt, currentWordIndex, addWord, advanceWord, detectFiller } = s
-    const batch = alignAsrFinalToPrompt(tokensForAligner, prompt, currentWordIndex, () => {
+    const optimisticCount = optimisticCountRef.current
+    const optimisticBase = optimisticBaseIndexRef.current
+
+    // Align starting at the pre-optimistic word index so the aligner covers
+    // both the already-advanced optimistic words and any new words beyond them.
+    const alignStartIndex = optimisticCount > 0 ? optimisticBase : s.currentWordIndex
+
+    const { prompt, addWord, advanceWord, detectFiller, patchWord } = s
+    const batch = alignAsrFinalToPrompt(tokensForAligner, prompt, alignStartIndex, () => {
       detectFiller()
     })
-    for (const result of batch) {
-      if (!result.isCorrect) triggerWaveformError()
-      addWord(result)
-      advanceWord()
-      if (result.isCorrect && result.endTime != null) {
-        const cur = useTestStore.getState()
-        const prev = cur.lastCorrectWordEndTime
-        const delta = prev != null ? result.endTime - prev : result.endTime
-        if (delta > 0) {
-          cur.pushWordRawWpm(perWordRawWpm(result.word.length, delta))
+
+    // ── Reconcile optimistic words then process remainder ─────────────────
+    for (let i = 0; i < batch.length; i++) {
+      const result = batch[i]!
+      const storeIndex = alignStartIndex + i
+
+      if (i < optimisticCount) {
+        // This position was already advanced optimistically — reconcile.
+        if (!result.isCorrect) {
+          triggerWaveformError()
+          patchWord(storeIndex, {
+            word: result.word,
+            isCorrect: false,
+            isOptimistic: false,
+            startTime: result.startTime,
+            endTime: result.endTime,
+            confidence: result.confidence,
+          })
+        } else {
+          // Confirm the optimistic word (clear flag, update timing from DG)
+          patchWord(storeIndex, {
+            isOptimistic: false,
+            startTime: result.startTime,
+            endTime: result.endTime,
+            confidence: result.confidence,
+          })
+          if (result.endTime != null) {
+            const cur = useTestStore.getState()
+            const prev = cur.lastCorrectWordEndTime
+            const delta = prev != null ? result.endTime - prev : result.endTime
+            if (delta > 0) cur.pushWordRawWpm(perWordRawWpm(result.word.length, delta))
+            cur.setLastCorrectWordEndTime(result.endTime)
+          }
         }
-        cur.setLastCorrectWordEndTime(result.endTime)
+      } else {
+        // New word beyond optimistic window — process normally.
+        if (!result.isCorrect) triggerWaveformError()
+        addWord(result)
+        advanceWord()
+        if (result.isCorrect && result.endTime != null) {
+          const cur = useTestStore.getState()
+          const prev = cur.lastCorrectWordEndTime
+          const delta = prev != null ? result.endTime - prev : result.endTime
+          if (delta > 0) cur.pushWordRawWpm(perWordRawWpm(result.word.length, delta))
+          cur.setLastCorrectWordEndTime(result.endTime)
+        }
       }
     }
+
+    optimisticCountRef.current = 0
+    optimisticBaseIndexRef.current = 0
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [confirmedWords, enrichedWords])
 
@@ -292,8 +404,10 @@ export default function Home() {
     if (elapsedMs < 3000) return
     const correctWords = s.confirmedWords.filter((w) => w.isCorrect)
     const correctChars = correctWords.reduce((sum, w) => sum + w.word.length + 1, 0)
+    const allChars = s.confirmedWords.reduce((sum, w) => sum + w.word.length + 1, 0)
     const computed = netWpmFromChars(correctChars, elapsedMs / 1000)
     s.setWpm(computed)
+    s.setRawWpm(rawWpmFromChars(allChars, elapsedMs / 1000))
     if (computed > s.peakWpm) s.setPeakWpm(computed)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store.confirmedWords.length])
@@ -309,11 +423,13 @@ export default function Home() {
       if (elapsedMs < 3000) return
       const correctWords = s.confirmedWords.filter((w) => w.isCorrect)
       const correctChars = correctWords.reduce((sum, w) => sum + w.word.length + 1, 0)
+      const allChars = s.confirmedWords.reduce((sum, w) => sum + w.word.length + 1, 0)
       const computed = netWpmFromChars(correctChars, elapsedMs / 1000)
       s.setWpm(computed)
+      s.setRawWpm(rawWpmFromChars(allChars, elapsedMs / 1000))
       if (computed > s.peakWpm) s.setPeakWpm(computed)
       s.addWpmSnapshot({ wpm: computed, timestamp: Date.now() })
-    }, 500)
+    }, 150)
     return () => clearInterval(id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store.testState, store.mode])
@@ -355,6 +471,8 @@ export default function Home() {
       prevConfirmedLenRef.current = 0
       prevEnrichedLenRef.current = 0
       pendingConfirmedWordsRef.current = []
+      optimisticCountRef.current = 0
+      optimisticBaseIndexRef.current = 0
       startTimeRef.current = null
       clearSpeedArmingTimers()
       resetProvider()
@@ -416,6 +534,9 @@ export default function Home() {
       stopSession()
       flushSpeedWpmSnapshot()
       s.finaliseConsistency()
+      const pbKey = `speed-${s.duration}s-${s.promptType}`
+      const newBest = s.checkAndUpdatePersonalBest(pbKey, s.wpm)
+      setIsPersonalBest(newBest)
     } else {
       const promptStr = s.prompt.join(' ')
       const diff = diffWords(promptStr, s.clarityTranscript)
@@ -443,6 +564,7 @@ export default function Home() {
   }, [store.testState, store.mode])
 
   const handleRetry = useCallback(() => {
+    setIsPersonalBest(false)
     const s = useTestStore.getState()
     const last = s.prompt.join(' ')
     clearSpeedArmingTimers()
@@ -454,6 +576,8 @@ export default function Home() {
     prevConfirmedLenRef.current = 0
     prevEnrichedLenRef.current = 0
     pendingConfirmedWordsRef.current = []
+    optimisticCountRef.current = 0
+    optimisticBaseIndexRef.current = 0
     scoringFrozenRef.current = false
     resetProvider()
     s.resetTest()
@@ -464,7 +588,34 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clearSpeedArmingTimers, resetProvider])
 
+  const handlePractice = useCallback(() => {
+    setIsPersonalBest(false)
+    const s = useTestStore.getState()
+    const missedWords = s.confirmedWords
+      .filter((w) => !w.isCorrect)
+      .map((w) => w.word)
+    clearSpeedArmingTimers()
+    setArmingCountdown(null)
+    startTimeRef.current = null
+    armingEndTsRef.current = null
+    firstSpeechTsRef.current = null
+    firstSpeechFiredRef.current = false
+    prevConfirmedLenRef.current = 0
+    prevEnrichedLenRef.current = 0
+    pendingConfirmedWordsRef.current = []
+    optimisticCountRef.current = 0
+    optimisticBaseIndexRef.current = 0
+    scoringFrozenRef.current = false
+    resetProvider()
+    s.resetTest()
+    resetTimer(s.duration)
+    const practiceText = generatePracticePrompt(missedWords, s.duration)
+    useTestStore.getState().setPrompt(splitPrompt(practiceText))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clearSpeedArmingTimers, resetProvider])
+
   const handleNext = useCallback(() => {
+    setIsPersonalBest(false)
     const s = useTestStore.getState()
     const last = s.prompt.join(' ')
     clearSpeedArmingTimers()
@@ -476,6 +627,8 @@ export default function Home() {
     prevConfirmedLenRef.current = 0
     prevEnrichedLenRef.current = 0
     pendingConfirmedWordsRef.current = []
+    optimisticCountRef.current = 0
+    optimisticBaseIndexRef.current = 0
     scoringFrozenRef.current = false
     resetProvider()
     s.resetTest()
@@ -506,6 +659,8 @@ export default function Home() {
           prevConfirmedLenRef.current = 0
           prevEnrichedLenRef.current = 0
           pendingConfirmedWordsRef.current = []
+          optimisticCountRef.current = 0
+          optimisticBaseIndexRef.current = 0
           scoringFrozenRef.current = false
           resetProvider()
           store.resetTest()
@@ -534,7 +689,7 @@ export default function Home() {
   }, [store.testState, store.duration, handleRetry, handleNext, handleStop, handleStart, clearSpeedArmingTimers, resetTimer, resetProvider])
 
   // ── Render ────────────────────────────────────────────────────────────────
-  const isRunning = store.testState === 'running'
+  // isRunning is declared above (needed for useSpeculativeMatch)
   const isEnded   = store.testState === 'ended'
   const isIdle    = store.testState === 'idle'
 
@@ -553,6 +708,7 @@ export default function Home() {
             key="stats-bar"
             mode={store.mode}
             wpm={store.wpm}
+            rawWpm={store.rawWpm}
             wordCount={
               store.mode === 'clarity'
                 ? store.clarityTranscript.trim().split(/\s+/).filter(Boolean).length
@@ -611,6 +767,7 @@ export default function Home() {
                       liveTranscript={interimText}
                       isIdle={isIdle}
                       testActive={isRunning}
+                      blindMode={store.settings.blindMode}
                     />
                     {isIdle && <MicButton onStart={handleStart} micState={store.micState} />}
                   </div>
@@ -675,6 +832,7 @@ export default function Home() {
               key="results"
               mode={store.mode}
               wpm={store.wpm}
+              rawWpm={store.rawWpm}
               wordCount={store.confirmedWords.length}
               fillerCount={store.fillerCount}
               peakWpm={store.peakWpm}
@@ -689,8 +847,11 @@ export default function Home() {
               clarityScore={store.clarityScore}
               clarityGrade={store.clarityGrade}
               diffResult={store.diffResult}
+              isPersonalBest={isPersonalBest}
+              personalBestWpm={store.settings.personalBests[`speed-${store.duration}s-${store.promptType}`]?.wpm}
               onRetry={handleRetry}
               onNext={handleNext}
+              onPractice={handlePractice}
             />
           )}
         </AnimatePresence>

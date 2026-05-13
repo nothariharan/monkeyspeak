@@ -4,6 +4,7 @@ import { motion } from 'framer-motion'
 
 interface StatsBarProps {
   wpm: number
+  rawWpm: number
   wordCount: number
   fillerCount: number
   timeRemainingMs: number
@@ -21,6 +22,7 @@ function formatTime(ms: number): string {
 
 export default function StatsBar({
   wpm,
+  rawWpm,
   wordCount,
   fillerCount,
   timeRemainingMs,
@@ -45,6 +47,14 @@ export default function StatsBar({
             {wpm > 0 ? wpm : <span style={{ color: 'var(--text-muted)' }}>—</span>}
           </span>
           <span className="stat-label">wpm</span>
+          {rawWpm > 0 && (
+            <span
+              className="stat-label tabular-nums"
+              style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '-2px' }}
+            >
+              {rawWpm} raw
+            </span>
+          )}
         </div>
       )}
 

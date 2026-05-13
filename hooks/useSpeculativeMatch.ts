@@ -19,6 +19,8 @@ export interface UseSpeculativeMatchProps {
   promptWords: string[]
   confirmedWords: string[]
   interimText: string
+  /** When true, suppress wrong status mid-test — words show as current instead of wrong */
+  blindMode?: boolean
 }
 
 // Small lookahead limits false matches on common words ("the", "to", …).
@@ -84,6 +86,7 @@ export function useSpeculativeMatch({
   promptWords,
   confirmedWords,
   interimText,
+  blindMode = false,
 }: UseSpeculativeMatchProps): PromptWordState[] {
   // ── Stability buffer ────────────────────────────────────────────────────────
   // Tracks the last 3 *aligned* interim token arrays. A position is only marked
@@ -125,10 +128,12 @@ export function useSpeculativeMatch({
       if (index < safeConfirmedCount) {
         if (index < confirmedWords.length) {
           const spokenWord = cleanToken(confirmedWords[index] ?? '')
-        return {
-          word: promptWord,
-          status: (spokenWord === clean ? 'correct' : 'wrong') as WordStatus,
-        }
+          const isWrong = spokenWord !== clean
+          return {
+            word: promptWord,
+            // In blind mode, suppress wrong coloring — show as correct so users focus on rhythm
+            status: (isWrong ? (blindMode ? 'correct' : 'wrong') : 'correct') as WordStatus,
+          }
         }
         return { word: promptWord, status: 'correct' as const }
       }
@@ -141,12 +146,10 @@ export function useSpeculativeMatch({
       ) {
         const interimWord = cleanToken(interimWords[interimIndex] ?? '')
 
-        // Stability gate: require the same interim token to appear in this
-        // position across at least min(2, historyLen) snapshots. On the very
-        // first update historyLen is 1 so we accept it immediately (preserving
-        // the original feel); from the second update onward two consistent
-        // snapshots are required.
-        const requiredMatches = Math.min(2, history.length)
+        // Stability gate: always accept on the first update (historyLen=1).
+        // From the second update onward, only one consistent snapshot is
+        // required (down from 2) so words light up ~100–300ms faster.
+        const requiredMatches = 1
         const stableCount = history.filter(
           (h) => cleanToken(h[interimIndex] ?? '') === interimWord
         ).length
@@ -166,7 +169,7 @@ export function useSpeculativeMatch({
 
         return {
           word: promptWord,
-          status: (speculative ? 'speculative' : 'wrong') as WordStatus,
+          status: (speculative ? 'speculative' : blindMode ? 'current' : 'wrong') as WordStatus,
         }
       }
 
@@ -177,5 +180,5 @@ export function useSpeculativeMatch({
       return { word: promptWord, status: 'pending' as const }
     })
     return nextStates
-  }, [promptWords, confirmedWords, interimText])
+  }, [promptWords, confirmedWords, interimText, blindMode])
 }

@@ -274,6 +274,7 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                   { id: 'toggle-filler-flash',    label: 'filler flash',    key: 'fillerFlash' as const },
                   { id: 'toggle-live-transcript', label: 'live transcript', key: 'showLiveTranscript' as const },
                   { id: 'toggle-smooth-caret',    label: 'smooth caret',    key: 'smoothCaret' as const },
+                  { id: 'toggle-blind-mode',      label: 'blind mode',      key: 'blindMode' as const },
                 ].map(({ id, label, key }) => (
                   <div key={id} className="flex items-center justify-between">
                     <span className="text-sm font-mono" style={{ color: 'var(--text-active)' }}>{label}</span>
