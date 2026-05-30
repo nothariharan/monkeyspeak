@@ -482,21 +482,21 @@ export default function Home() {
       //    startSession() then detects the armed state and returns instantly.
       if (armSession) {
         const armed = await armSession()
-        if (!armed) {
+        if (!armed.ok) {
           scoringFrozenRef.current = false
           setArmingCountdown(null)
           armingEndTsRef.current = null
-          setStartError(sttError)
+          setStartError(armed.error)
           return
         }
       }
 
       const didStart = await startSession()
-      if (!didStart) {
+      if (!didStart.ok) {
         scoringFrozenRef.current = false
         setArmingCountdown(null)
         armingEndTsRef.current = null
-        setStartError(sttError)
+        setStartError(didStart.error)
         return
       }
 

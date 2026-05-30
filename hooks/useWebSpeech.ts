@@ -4,7 +4,7 @@ import { useRef, useCallback, useState, useEffect } from 'react'
 import { useTestStore } from '@/store/testStore'
 import { tokensRoughlyMatch } from '@/lib/wordMatch'
 import { isFiller } from '@/lib/fillers'
-import type { SpeechProvider, EnrichedWord } from './useSpeechProvider'
+import type { SpeechProvider, EnrichedWord, SessionStartResult } from './useSpeechProvider'
 
 function getSpeechRecognitionCtor(): SpeechRecognitionConstructor | null {
   if (typeof window === 'undefined') return null
@@ -111,14 +111,15 @@ export function useWebSpeech(): SpeechProvider {
     interimEmittedTokensRef.current = []
   }, [clearInterimDebounce])
 
-  const startSession = useCallback(async (): Promise<boolean> => {
+  const startSession = useCallback(async (): Promise<SessionStartResult> => {
     const Ctor = getSpeechRecognitionCtor()
     if (!Ctor) {
-      setError('Web Speech API not supported in this browser')
-      return false
+      const msg = 'Web Speech API not supported in this browser'
+      setError(msg)
+      return { ok: false, error: msg }
     }
 
-    if (listeningRef.current && recognitionRef.current) return true
+    if (listeningRef.current && recognitionRef.current) return { ok: true }
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -268,21 +269,24 @@ export function useWebSpeech(): SpeechProvider {
         }
         setMicStream(null)
         setIsListening(false)
-        return false
+        const msg = 'Could not start speech recognition'
+        setError(msg)
+        return { ok: false, error: msg }
       }
 
       setIsListening(true)
-      return true
+      return { ok: true }
     } catch (err: unknown) {
       const isDenied =
         err instanceof DOMException &&
         (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')
-      setError(isDenied ? 'Microphone permission denied' : 'Could not start microphone')
+      const msg = isDenied ? 'Microphone permission denied' : 'Could not start microphone'
+      setError(msg)
       setMicStream(null)
       streamRef.current = null
       recognitionRef.current = null
       listeningRef.current = false
-      return false
+      return { ok: false, error: msg }
     }
   }, [settings.language, clearInterimDebounce])
 

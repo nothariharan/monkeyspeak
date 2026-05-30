@@ -11,7 +11,7 @@ import type { ProviderType, SpeechProvider } from './useSpeechProvider'
  */
 export function useActiveSpeechProvider(provider: ProviderType): SpeechProvider {
   const webSpeech = useWebSpeech()
-  const deepgram  = useDeepgramProvider()
+  const deepgram  = useDeepgramProvider(provider === 'deepgram')
 
   return provider === 'webspeech' ? webSpeech : deepgram
 }

@@ -93,7 +93,7 @@ export function generatePracticePrompt(missedWords: string[], duration: number):
   const wordCount = WORD_COUNTS[duration] ?? 90
   if (missedWords.length === 0) return generatePrompt('sentences', duration)
 
-  const pool = [...new Set(missedWords.filter(Boolean))]
+  const pool = Array.from(new Set(missedWords.filter(Boolean)))
   const fillCount = Math.round(wordCount * 0.7)
   const padCount = wordCount - fillCount
 

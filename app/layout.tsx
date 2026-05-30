@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
+  icons: { icon: '/icon.svg' },
   title: 'MonkeySpeak — Voice Speed & Clarity Benchmark',
   description:
     'Measure how fast and accurately you speak. MonkeySpeak is the spoken equivalent of MonkeyType — real-time WPM tracking via Deepgram and word-level clarity scoring.',

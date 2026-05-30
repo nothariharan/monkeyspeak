@@ -38,8 +38,8 @@ export interface SpeechProviderActions {
    * Optional warm-connect: opens mic + WS during the 3-2-1 countdown so
    * startSession() can skip the handshake (Deepgram only).
    */
-  armSession?: () => Promise<boolean>
-  startSession: () => Promise<boolean>
+  armSession?: () => Promise<SessionStartResult>
+  startSession: () => Promise<SessionStartResult>
   stopSession: () => void
   /** Clears interimText, confirmedWords, fillerCount, and resets internal refs. */
   reset: () => void
@@ -59,3 +59,8 @@ export interface SpeechProviderActions {
 export type SpeechProvider = SpeechProviderState & SpeechProviderActions
 
 export type ProviderType = 'webspeech' | 'deepgram'
+
+/** Result of armSession / startSession — error is set when ok is false. */
+export type SessionStartResult =
+  | { ok: true }
+  | { ok: false; error: string }

@@ -4,7 +4,7 @@ import { useRef, useCallback, useState, useEffect } from 'react'
 import { float32ToLinear16Pcm16k } from '@/lib/pcmDownsample'
 import { isFiller } from '@/lib/fillers'
 import { useTestStore } from '@/store/testStore'
-import type { SpeechProvider, EnrichedWord } from './useSpeechProvider'
+import type { SpeechProvider, EnrichedWord, SessionStartResult } from './useSpeechProvider'
 
 // ── Deepgram JSON wire types ──────────────────────────────────────────────────
 interface DgWord {
@@ -59,7 +59,7 @@ async function probeProxyBackendReachable(): Promise<{ ok: boolean; status?: num
  */
 export async function prefetchDeepgramKey(): Promise<void> {}
 
-export function useDeepgramProvider(): SpeechProvider {
+export function useDeepgramProvider(enabled = true): SpeechProvider {
   const [interimText, setInterimText]       = useState('')
   const [confirmedWords, setConfirmedWords] = useState<string[]>([])
   const [enrichedWords, setEnrichedWords]   = useState<EnrichedWord[]>([])
@@ -80,8 +80,16 @@ export function useDeepgramProvider(): SpeechProvider {
   const onSpeechStartRef = useRef<((ts: number) => void) | null>(null)
   const onSpeechEndRef   = useRef<((ts: number) => void) | null>(null)
 
-  // ── Pre-warm the proxy WebSocket on mount ─────────────────────────────────
+  // ── Pre-warm the proxy WebSocket when Deepgram STT is selected ────────────
   useEffect(() => {
+    if (!enabled) {
+      if (prewarmRef.current) {
+        try { prewarmRef.current.close() } catch { /* ignore */ }
+        prewarmRef.current = null
+      }
+      return
+    }
+
     let cancelled = false
 
     async function prewarm() {
@@ -127,7 +135,7 @@ export function useDeepgramProvider(): SpeechProvider {
         prewarmRef.current = null
       }
     }
-  }, [])
+  }, [enabled])
 
   // ── Teardown ──────────────────────────────────────────────────────────────
   const _teardown = useCallback(() => {
@@ -304,7 +312,7 @@ export function useDeepgramProvider(): SpeechProvider {
   }, [_teardown])
 
   // ── Open (or reuse prewarmed) proxy connection ───────────────────────────
-  const _openConnection = useCallback(async (): Promise<boolean> => {
+  const _openConnection = useCallback(async (): Promise<SessionStartResult> => {
     setError(null)
 
     let stream: MediaStream
@@ -315,8 +323,9 @@ export function useDeepgramProvider(): SpeechProvider {
       })
     } catch (err: unknown) {
       const isDenied = err instanceof DOMException && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')
-      setError(isDenied ? 'Microphone permission denied' : 'Could not start microphone')
-      return false
+      const msg = isDenied ? 'Microphone permission denied' : 'Could not start microphone'
+      setError(msg)
+      return { ok: false, error: msg }
     }
     streamRef.current = stream
     setMicStream(stream)
@@ -337,52 +346,64 @@ export function useDeepgramProvider(): SpeechProvider {
         }
       }
       void _setupAudioWorklet(prewarmed, stream)
-      return true
+      return { ok: true }
     }
 
     // Fresh connection
     const language = useTestStore.getState().settings.language ?? 'en-US'
     let url: string
     try { url = buildProxyUrl(language) } catch (e) {
-      setError(String(e))
-      return false
+      const msg = String(e)
+      setError(msg)
+      return { ok: false, error: msg }
     }
 
     const probe = await probeProxyBackendReachable()
     if (!probe.ok) {
-      setError(
+      const msg =
         'Deepgram proxy is offline. Start the backend from the project folder: cd backend then node index.js (listen on port 8080), then try again.'
-      )
+      setError(msg)
       stream.getTracks().forEach((t) => t.stop())
       streamRef.current = null
       setMicStream(null)
-      return false
+      return { ok: false, error: msg }
     }
 
-    return new Promise<boolean>((resolve) => {
+    return new Promise<SessionStartResult>((resolve) => {
       const ws = new WebSocket(url)
       liveRef.current = ws
       let settled = false
-      const settle = (ok: boolean) => { if (!settled) { settled = true; resolve(ok) } }
+      const settle = (result: SessionStartResult) => {
+        if (!settled) {
+          settled = true
+          resolve(result)
+        }
+      }
 
       const clearWatchdog = (() => {
-        const tid = window.setTimeout(() => { setError('Proxy connection timed out'); _teardown(); settle(false) }, 8_000)
+        const tid = window.setTimeout(() => {
+          const msg = 'Proxy connection timed out'
+          setError(msg)
+          _teardown()
+          settle({ ok: false, error: msg })
+        }, 8_000)
         return () => clearTimeout(tid)
       })()
 
       ws.onopen = () => {
         clearWatchdog()
         void _setupAudioWorklet(ws, stream)
-        settle(true)
+        settle({ ok: true })
       }
 
       ws.onmessage = _handleDgMessage
 
       ws.onerror = () => {
         clearWatchdog()
-        setError('Deepgram proxy connection failed')
+        const msg = 'Deepgram proxy connection failed'
+        setError(msg)
         _teardown()
-        settle(false)
+        settle({ ok: false, error: msg })
       }
 
       ws.onclose = () => {
@@ -393,31 +414,31 @@ export function useDeepgramProvider(): SpeechProvider {
         } else if (armedRef.current) {
           activeRef.current = false; armedRef.current = false; setIsListening(false)
         }
-        settle(false)
+        settle({ ok: false, error: 'Deepgram proxy connection closed' })
       }
     })
   }, [_teardown, _setupAudioWorklet, _handleDgMessage])
 
-  const armSession = useCallback(async (): Promise<boolean> => {
-    if (armedRef.current || activeRef.current) return true
+  const armSession = useCallback(async (): Promise<SessionStartResult> => {
+    if (armedRef.current || activeRef.current) return { ok: true }
     armedRef.current = true
-    const ok = await _openConnection()
-    if (!ok) armedRef.current = false
-    return ok
+    const result = await _openConnection()
+    if (!result.ok) armedRef.current = false
+    return result
   }, [_openConnection])
 
-  const startSession = useCallback(async (): Promise<boolean> => {
-    if (activeRef.current) return true
+  const startSession = useCallback(async (): Promise<SessionStartResult> => {
+    if (activeRef.current) return { ok: true }
     if (armedRef.current && liveRef.current) {
       activeRef.current = true
       if (liveRef.current.readyState === WebSocket.OPEN) setIsListening(true)
-      return true
+      return { ok: true }
     }
-    const ok = await _openConnection()
-    if (!ok) return false
+    const result = await _openConnection()
+    if (!result.ok) return result
     activeRef.current = true
     if (liveRef.current?.readyState === WebSocket.OPEN) setIsListening(true)
-    return true
+    return { ok: true }
   }, [_openConnection])
 
   const onSpeechStart = useCallback((handler: (ts: number) => void) => { onSpeechStartRef.current = handler }, [])
