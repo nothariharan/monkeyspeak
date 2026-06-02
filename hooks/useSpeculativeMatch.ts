@@ -23,12 +23,10 @@ export interface UseSpeculativeMatchProps {
   blindMode?: boolean
 }
 
-// Small lookahead limits false matches on common words ("the", "to", …).
-export const MAX_SPECULATIVE_LOOKAHEAD = 4
-
-// Prompt words this short require an exact match rather than a prefix match
-// to avoid false highlights on "a", "an", "in", "of", "the", etc.
-const SHORT_WORD_EXACT_THRESHOLD = 3
+// Generous lookahead for the greedy scanner — how far ahead in the prompt we
+// are willing to look when trying to match an interim token.  A large value
+// handles users who skip words or where WebSpeech segments differently.
+const PROMPT_SCAN_LOOKAHEAD = 5
 
 function tokenizeInterim(interimText: string): string[] {
   return interimText
@@ -44,42 +42,79 @@ function cleanToken(s: string): string {
 }
 
 /**
- * Drop interim tokens that duplicate already-committed words.
+ * Check if two tokens match for speculative highlighting.
+ * Uses exact match, edit-distance ≤ 1, and prefix matching.
  *
- * Web Speech `liveTranscript` only includes **non-final** segments, so after
- * words finalize they disappear from the interim string — the first token is
- * then aligned with `confirmed.length`, not index 0. We find the longest
- * prefix of `interimTokens` that matches a **suffix** of `confirmed` so the
- * remainder lines up with the next prompt position.
+ * Edit-distance (tokensRoughlyMatch) has its own guards for very short words
+ * (< 3 chars require exact), so we always try it. Prefix matching is restricted
+ * to words > 3 chars to avoid "a" matching "an" etc.
  */
-function stripInterimAlignedToConfirmedProgress(
-  interimTokens: string[],
-  confirmed: string[]
-): string[] {
-  const progress = confirmed.length
-  if (progress === 0 || interimTokens.length === 0) {
-    return interimTokens
+function tokensMatch(a: string, b: string): boolean {
+  if (!a || !b) return false
+  if (a === b) return true
+
+  // Edit distance ≤ 1 — always try (it has its own short-word guards)
+  if (tokensRoughlyMatch(a, b)) return true
+
+  // Prefix matching only for longer words to avoid false positives
+  if (a.length > 3 && b.length > 3) {
+    if (a.startsWith(b) && b.length >= 3) return true
+    if (b.startsWith(a) && a.length >= 3) return true
   }
-  const maxK = Math.min(interimTokens.length, progress)
-  for (let k = maxK; k >= 0; k--) {
-    let ok = true
-    for (let j = 0; j < k; j++) {
-      if (!tokensRoughlyMatch(interimTokens[j]!, confirmed[progress - k + j]!)) {
-        ok = false
+
+  return false
+}
+
+/**
+ * Greedy forward scan alignment.
+ *
+ * Instead of strict positional alignment (interim[i] ↔ prompt[confirmed+i]),
+ * this scans forward through the prompt for each interim token. This handles:
+ *   - Words the user skips
+ *   - Words WebSpeech hears differently
+ *   - Different word boundaries / extra words
+ *
+ * Returns a Set of prompt indices (absolute) that were speculatively matched,
+ * and the highest matched prompt index (for cursor positioning).
+ */
+function greedyForwardMatch(
+  interimWords: string[],
+  promptWords: string[],
+  startIndex: number
+): { matchedIndices: Set<number>; lastMatchedIndex: number } {
+  const matchedIndices = new Set<number>()
+  let promptCursor = startIndex
+  let lastMatchedIndex = startIndex - 1
+
+  for (let i = 0; i < interimWords.length; i++) {
+    const interimClean = cleanToken(interimWords[i] ?? '')
+    if (!interimClean) continue
+
+    // Scan forward in prompt from current cursor, up to PROMPT_SCAN_LOOKAHEAD
+    let bestJ = -1
+    for (let j = promptCursor; j < Math.min(promptWords.length, promptCursor + PROMPT_SCAN_LOOKAHEAD); j++) {
+      const promptClean = cleanToken(promptWords[j] ?? '')
+      if (tokensMatch(interimClean, promptClean)) {
+        bestJ = j
         break
       }
     }
-    if (ok) {
-      const stripped = interimTokens.slice(k)
-      // Safety bail-out: if we stripped more than (confirmedCount + 2) tokens,
-      // the match is suspiciously aggressive and likely over-stripped — return
-      // the full interim unchanged so the speculative window isn't starved.
-      // This is the root cause of the "word never highlights" stuck-cursor bug.
-      if (k > progress + 2) return interimTokens
-      return stripped
+
+    if (bestJ >= 0) {
+      // Mark all words from promptCursor to bestJ (inclusive) as matched
+      // Words between promptCursor and bestJ that weren't directly matched
+      // are treated as "skipped" — we mark them as speculative too since
+      // the user clearly progressed past them.
+      for (let k = promptCursor; k <= bestJ; k++) {
+        matchedIndices.add(k)
+      }
+      lastMatchedIndex = bestJ
+      promptCursor = bestJ + 1
     }
+    // If no match found, skip this interim token (don't advance promptCursor)
   }
-  return interimTokens
+
+  return { matchedIndices, lastMatchedIndex }
 }
 
 export function useSpeculativeMatch({
@@ -88,97 +123,83 @@ export function useSpeculativeMatch({
   interimText,
   blindMode = false,
 }: UseSpeculativeMatchProps): PromptWordState[] {
-  // ── Stability buffer ────────────────────────────────────────────────────────
-  // Tracks the last 3 *aligned* interim token arrays. A position is only marked
-  // speculative once the same token has appeared there in at least 2 of the last
-  // 3 updates (~80–120 ms on Deepgram's cadence), preventing single-frame flickers
-  // on short, ambiguous phonemes.
-  //
-  // Both refs are updated synchronously during render (before useMemo) when
-  // interimText changes. Updating refs during render is a documented React
-  // pattern and is safe here because the computation is deterministic.
-  const interimHistoryRef = useRef<string[][]>([])
-  const prevInterimTextRef = useRef('')
+  // Stability buffer: track the last match result to prevent single-frame flicker.
+  // Only used for the "speculative → wrong" transition — once a word is speculative,
+  // it stays speculative for at least one more render to prevent flashing.
+  const prevMatchedRef = useRef<Set<number>>(new Set())
+  const prevInterimRef = useRef('')
 
   return useMemo(() => {
-    // Use confirmedWords.length directly — the old peakConfirmedCount ratchet
-    // could lock the cursor several words ahead when interim emissions spiked.
     const safeConfirmedCount = confirmedWords.length
-    const rawInterim = tokenizeInterim(interimText)
-    const interimWords = stripInterimAlignedToConfirmedProgress(rawInterim, confirmedWords)
+    const interimWords = tokenizeInterim(interimText)
 
-    // Update interim history for this render cycle.
-    if (interimText !== prevInterimTextRef.current) {
-      prevInterimTextRef.current = interimText
-      if (interimText === '') {
-        // Clear history when the interim is wiped between words so stale
-        // snapshots from the previous word don't affect the next word's count.
-        interimHistoryRef.current = []
-      } else {
-        const next = [...interimHistoryRef.current, interimWords]
-        interimHistoryRef.current = next.length > 3 ? next.slice(-3) : next
-      }
+    // Run greedy forward match on the interim tokens against the prompt
+    const { matchedIndices, lastMatchedIndex } =
+      interimWords.length > 0
+        ? greedyForwardMatch(interimWords, promptWords, safeConfirmedCount)
+        : { matchedIndices: new Set<number>(), lastMatchedIndex: safeConfirmedCount - 1 }
+
+    // Merge with previous matches for hysteresis: a word that was speculative
+    // last render stays speculative this render unless the interim text changed
+    // (to prevent single-frame flicker when interim updates rapidly).
+    const stableMatched = new Set(matchedIndices)
+    if (interimText && interimText === prevInterimRef.current) {
+      // Same interim text — keep previous matches
+      Array.from(prevMatchedRef.current).forEach((idx) => {
+        stableMatched.add(idx)
+      })
     }
 
-    const history = interimHistoryRef.current
+    // Update refs for next render
+    prevMatchedRef.current = matchedIndices
+    prevInterimRef.current = interimText
+
+    // Determine cursor position: one past the last matched word, or
+    // one past the last confirmed word if no interim matches.
+    const cursorIndex = interimWords.length > 0
+      ? Math.max(lastMatchedIndex + 1, safeConfirmedCount)
+      : safeConfirmedCount
 
     const nextStates = promptWords.map((promptWord, index) => {
       const clean = cleanToken(promptWord)
 
+      // ── Confirmed region ─────────────────────────────────────────────────
       if (index < safeConfirmedCount) {
         if (index < confirmedWords.length) {
           const spokenWord = cleanToken(confirmedWords[index] ?? '')
           const isWrong = spokenWord !== clean
           return {
             word: promptWord,
-            // In blind mode, suppress wrong coloring — show as correct so users focus on rhythm
             status: (isWrong ? (blindMode ? 'correct' : 'wrong') : 'correct') as WordStatus,
           }
         }
         return { word: promptWord, status: 'correct' as const }
       }
 
-      const interimIndex = index - safeConfirmedCount
-      if (
-        interimIndex >= 0 &&
-        interimIndex < interimWords.length &&
-        interimIndex < MAX_SPECULATIVE_LOOKAHEAD
-      ) {
-        const interimWord = cleanToken(interimWords[interimIndex] ?? '')
-
-        // Stability gate: always accept on the first update (historyLen=1).
-        // From the second update onward, only one consistent snapshot is
-        // required (down from 2) so words light up ~100–300ms faster.
-        const requiredMatches = 1
-        const stableCount = history.filter(
-          (h) => cleanToken(h[interimIndex] ?? '') === interimWord
-        ).length
-        const isStable = stableCount >= requiredMatches
-
-        // Short-word exact-match guard: for words of 1–3 characters ("a",
-        // "an", "in", "of", "the") require an exact cleaned match instead of
-        // the prefix rule. Prefix-only matching on short words produces too
-        // many false positives (e.g. "h" matching "he", "her", "here").
-        const isExactRequired = clean.length <= SHORT_WORD_EXACT_THRESHOLD
-
-        const speculative =
-          clean.length > 0 &&
-          interimWord.length > 0 &&
-          isStable &&
-          (isExactRequired ? interimWord === clean : clean.startsWith(interimWord))
-
+      // ── Speculative region (between confirmed and cursor) ────────────────
+      if (index < cursorIndex && interimWords.length > 0) {
+        const isMatched = stableMatched.has(index)
+        if (isMatched) {
+          return { word: promptWord, status: 'speculative' as WordStatus }
+        }
+        // Word is between confirmed and cursor but wasn't matched —
+        // the user may have skipped it or WebSpeech didn't hear it.
+        // In blind mode, show as current; otherwise show as wrong.
         return {
           word: promptWord,
-          status: (speculative ? 'speculative' : blindMode ? 'current' : 'wrong') as WordStatus,
+          status: (blindMode ? 'current' : 'wrong') as WordStatus,
         }
       }
 
-      if (index === safeConfirmedCount + interimWords.length) {
+      // ── Current word (cursor position) ───────────────────────────────────
+      if (index === cursorIndex) {
         return { word: promptWord, status: 'current' as const }
       }
 
+      // ── Pending (future words) ───────────────────────────────────────────
       return { word: promptWord, status: 'pending' as const }
     })
+
     return nextStates
   }, [promptWords, confirmedWords, interimText, blindMode])
 }

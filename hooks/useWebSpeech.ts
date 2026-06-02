@@ -145,8 +145,11 @@ export function useWebSpeech(): SpeechProvider {
       recognition.lang = lang
 
       recognition.onresult = (event: SpeechRecognitionEvent) => {
+        // Collect ALL current non-final results for interim display.
+        // Scan from 0 (not event.resultIndex) because older non-final
+        // results at lower indices may still exist and contain speech.
         let interim = ''
-        for (let i = event.resultIndex; i < event.results.length; i++) {
+        for (let i = 0; i < event.results.length; i++) {
           const r = event.results[i]
           if (!r) continue
           if (!r.isFinal) interim += r[0]?.transcript ?? ''
@@ -176,7 +179,8 @@ export function useWebSpeech(): SpeechProvider {
         }
         if (hasNewFinal) {
           clearInterimDebounce()
-          setInterimText('')
+          // Don't clear interimText here — the interim display section below
+          // handles it based on remaining non-final results.
         }
 
         const finalBatch: string[] = []
@@ -194,35 +198,23 @@ export function useWebSpeech(): SpeechProvider {
         }
 
         if (finalBatch.length > 0) {
-          // De-duplicate tokens already emitted via interim prefix
-          const pref = interimEmittedTokensRef.current
-          let i = 0
-          while (
-            i < finalBatch.length &&
-            i < pref.length &&
-            tokensRoughlyMatch(finalBatch[i]!, pref[i]!)
-          ) { i++ }
-          const suffix = finalBatch.slice(i)
-
-          if (suffix.length > 0) {
-            // Detect fillers and accumulate into state
-            let newFillers = 0
-            const realWords: string[] = []
-            const batchEndTs = Date.now() / 1000
-            const realEnriched: EnrichedWord[] = []
-            for (const w of suffix) {
-              if (isFiller(w)) {
-                newFillers++
-              } else {
-                realWords.push(w)
-                realEnriched.push({ word: w, start: undefined, end: batchEndTs })
-              }
+          // Commit all finalized words directly to confirmedWords and enrichedWords
+          let newFillers = 0
+          const realWords: string[] = []
+          const batchEndTs = Date.now() / 1000
+          const realEnriched: EnrichedWord[] = []
+          for (const w of finalBatch) {
+            if (isFiller(w)) {
+              newFillers++
+            } else {
+              realWords.push(w)
+              realEnriched.push({ word: w, start: undefined, end: batchEndTs })
             }
-            if (newFillers > 0) setFillerCount((c) => c + newFillers)
-            if (realWords.length > 0) {
-              setConfirmedWords((prev) => [...prev, ...realWords])
-              setEnrichedWords((prev) => [...prev, ...realEnriched])
-            }
+          }
+          if (newFillers > 0) setFillerCount((c) => c + newFillers)
+          if (realWords.length > 0) {
+            setConfirmedWords((prev) => [...prev, ...realWords])
+            setEnrichedWords((prev) => [...prev, ...realEnriched])
           }
           interimEmittedTokensRef.current = []
         }

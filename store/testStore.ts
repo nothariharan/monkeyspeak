@@ -52,6 +52,8 @@ export interface Settings {
   blindMode: boolean
   language: 'en-US' | 'en-GB' | 'en-AU'
   sttProvider: ProviderType
+  /** Deepgram only: send all mic audio without VAD gating (useful for debugging). */
+  skipVad: boolean
   /** Keyed by `speed-${duration}s-${promptType}` */
   personalBests: Record<string, PersonalBestEntry>
 }
@@ -164,6 +166,7 @@ const DEFAULT_SETTINGS: Settings = {
   blindMode: false,
   language: 'en-US',
   sttProvider: 'webspeech',
+  skipVad: false,
   personalBests: {},
 }
 

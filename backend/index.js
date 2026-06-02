@@ -94,8 +94,10 @@ function buildDeepgramListenUrl(browserReqUrl) {
     channels: '1',
     smart_format: 'true',
     interim_results: 'true',
-    // Client may override endpointing via ?endpointing=N query param (e.g. 100 for lower latency)
-    endpointing: '150',
+    endpointing: '300',
+    filler_words: 'true',
+    vad_events: 'true',
+    utterance_end_ms: '1000',
   };
   for (const [k, v] of Object.entries(defaults)) {
     if (!p.has(k)) p.set(k, v);
@@ -130,11 +132,27 @@ server.on('upgrade', (req, socket, head) => {
       headers: { Authorization: `Token ${apiKey}` },
     });
 
+    // Buffer any audio packets sent before the Deepgram connection is fully open
+    const bufferedMessages = [];
+    let isDgOpen = false;
+
+    browserWs.on('message', (data) => {
+      if (isDgOpen && dgWs.readyState === WebSocket.OPEN) {
+        dgWs.send(data);
+      } else {
+        bufferedMessages.push(data);
+      }
+    });
+
     dgWs.on('open', () => {
-      // Forward audio from browser to Deepgram
-      browserWs.on('message', (data) => {
-        if (dgWs.readyState === WebSocket.OPEN) dgWs.send(data);
-      });
+      isDgOpen = true;
+      // Flush any buffered audio frames
+      while (bufferedMessages.length > 0) {
+        const msg = bufferedMessages.shift();
+        if (dgWs.readyState === WebSocket.OPEN) {
+          dgWs.send(msg);
+        }
+      }
     });
 
     // Forward transcripts from Deepgram to browser
@@ -152,6 +170,18 @@ server.on('upgrade', (req, socket, head) => {
       console.error('[dg→proxy] WS error:', err.message);
       cleanup();
     });
+
+    dgWs.on('unexpected-response', (_req, res) => {
+      let body = '';
+      res.on('data', (chunk) => { body += chunk; });
+      res.on('end', () => {
+        console.error('[deepgram proxy] upstream rejected:', res.statusCode, body.slice(0, 500));
+        if (browserWs.readyState < WebSocket.CLOSING) {
+          browserWs.close(1011, 'upstream rejected');
+        }
+      });
+    });
+
     browserWs.on('close', cleanup);
     browserWs.on('error', (err) => { console.error('[browser→proxy] WS error:', err.message); cleanup(); });
   });

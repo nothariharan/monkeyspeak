@@ -225,26 +225,30 @@ export default function Home() {
   }, [onSpeechStart])
 
   // ── Optimistic word advancement ───────────────────────────────────────────
-  // When the speculative match is stable at currentWordIndex AND the next word
-  // has also started appearing, we have high confidence the current word was
-  // spoken correctly. Advance immediately rather than waiting for is_final.
-  // The DG final handler reconciles and patches any mismatches afterward.
+  // When the speculative match shows the current word as 'speculative', we have
+  // high confidence it was spoken correctly. Advance immediately rather than
+  // waiting for is_final from WebSpeech. The final handler reconciles afterward.
+  //
+  // We loop to advance ALL consecutive speculative words in one effect pass so
+  // fast speech (150+ WPM) doesn't fall behind at one-word-per-render-cycle.
   useEffect(() => {
     const s = useTestStore.getState()
     if (s.testState !== 'running' || s.mode !== 'speed') return
     if (s.speedClockStartedAt == null) return
     if (!interimText) return
 
-    const cwi = s.currentWordIndex
-    const current = pageWordStates[cwi]
-    const next = pageWordStates[cwi + 1]
+    // Advance up to 10 words per effect pass to prevent infinite loops
+    const MAX_ADVANCE_PER_PASS = 10
+    let advanced = 0
 
-    if (
-      current?.status === 'speculative' &&
-      next?.status === 'speculative'
-    ) {
+    let cwi = s.currentWordIndex
+    while (advanced < MAX_ADVANCE_PER_PASS) {
+      const current = pageWordStates[cwi]
+      if (current?.status !== 'speculative') break
+
       const promptWord = s.prompt[cwi]
-      if (!promptWord) return
+      if (!promptWord) break
+
       // Record base index on the first optimistic advance in this interim window
       if (optimisticCountRef.current === 0) {
         optimisticBaseIndexRef.current = cwi
@@ -256,9 +260,13 @@ export default function Home() {
         timestamp: Date.now(),
       })
       optimisticCountRef.current++
+      advanced++
+
+      // Re-read currentWordIndex after advancement (zustand set is synchronous)
+      cwi = useTestStore.getState().currentWordIndex
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageWordStates, interimText])
+  }, [pageWordStates, interimText, store.currentWordIndex])
 
   // ── confirmedWords → store (provider feeds us the array) ─────────────────
   // Track the previous length so we only process new entries each render.
@@ -293,7 +301,8 @@ export default function Home() {
       tryCommitSpeedEpoch()
     }
 
-    if (scoringFrozenRef.current || s.speedClockStartedAt == null) {
+    const scoringState = useTestStore.getState()
+    if (scoringFrozenRef.current || scoringState.speedClockStartedAt == null) {
       pendingConfirmedWordsRef.current.push(...tokensForAligner)
       return
     }
@@ -303,9 +312,9 @@ export default function Home() {
 
     // Align starting at the pre-optimistic word index so the aligner covers
     // both the already-advanced optimistic words and any new words beyond them.
-    const alignStartIndex = optimisticCount > 0 ? optimisticBase : s.currentWordIndex
+    const alignStartIndex = optimisticCount > 0 ? optimisticBase : scoringState.currentWordIndex
 
-    const { prompt, addWord, advanceWord, detectFiller, patchWord } = s
+    const { prompt, addWord, advanceWord, detectFiller, patchWord } = scoringState
     const batch = alignAsrFinalToPrompt(tokensForAligner, prompt, alignStartIndex, () => {
       detectFiller()
     })
@@ -358,8 +367,19 @@ export default function Home() {
       }
     }
 
-    optimisticCountRef.current = 0
-    optimisticBaseIndexRef.current = 0
+    // If the final batch fully covered or exceeded the optimistic window,
+    // reset tracking. Otherwise, keep the remaining count alive so the
+    // next final batch continues reconciliation from where we left off.
+    const reconciledCount = Math.min(batch.length, optimisticCount)
+    if (reconciledCount >= optimisticCount) {
+      optimisticCountRef.current = 0
+      optimisticBaseIndexRef.current = 0
+    } else {
+      // Slide the window forward: the remaining optimistic words start after
+      // what was just reconciled.
+      optimisticCountRef.current = optimisticCount - reconciledCount
+      optimisticBaseIndexRef.current = optimisticBase + reconciledCount
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [confirmedWords, enrichedWords])
 
@@ -531,6 +551,7 @@ export default function Home() {
       armingEndTsRef.current = null
       firstSpeechTsRef.current = null
       scoringFrozenRef.current = false
+      flushPendingConfirmedWords()
       stopTimer()
       stopSession()
       flushSpeedWpmSnapshot()
@@ -547,7 +568,7 @@ export default function Home() {
     }
     useTestStore.getState().setTestState('ended')
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flushSpeedWpmSnapshot, clearSpeedArmingTimers, stopTimer, stopSession])
+  }, [flushSpeedWpmSnapshot, flushPendingConfirmedWords, clearSpeedArmingTimers, stopTimer, stopSession])
 
   useEffect(() => {
     handleStopRef.current = handleStop

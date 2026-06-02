@@ -168,10 +168,6 @@ self.onmessage = async (ev) => {
             const copy = padFrame.slice()
             postMessage({ type: 'audio', buffer: copy.buffer }, [copy.buffer])
           }
-          // #region agent log
-          const _vadSpeechStartTs = Date.now()
-          fetch('http://127.0.0.1:7291/ingest/74562f5e-377a-4199-9293-9988125476d2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'260cc1'},body:JSON.stringify({sessionId:'260cc1',hypothesisId:'A',location:'vad-worker.js:140',message:'VAD speech_start: first voiced frame detected, audio being sent to Deepgram',data:{vadSpeechStartTs:_vadSpeechStartTs,padFramesFlushed:padBuffer.length},timestamp:_vadSpeechStartTs})}).catch(()=>{})
-          // #endregion
           postMessage({ type: 'speech_start', timestamp: Date.now() })
         } else {
           silentFrames = 0

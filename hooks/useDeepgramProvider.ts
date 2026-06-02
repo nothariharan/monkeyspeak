@@ -25,6 +25,22 @@ interface DgResultsEvent {
 interface DgSpeechStartedEvent { type: 'SpeechStarted'; timestamp?: number }
 interface DgUtteranceEndEvent  { type: 'UtteranceEnd' }
 
+const DEBUG_STT = process.env.NEXT_PUBLIC_DEBUG_STT === 'true'
+
+function sttDebug(...args: unknown[]) {
+  if (DEBUG_STT) console.debug('[STT:deepgram]', ...args)
+}
+
+function displayTranscript(
+  alt: { transcript?: string; words?: DgWord[] }
+): string {
+  const t = (alt.transcript ?? '').trim()
+  if (t) return t
+  const words = alt.words ?? []
+  if (words.length === 0) return ''
+  return words.map((w) => (w.punctuated_word ?? w.word).trim()).filter(Boolean).join(' ')
+}
+
 // ── Proxy URL builder ─────────────────────────────────────────────────────────
 function buildProxyUrl(language: string): string {
   const base = process.env.NEXT_PUBLIC_DEEPGRAM_PROXY_URL
@@ -79,6 +95,8 @@ export function useDeepgramProvider(enabled = true): SpeechProvider {
   const armedRef         = useRef(false)
   const onSpeechStartRef = useRef<((ts: number) => void) | null>(null)
   const onSpeechEndRef   = useRef<((ts: number) => void) | null>(null)
+  const debugBytesSentRef = useRef(0)
+  const debugResultsRef   = useRef(0)
 
   // ── Pre-warm the proxy WebSocket when Deepgram STT is selected ────────────
   useEffect(() => {
@@ -158,7 +176,12 @@ export function useDeepgramProvider(enabled = true): SpeechProvider {
       contextRef.current = null
     }
     if (liveRef.current) {
-      try { liveRef.current.close() } catch { /* ignore */ }
+      try {
+        if (liveRef.current.readyState === WebSocket.OPEN) {
+          liveRef.current.send(JSON.stringify({ type: 'CloseStream' }))
+        }
+        liveRef.current.close()
+      } catch { /* ignore */ }
       liveRef.current = null
     }
     if (streamRef.current) {
@@ -196,8 +219,12 @@ export function useDeepgramProvider(enabled = true): SpeechProvider {
       const alt = r.channel?.alternatives?.[0]
       if (!alt) return
 
-      const transcript = (alt.transcript ?? '').trim()
-      if (!transcript) return
+      const wordObjs = (alt.words ?? []) as DgWord[]
+      const transcript = displayTranscript(alt)
+      if (!transcript && wordObjs.length === 0) return
+
+      debugResultsRef.current++
+      sttDebug(r.is_final ? 'final' : 'interim', transcript.slice(0, 80), `words=${wordObjs.length}`)
 
       if (!r.is_final) {
         setInterimText(transcript)
@@ -205,8 +232,6 @@ export function useDeepgramProvider(enabled = true): SpeechProvider {
       }
 
       setInterimText('')
-
-      const wordObjs = (alt.words ?? []) as DgWord[]
       let newFillers = 0
       const realWords: string[] = []
       const realEnriched: EnrichedWord[] = []
@@ -257,36 +282,91 @@ export function useDeepgramProvider(enabled = true): SpeechProvider {
       const worklet = new AudioWorkletNode(ctx, 'pcm-processor')
       workletRef.current = worklet
 
-      const vadWorker = new Worker('/vad-worker.js')
-      vadWorkerRef.current = vadWorker
-      vadWorker.postMessage({ type: 'init' })
+      const skipVad = useTestStore.getState().settings.skipVad ?? false
 
-      worklet.port.onmessage = (ev: MessageEvent<Float32Array>) => {
-        if (!ev.data?.length || !activeRef.current) return
-        const copy = ev.data.slice()
-        vadWorker.postMessage({ type: 'pcm', buffer: copy.buffer }, [copy.buffer])
+      const sendPcm = (input: Float32Array) => {
+        if (ws.readyState !== WebSocket.OPEN) return
+        const pcm16 = float32ToLinear16Pcm16k(input, ctx.sampleRate)
+        debugBytesSentRef.current += pcm16.byteLength
+        ws.send(pcm16.buffer)
       }
 
-      vadWorker.onmessage = (ev: MessageEvent) => {
-        const msg = ev.data as { type: string; buffer?: ArrayBuffer; timestamp?: number; message?: string }
+      if (skipVad) {
+        sttDebug('audio path: direct (skip VAD)')
+        worklet.port.onmessage = (ev: MessageEvent<Float32Array>) => {
+          if (!ev.data?.length || !activeRef.current) return
+          sendPcm(ev.data)
+        }
+      } else {
+        try {
+          const vadWorker = new Worker('/vad-worker.js')
+          vadWorkerRef.current = vadWorker
 
-        if (msg.type === 'audio') {
-          if (ws.readyState !== WebSocket.OPEN) return
-          const f32 = new Float32Array(msg.buffer!)
-          const pcm16 = float32ToLinear16Pcm16k(f32, 16000)
-          ws.send(pcm16.buffer)
-        } else if (msg.type === 'speech_start') {
-          onSpeechStartRef.current?.(msg.timestamp!)
-        } else if (msg.type === 'speech_end') {
-          onSpeechEndRef.current?.(msg.timestamp!)
-        } else if (msg.type === 'error') {
-          console.warn('[VAD] Worker error:', msg.message, '— falling back to unfiltered audio')
+          // Set up message handlers BEFORE sending init to prevent
+          // race condition where the worker responds before handlers are registered
+          vadWorker.onerror = (err) => {
+            console.error('[VAD] Worker load/runtime error:', err, '— falling back to unfiltered audio')
+            worklet.port.onmessage = (ev2: MessageEvent<Float32Array>) => {
+              if (!ev2.data?.length || !activeRef.current) return
+              sendPcm(ev2.data)
+            }
+          }
+
+          vadWorker.onmessage = (ev: MessageEvent) => {
+            const msg = ev.data as { type: string; buffer?: ArrayBuffer; timestamp?: number; message?: string }
+
+            if (msg.type === 'audio') {
+              sendPcm(new Float32Array(msg.buffer!))
+            } else if (msg.type === 'speech_start') {
+              sttDebug('VAD speech_start')
+              onSpeechStartRef.current?.(msg.timestamp!)
+            } else if (msg.type === 'speech_end') {
+              sttDebug('VAD speech_end')
+              onSpeechEndRef.current?.(msg.timestamp!)
+            } else if (msg.type === 'error') {
+              console.warn('[VAD] Worker error:', msg.message, '— falling back to unfiltered audio')
+              worklet.port.onmessage = (ev2: MessageEvent<Float32Array>) => {
+                if (!ev2.data?.length || !activeRef.current) return
+                sendPcm(ev2.data)
+              }
+            }
+          }
+
+          // Send init after handlers are set up
+          vadWorker.postMessage({ type: 'init' })
+
+          // Safety timeout: if VAD hasn't produced audio within 3s (model
+          // loading failed silently), fall back to unfiltered audio.
+          let vadResponded = false
+          const origOnMessage = vadWorker.onmessage
+          vadWorker.onmessage = (ev: MessageEvent) => {
+            vadResponded = true
+            vadWorker.onmessage = origOnMessage
+            origOnMessage?.call(vadWorker, ev)
+          }
+          setTimeout(() => {
+            if (!vadResponded && activeRef.current) {
+              console.warn('[VAD] Init timeout (3s) — falling back to unfiltered audio')
+              try { vadWorker.terminate() } catch { /* ignore */ }
+              vadWorkerRef.current = null
+              worklet.port.onmessage = (ev2: MessageEvent<Float32Array>) => {
+                if (!ev2.data?.length || !activeRef.current) return
+                sendPcm(ev2.data)
+              }
+            }
+          }, 3000)
+
+          // Set up the audio pipeline: worklet → VAD → WebSocket
+          worklet.port.onmessage = (ev: MessageEvent<Float32Array>) => {
+            if (!ev.data?.length || !activeRef.current) return
+            const copy = ev.data.slice()
+            vadWorker.postMessage({ type: 'pcm', buffer: copy.buffer }, [copy.buffer])
+          }
+        } catch (workerErr) {
+          console.error('[VAD] Failed to create Worker:', workerErr, '— falling back to unfiltered audio')
           worklet.port.onmessage = (ev2: MessageEvent<Float32Array>) => {
-            if (ws.readyState !== WebSocket.OPEN) return
-            const input = ev2.data
-            if (!input?.length) return
-            const pcm16 = float32ToLinear16Pcm16k(input, ctx.sampleRate)
-            ws.send(pcm16.buffer)
+            if (!ev2.data?.length || !activeRef.current) return
+            sendPcm(ev2.data)
           }
         }
       }
@@ -392,6 +472,7 @@ export function useDeepgramProvider(enabled = true): SpeechProvider {
 
       ws.onopen = () => {
         clearWatchdog()
+        sttDebug('WebSocket open', url.replace(/\?.*/, '?…'))
         void _setupAudioWorklet(ws, stream)
         settle({ ok: true })
       }
