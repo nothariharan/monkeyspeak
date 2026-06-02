@@ -234,8 +234,22 @@ export default function Home() {
   useEffect(() => {
     const s = useTestStore.getState()
     if (s.testState !== 'running' || s.mode !== 'speed') return
-    if (s.speedClockStartedAt == null) return
     if (!interimText) return
+
+    // If the speed clock hasn't started yet, try to start it now.
+    // The first-speech-detection effect (line ~417) also does this, but it
+    // runs AFTER this effect in React's effect ordering. By starting the
+    // clock here, we avoid a full render-cycle delay before optimistic
+    // advancement can begin.
+    if (s.speedClockStartedAt == null) {
+      if (firstSpeechTsRef.current == null) {
+        firstSpeechTsRef.current = Date.now()
+        armingEndTsRef.current = null
+      }
+      tryCommitSpeedEpoch()
+      // Re-read state — tryCommitSpeedEpoch may have set the clock
+      if (useTestStore.getState().speedClockStartedAt == null) return
+    }
 
     // Advance up to 10 words per effect pass to prevent infinite loops
     const MAX_ADVANCE_PER_PASS = 10
