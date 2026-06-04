@@ -92,11 +92,11 @@ function buildDeepgramListenUrl(browserReqUrl) {
     encoding: 'linear16',
     sample_rate: '16000',
     channels: '1',
-    smart_format: 'true',
+    smart_format: 'false',
     interim_results: 'true',
-    endpointing: '300',
+    endpointing: '10',
+    no_delay: 'true',
     filler_words: 'true',
-    vad_events: 'true',
     utterance_end_ms: '1000',
   };
   for (const [k, v] of Object.entries(defaults)) {

@@ -8,16 +8,13 @@ import { useTimer } from '@/hooks/useTimer'
 import { useActiveSpeechProvider } from '@/hooks/useActiveSpeechProvider'
 import { generatePrompt, regeneratePrompt, generatePracticePrompt, type PromptMode } from '@/lib/prompts'
 import { diffWords, calcClarityScore } from '@/lib/diff'
-import { alignAsrFinalToPrompt } from '@/lib/asrPromptAlign'
-import { netWpmFromChars, rawWpmFromChars, perWordRawWpm } from '@/lib/stats/wpm'
-import { useSpeculativeMatch } from '@/hooks/useSpeculativeMatch'
-import type { EnrichedWord } from '@/hooks/useSpeechProvider'
+import { alignTranscriptToPrompt, countFillers } from '@/lib/alignTranscriptToPrompt'
+import { netWpmFromChars, rawWpmFromChars } from '@/lib/stats/wpm'
 
 import Header from '@/components/Header'
 import ConfigBar from '@/components/ConfigBar'
 import StatsBar from '@/components/StatsBar'
 import TestArea from '@/components/TestArea'
-import FillerFlash from '@/components/FillerFlash'
 import MicButton from '@/components/MicButton'
 import ClarityInput from '@/components/ClarityInput'
 import ResultsPanel from '@/components/ResultsPanel'
@@ -28,40 +25,25 @@ function splitPrompt(text: string): string[] {
   return text.split(/\s+/).filter(Boolean)
 }
 
-/** 2–1 arming: recognition runs but scoring/timer wait until max(armEnd, firstSpeech). */
-const SPEED_ARMING_MS = 0
-const SPEED_NO_SPEECH_WATCHDOG_MS = 25_000
-
 export default function Home() {
   const store = useTestStore()
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [waveformErrorFlash, setWaveformErrorFlash] = useState(false)
   const [isPersonalBest, setIsPersonalBest] = useState(false)
-  const startTimeRef = useRef<number | null>(null)
-  const errorFlashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const prevFillerCountRef = useRef(0)
-  const scoringFrozenRef = useRef(false)
-  const firstSpeechTsRef = useRef<number | null>(null)
-  const armingEndTsRef = useRef<number | null>(null)
-  const armTimerIdsRef = useRef<Array<number | ReturnType<typeof setTimeout>>>([])
-  const prevConfirmedLenRef = useRef(0)
-  const prevEnrichedLenRef = useRef(0)
-  const pendingConfirmedWordsRef = useRef<EnrichedWord[]>([])
-  const handleStopRef = useRef<() => void>(() => {})
-  // Optimistic advancement: tracks how many words were advanced before DG final
-  const optimisticCountRef = useRef(0)
-  // Tracks currentWordIndex before any optimistic advances in the current interim window
-  const optimisticBaseIndexRef = useRef(0)
-  const [armingCountdown, setArmingCountdown] = useState<number | null>(null)
   const [startError, setStartError] = useState<string | null>(null)
+  const [dissolvedCount, setDissolvedCount] = useState(0)
 
-  // ── Active STT provider (always both mounted; selector picks one) ──────────
+  const testStartedAtRef = useRef<number | null>(null)
+
+  // Mirror STT state into refs so the finalize callback can read fresh values
+  // without needing them as effect dependencies.
+  const confirmedWordsRef = useRef<string[]>([])
+  const interimTextRef = useRef('')
+
   const sttProvider = store.settings.sttProvider ?? 'webspeech'
   const {
     interimText,
     confirmedWords,
-    enrichedWords,
-    fillerCount,
+    fillerCount: sttFillerCount,
     isListening,
     error: sttError,
     micStream,
@@ -72,36 +54,21 @@ export default function Home() {
     onSpeechStart,
   } = useActiveSpeechProvider(sttProvider)
 
-  // Page-level speculative match — drives optimistic word advancement.
-  // Mirrors the inputs passed to TestArea so decisions stay in sync.
-  const isRunning = store.testState === 'running'
-  const confirmedStringsForSpec = store.confirmedWords.map((c) => c.word)
-  const pageWordStates = useSpeculativeMatch({
-    promptWords: store.prompt,
-    confirmedWords: confirmedStringsForSpec,
-    interimText: isRunning && store.mode === 'speed' ? interimText : '',
-  })
+  // Keep refs in sync with STT state
+  useEffect(() => { confirmedWordsRef.current = confirmedWords }, [confirmedWords])
+  useEffect(() => { interimTextRef.current = interimText }, [interimText])
 
-  const clearSpeedArmingTimers = useCallback(() => {
-    for (const id of armTimerIdsRef.current) clearTimeout(id)
-    armTimerIdsRef.current = []
-  }, [])
-
-  const triggerWaveformError = useCallback(() => {
-    if (errorFlashTimeoutRef.current !== null) clearTimeout(errorFlashTimeoutRef.current)
-    setWaveformErrorFlash(true)
-    errorFlashTimeoutRef.current = setTimeout(() => {
-      setWaveformErrorFlash(false)
-      errorFlashTimeoutRef.current = null
-    }, 600)
-  }, [])
-
-  useEffect(
-    () => () => {
-      if (errorFlashTimeoutRef.current !== null) clearTimeout(errorFlashTimeoutRef.current)
-    },
-    []
-  )
+  // ── STT-driven dissolve ───────────────────────────────────────────────────
+  // Words dissolve as the STT engine hears them. Interim results update almost
+  // instantly, so fold them in alongside confirmed words; keep the count
+  // monotonic so a shrinking interim never "un-dissolves" a word.
+  useEffect(() => {
+    if (store.testState !== 'running' || store.mode !== 'speed') return
+    const interim = interimText.trim()
+    const interimWords = interim ? interim.split(/\s+/).length : 0
+    const liveCount = confirmedWords.length + interimWords
+    setDissolvedCount((c) => Math.min(Math.max(c, liveCount), store.prompt.length))
+  }, [confirmedWords.length, interimText, store.testState, store.mode, store.prompt.length])
 
   // ── Restore persisted settings to DOM on mount ────────────────────────────
   useEffect(() => {
@@ -116,355 +83,53 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ── Timer ─────────────────────────────────────────────────────────────────
-  // Defined before handleTimerEnd so the timer-end callback can flush a final
-  // WPM snapshot before evaluating the personal-best threshold.
-  const flushSpeedWpmSnapshot = useCallback(() => {
-    const t0 = startTimeRef.current
-    if (t0 == null) return
-    const s = useTestStore.getState()
-    if (s.mode !== 'speed') return
-    const elapsedMs = Date.now() - t0
-    if (elapsedMs < 3000) return
-    const correctWords = s.confirmedWords.filter((w) => w.isCorrect)
-    const correctChars = correctWords.reduce((sum, w) => sum + w.word.length + 1, 0)
-    const allChars = s.confirmedWords.reduce((sum, w) => sum + w.word.length + 1, 0)
-    const computed = netWpmFromChars(correctChars, elapsedMs / 1000)
-    s.setWpm(computed)
-    s.setRawWpm(rawWpmFromChars(allChars, elapsedMs / 1000))
-    if (computed > s.peakWpm) s.setPeakWpm(computed)
-    s.addWpmSnapshot({ wpm: computed, timestamp: Date.now() })
-  }, [])
-
-  const handleTimerEnd = useCallback(() => {
-    clearSpeedArmingTimers()
-    setArmingCountdown(null)
-    armingEndTsRef.current = null
-    firstSpeechTsRef.current = null
-    scoringFrozenRef.current = false
-    // Flush the final WPM snapshot so the personal-best check uses
-    // accurate values rather than whatever the 150 ms interval last wrote.
-    flushSpeedWpmSnapshot()
-    store.finaliseConsistency()
-    const s = useTestStore.getState()
-    const pbKey = `speed-${s.duration}s-${s.promptType}`
-    const newBest = s.checkAndUpdatePersonalBest(pbKey, s.wpm)
-    setIsPersonalBest(newBest)
-    store.setTestState('ended')
+  // ── Finalize speed test ───────────────────────────────────────────────────
+  const finalizeSpeed = useCallback((elapsedSec: number) => {
     stopSession()
+
+    const s = useTestStore.getState()
+    const fullTranscriptParts = [...confirmedWordsRef.current]
+    const interim = interimTextRef.current.trim()
+    if (interim) {
+      fullTranscriptParts.push(...interim.split(/\s+/).filter(Boolean))
+    }
+    const fullTranscript = fullTranscriptParts.join(' ')
+
+    const diff = alignTranscriptToPrompt(fullTranscript, s.prompt)
+    const fillerCount = countFillers(fullTranscript)
+
+    const correctWords = diff.filter((w) => w.tag === 'correct')
+    const correctChars = correctWords.reduce((sum, w) => sum + w.word.length + 1, 0)
+    const allSpokenWords = diff.filter((w) => w.tag !== 'missed')
+    const allSpokenChars = allSpokenWords.reduce((sum, w) => sum + w.word.length + 1, 0)
+
+    const netWpm = netWpmFromChars(correctChars, elapsedSec)
+    const rawWpm = rawWpmFromChars(allSpokenChars, elapsedSec)
+    const accuracy = s.prompt.length > 0
+      ? Math.round((correctWords.length / s.prompt.length) * 100)
+      : 0
+
+    const pbKey = `speed-${s.duration}s-${s.promptType}`
+    const newBest = s.checkAndUpdatePersonalBest(pbKey, netWpm)
+    setIsPersonalBest(newBest)
+
+    // Delta vs the previous run, then remember this run for next time.
+    const prevWpm = s.settings.lastSpeedWpm
+    const deltaWpm = typeof prevWpm === 'number' ? netWpm - prevWpm : null
+    s.updateSettings({ lastSpeedWpm: netWpm })
+
+    s.setResults({ netWpm, rawWpm, fillerCount, accuracy, diff, elapsedSec, transcript: fullTranscript, deltaWpm })
+    s.setTestState('ended')
+  }, [stopSession])
+
+  // ── Timer ─────────────────────────────────────────────────────────────────
+  const handleTimerEnd = useCallback(() => {
+    finalizeSpeed(store.duration)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clearSpeedArmingTimers, stopSession, flushSpeedWpmSnapshot])
+  }, [finalizeSpeed, store.duration])
 
   const { timeRemaining, isWarning, start: startTimer, stop: stopTimer, reset: resetTimer } =
     useTimer(store.duration, handleTimerEnd)
-
-  const flushPendingConfirmedWords = useCallback(() => {
-    const pending = pendingConfirmedWordsRef.current
-    if (pending.length === 0) return
-
-    const s = useTestStore.getState()
-    if (s.testState !== 'running' || s.mode !== 'speed') return
-
-    pendingConfirmedWordsRef.current = []
-    optimisticCountRef.current = 0
-    optimisticBaseIndexRef.current = 0
-    const { prompt, currentWordIndex, addWord, advanceWord, detectFiller } = s
-    const batch = alignAsrFinalToPrompt(pending, prompt, currentWordIndex, () => {
-      detectFiller()
-    })
-
-    for (const result of batch) {
-      if (!result.isCorrect) triggerWaveformError()
-      addWord(result)
-      advanceWord()
-      if (result.isCorrect && result.endTime != null) {
-        const cur = useTestStore.getState()
-        const prev = cur.lastCorrectWordEndTime
-        const delta = prev != null ? result.endTime - prev : result.endTime
-        if (delta > 0) {
-          cur.pushWordRawWpm(perWordRawWpm(result.word.length, delta))
-        }
-        cur.setLastCorrectWordEndTime(result.endTime)
-      }
-    }
-  }, [triggerWaveformError])
-
-  const tryCommitSpeedEpoch = useCallback(() => {
-    const s = useTestStore.getState()
-    if (s.testState !== 'running' || s.mode !== 'speed') return
-    if (s.speedClockStartedAt != null) return
-    const armEnd = armingEndTsRef.current
-    if (armEnd != null && Date.now() < armEnd) return
-    const now = Date.now()
-    const epoch =
-      armEnd != null
-        ? Math.max(armEnd, firstSpeechTsRef.current ?? now)
-        : (firstSpeechTsRef.current ?? now)
-    useTestStore.getState().setSpeedClockStartedAt(epoch)
-    startTimeRef.current = epoch
-    scoringFrozenRef.current = false
-    startTimer()
-    flushPendingConfirmedWords()
-  }, [startTimer, flushPendingConfirmedWords])
-
-  // ── VAD epoch binding ─────────────────────────────────────────────────────
-  // Register the VAD speech_start callback once on mount so the first voiced
-  // frame (~32ms latency) sets firstSpeechTsRef, ~200ms earlier than waiting
-  // for the first confirmed word batch from Deepgram.
-  useEffect(() => {
-    onSpeechStart?.((ts) => {
-      const s = useTestStore.getState()
-      if (s.testState !== 'running' || s.mode !== 'speed') return
-      if (firstSpeechTsRef.current == null) {
-        firstSpeechTsRef.current = ts
-        armingEndTsRef.current = null
-        tryCommitSpeedEpoch()
-      }
-    })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onSpeechStart])
-
-  // ── Optimistic word advancement ───────────────────────────────────────────
-  // When the speculative match shows the current word as 'speculative', we have
-  // high confidence it was spoken correctly. Advance immediately rather than
-  // waiting for is_final from WebSpeech. The final handler reconciles afterward.
-  //
-  // We loop to advance ALL consecutive speculative words in one effect pass so
-  // fast speech (150+ WPM) doesn't fall behind at one-word-per-render-cycle.
-  useEffect(() => {
-    const s = useTestStore.getState()
-    if (s.testState !== 'running' || s.mode !== 'speed') return
-    if (!interimText) return
-
-    // If the speed clock hasn't started yet, try to start it now.
-    // The first-speech-detection effect (line ~417) also does this, but it
-    // runs AFTER this effect in React's effect ordering. By starting the
-    // clock here, we avoid a full render-cycle delay before optimistic
-    // advancement can begin.
-    if (s.speedClockStartedAt == null) {
-      if (firstSpeechTsRef.current == null) {
-        firstSpeechTsRef.current = Date.now()
-        armingEndTsRef.current = null
-      }
-      tryCommitSpeedEpoch()
-      // Re-read state — tryCommitSpeedEpoch may have set the clock
-      if (useTestStore.getState().speedClockStartedAt == null) return
-    }
-
-    // Advance up to 10 words per effect pass to prevent infinite loops
-    const MAX_ADVANCE_PER_PASS = 10
-    let advanced = 0
-
-    let cwi = s.currentWordIndex
-    while (advanced < MAX_ADVANCE_PER_PASS) {
-      const current = pageWordStates[cwi]
-      if (current?.status !== 'speculative') break
-
-      const promptWord = s.prompt[cwi]
-      if (!promptWord) break
-
-      // Record base index on the first optimistic advance in this interim window
-      if (optimisticCountRef.current === 0) {
-        optimisticBaseIndexRef.current = cwi
-      }
-      s.optimisticAdvanceWord({
-        word: promptWord,
-        isCorrect: true,
-        isFiller: false,
-        timestamp: Date.now(),
-      })
-      optimisticCountRef.current++
-      advanced++
-
-      // Re-read currentWordIndex after advancement (zustand set is synchronous)
-      cwi = useTestStore.getState().currentWordIndex
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageWordStates, interimText, store.currentWordIndex])
-
-  // ── confirmedWords → store (provider feeds us the array) ─────────────────
-  // Track the previous length so we only process new entries each render.
-  // enrichedWords is parallel to confirmedWords — same index, same length for
-  // Deepgram; always empty [] for WebSpeech. We use it to pass per-word timing
-  // and confidence through to the aligner.
-  useEffect(() => {
-    const s = useTestStore.getState()
-    if (s.testState !== 'running' || s.mode !== 'speed') return
-
-    const newWords = confirmedWords.slice(prevConfirmedLenRef.current)
-    prevConfirmedLenRef.current = confirmedWords.length
-
-    // Slice enrichedWords by the same window. Falls back to word-only objects
-    // when enrichedWords is empty (WebSpeech provider).
-    const newEnriched = enrichedWords.slice(prevEnrichedLenRef.current)
-    prevEnrichedLenRef.current = enrichedWords.length
-
-    if (newWords.length === 0) return
-
-    // Build the EnrichedWord[] that the aligner consumes. Use Deepgram's
-    // enriched objects when available; otherwise wrap bare strings.
-    const tokensForAligner: EnrichedWord[] =
-      newEnriched.length === newWords.length
-        ? newEnriched
-        : newWords.map((w) => ({ word: w }))
-
-    // Detect first-speech epoch
-    if (firstSpeechTsRef.current == null) {
-      firstSpeechTsRef.current = Date.now()
-      armingEndTsRef.current = null
-      tryCommitSpeedEpoch()
-    }
-
-    const scoringState = useTestStore.getState()
-    if (scoringFrozenRef.current || scoringState.speedClockStartedAt == null) {
-      pendingConfirmedWordsRef.current.push(...tokensForAligner)
-      return
-    }
-
-    const optimisticCount = optimisticCountRef.current
-    const optimisticBase = optimisticBaseIndexRef.current
-
-    // Align starting at the pre-optimistic word index so the aligner covers
-    // both the already-advanced optimistic words and any new words beyond them.
-    const alignStartIndex = optimisticCount > 0 ? optimisticBase : scoringState.currentWordIndex
-
-    const { prompt, addWord, advanceWord, detectFiller, patchWord } = scoringState
-    const batch = alignAsrFinalToPrompt(tokensForAligner, prompt, alignStartIndex, () => {
-      detectFiller()
-    })
-
-    // ── Reconcile optimistic words then process remainder ─────────────────
-    for (let i = 0; i < batch.length; i++) {
-      const result = batch[i]!
-      const storeIndex = alignStartIndex + i
-
-      if (i < optimisticCount) {
-        // This position was already advanced optimistically — reconcile.
-        if (!result.isCorrect) {
-          triggerWaveformError()
-          patchWord(storeIndex, {
-            word: result.word,
-            isCorrect: false,
-            isOptimistic: false,
-            startTime: result.startTime,
-            endTime: result.endTime,
-            confidence: result.confidence,
-          })
-        } else {
-          // Confirm the optimistic word (clear flag, update timing from DG)
-          patchWord(storeIndex, {
-            isOptimistic: false,
-            startTime: result.startTime,
-            endTime: result.endTime,
-            confidence: result.confidence,
-          })
-          if (result.endTime != null) {
-            const cur = useTestStore.getState()
-            const prev = cur.lastCorrectWordEndTime
-            const delta = prev != null ? result.endTime - prev : result.endTime
-            if (delta > 0) cur.pushWordRawWpm(perWordRawWpm(result.word.length, delta))
-            cur.setLastCorrectWordEndTime(result.endTime)
-          }
-        }
-      } else {
-        // New word beyond optimistic window — process normally.
-        if (!result.isCorrect) triggerWaveformError()
-        addWord(result)
-        advanceWord()
-        if (result.isCorrect && result.endTime != null) {
-          const cur = useTestStore.getState()
-          const prev = cur.lastCorrectWordEndTime
-          const delta = prev != null ? result.endTime - prev : result.endTime
-          if (delta > 0) cur.pushWordRawWpm(perWordRawWpm(result.word.length, delta))
-          cur.setLastCorrectWordEndTime(result.endTime)
-        }
-      }
-    }
-
-    // If the final batch fully covered or exceeded the optimistic window,
-    // reset tracking. Otherwise, keep the remaining count alive so the
-    // next final batch continues reconciliation from where we left off.
-    const reconciledCount = Math.min(batch.length, optimisticCount)
-    if (reconciledCount >= optimisticCount) {
-      optimisticCountRef.current = 0
-      optimisticBaseIndexRef.current = 0
-    } else {
-      // Slide the window forward: the remaining optimistic words start after
-      // what was just reconciled.
-      optimisticCountRef.current = optimisticCount - reconciledCount
-      optimisticBaseIndexRef.current = optimisticBase + reconciledCount
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [confirmedWords, enrichedWords])
-
-  // ── fillerCount → store ───────────────────────────────────────────────────
-  useEffect(() => {
-    const delta = fillerCount - prevFillerCountRef.current
-    prevFillerCountRef.current = fillerCount
-    if (delta <= 0) return
-    const s = useTestStore.getState()
-    if (s.testState !== 'running' || s.mode !== 'speed') return
-    for (let i = 0; i < delta; i++) {
-      s.detectFiller()
-      triggerWaveformError()
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fillerCount])
-
-  // ── First speech detection (for arming epoch) ─────────────────────────────
-  // We watch isListening + interimText appearing together as a proxy for first audio
-  const firstSpeechFiredRef = useRef(false)
-  useEffect(() => {
-    if (!interimText || firstSpeechFiredRef.current) return
-    const s = useTestStore.getState()
-    if (s.testState !== 'running' || s.mode !== 'speed') return
-    firstSpeechFiredRef.current = true
-    if (firstSpeechTsRef.current == null) {
-      firstSpeechTsRef.current = Date.now()
-      armingEndTsRef.current = null
-      tryCommitSpeedEpoch()
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [interimText])
-
-  // ── WPM tracking on confirmedWords change ─────────────────────────────────
-  useEffect(() => {
-    const s = useTestStore.getState()
-    if (s.testState !== 'running' || s.mode !== 'speed') return
-    if (!startTimeRef.current) return
-    const elapsedMs = Date.now() - startTimeRef.current
-    if (elapsedMs < 3000) return
-    const correctWords = s.confirmedWords.filter((w) => w.isCorrect)
-    const correctChars = correctWords.reduce((sum, w) => sum + w.word.length + 1, 0)
-    const allChars = s.confirmedWords.reduce((sum, w) => sum + w.word.length + 1, 0)
-    const computed = netWpmFromChars(correctChars, elapsedMs / 1000)
-    s.setWpm(computed)
-    s.setRawWpm(rawWpmFromChars(allChars, elapsedMs / 1000))
-    if (computed > s.peakWpm) s.setPeakWpm(computed)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store.confirmedWords.length])
-
-  // ── WPM interval ──────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (store.testState !== 'running' || store.mode !== 'speed') return
-    const id = setInterval(() => {
-      if (!startTimeRef.current) return
-      const s = useTestStore.getState()
-      if (s.testState !== 'running' || s.mode !== 'speed') return
-      const elapsedMs = Date.now() - startTimeRef.current
-      if (elapsedMs < 3000) return
-      const correctWords = s.confirmedWords.filter((w) => w.isCorrect)
-      const correctChars = correctWords.reduce((sum, w) => sum + w.word.length + 1, 0)
-      const allChars = s.confirmedWords.reduce((sum, w) => sum + w.word.length + 1, 0)
-      const computed = netWpmFromChars(correctChars, elapsedMs / 1000)
-      s.setWpm(computed)
-      s.setRawWpm(rawWpmFromChars(allChars, elapsedMs / 1000))
-      if (computed > s.peakWpm) s.setPeakWpm(computed)
-      s.addWpmSnapshot({ wpm: computed, timestamp: Date.now() })
-    }, 150)
-    return () => clearInterval(id)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store.testState, store.mode])
 
   // ── STT error → mic state ─────────────────────────────────────────────────
   useEffect(() => {
@@ -497,29 +162,14 @@ export default function Home() {
     setStartError(null)
     if (store.prompt.length === 0) loadPrompt()
 
+    const s = useTestStore.getState()
+
     if (store.mode === 'speed') {
-      scoringFrozenRef.current = true
-      firstSpeechTsRef.current = null
-      firstSpeechFiredRef.current = false
-      prevConfirmedLenRef.current = 0
-      prevEnrichedLenRef.current = 0
-      pendingConfirmedWordsRef.current = []
-      optimisticCountRef.current = 0
-      optimisticBaseIndexRef.current = 0
-      startTimeRef.current = null
-      clearSpeedArmingTimers()
       resetProvider()
 
-      // ── Warm-connect: arm Deepgram WS+mic immediately so the 2–1 countdown
-      //    absorbs the TLS + WS handshake latency (no-op for WebSpeech).
-      //    We await armSession so the WS is open before startSession() runs;
-      //    startSession() then detects the armed state and returns instantly.
       if (armSession) {
         const armed = await armSession()
         if (!armed.ok) {
-          scoringFrozenRef.current = false
-          setArmingCountdown(null)
-          armingEndTsRef.current = null
           setStartError(armed.error)
           return
         }
@@ -527,157 +177,92 @@ export default function Home() {
 
       const didStart = await startSession()
       if (!didStart.ok) {
-        scoringFrozenRef.current = false
-        setArmingCountdown(null)
-        armingEndTsRef.current = null
         setStartError(didStart.error)
         return
       }
 
       store.startTest()
-
-      if (SPEED_ARMING_MS > 0) {
-        armingEndTsRef.current = Date.now() + SPEED_ARMING_MS
-        setArmingCountdown(2)
-        armTimerIdsRef.current.push(window.setTimeout(() => setArmingCountdown(1), 1000))
-        armTimerIdsRef.current.push(
-          window.setTimeout(() => {
-            setArmingCountdown(null)
-            tryCommitSpeedEpoch()
-          }, SPEED_ARMING_MS)
-        )
-      } else {
-        armingEndTsRef.current = null
-        setArmingCountdown(null)
-      }
+      testStartedAtRef.current = Date.now()
+      setDissolvedCount(0)
+      startTimer()
     } else {
       store.startTest()
-      startTimeRef.current = useTestStore.getState().testStartedAt
+      testStartedAtRef.current = Date.now()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store.mode, store.prompt.length, loadPrompt, armSession, startSession, tryCommitSpeedEpoch, clearSpeedArmingTimers, resetProvider])
+  }, [store.mode, store.prompt.length, loadPrompt, armSession, startSession, resetProvider, startTimer])
 
   const handleStop = useCallback(() => {
     const s = useTestStore.getState()
     if (s.mode === 'speed') {
-      clearSpeedArmingTimers()
-      setArmingCountdown(null)
-      armingEndTsRef.current = null
-      firstSpeechTsRef.current = null
-      scoringFrozenRef.current = false
-      flushPendingConfirmedWords()
       stopTimer()
-      stopSession()
-      flushSpeedWpmSnapshot()
-      s.finaliseConsistency()
-      const pbKey = `speed-${s.duration}s-${s.promptType}`
-      const newBest = s.checkAndUpdatePersonalBest(pbKey, s.wpm)
-      setIsPersonalBest(newBest)
+      const elapsed = testStartedAtRef.current
+        ? (Date.now() - testStartedAtRef.current) / 1000
+        : s.duration
+      finalizeSpeed(elapsed)
     } else {
       const promptStr = s.prompt.join(' ')
       const diff = diffWords(promptStr, s.clarityTranscript)
       const promptWordCount = promptStr.trim().split(/\s+/).filter(Boolean).length
       const { score, grade } = calcClarityScore(diff, promptWordCount)
       s.setDiffResult(diff, score, grade)
+      s.setTestState('ended')
     }
-    useTestStore.getState().setTestState('ended')
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flushSpeedWpmSnapshot, flushPendingConfirmedWords, clearSpeedArmingTimers, stopTimer, stopSession])
-
-  useEffect(() => {
-    handleStopRef.current = handleStop
-  }, [handleStop])
-
-  useEffect(() => {
-    if (store.testState !== 'running' || store.mode !== 'speed') return
-    const id = window.setTimeout(() => {
-      const s = useTestStore.getState()
-      if (s.testState === 'running' && s.mode === 'speed' && s.speedClockStartedAt == null) {
-        handleStopRef.current()
-      }
-    }, SPEED_NO_SPEECH_WATCHDOG_MS)
-    return () => clearTimeout(id)
-  }, [store.testState, store.mode])
+  }, [stopTimer, finalizeSpeed])
 
   const handleRetry = useCallback(() => {
     setIsPersonalBest(false)
     setStartError(null)
+    setDissolvedCount(0)
+    testStartedAtRef.current = null
+    resetProvider()
+    const s = useTestStore.getState()
+    s.resetTest()
+    resetTimer(s.duration)
+    const last = s.prompt.join(' ')
+    const text = regeneratePrompt(s.promptType as PromptMode, s.duration, last, s.customPromptText)
+    useTestStore.getState().setPrompt(splitPrompt(text))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetProvider, resetTimer])
+
+  const handleNext = useCallback(() => {
+    setIsPersonalBest(false)
+    setStartError(null)
+    setDissolvedCount(0)
+    testStartedAtRef.current = null
+    resetProvider()
     const s = useTestStore.getState()
     const last = s.prompt.join(' ')
-    clearSpeedArmingTimers()
-    setArmingCountdown(null)
-    startTimeRef.current = null
-    armingEndTsRef.current = null
-    firstSpeechTsRef.current = null
-    firstSpeechFiredRef.current = false
-    prevConfirmedLenRef.current = 0
-    prevEnrichedLenRef.current = 0
-    pendingConfirmedWordsRef.current = []
-    optimisticCountRef.current = 0
-    optimisticBaseIndexRef.current = 0
-    scoringFrozenRef.current = false
-    resetProvider()
     s.resetTest()
     resetTimer(s.duration)
     const s2 = useTestStore.getState()
     const text = regeneratePrompt(s2.promptType as PromptMode, s2.duration, last, s2.customPromptText)
     s2.setPrompt(splitPrompt(text))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clearSpeedArmingTimers, resetProvider])
+  }, [resetProvider, resetTimer])
 
   const handlePractice = useCallback(() => {
     setIsPersonalBest(false)
-    const s = useTestStore.getState()
-    const missedWords = s.confirmedWords
-      .filter((w) => !w.isCorrect)
-      .map((w) => w.word)
-    clearSpeedArmingTimers()
-    setArmingCountdown(null)
-    startTimeRef.current = null
-    armingEndTsRef.current = null
-    firstSpeechTsRef.current = null
-    firstSpeechFiredRef.current = false
-    prevConfirmedLenRef.current = 0
-    prevEnrichedLenRef.current = 0
-    pendingConfirmedWordsRef.current = []
-    optimisticCountRef.current = 0
-    optimisticBaseIndexRef.current = 0
-    scoringFrozenRef.current = false
+    setDissolvedCount(0)
+    testStartedAtRef.current = null
     resetProvider()
+    const s = useTestStore.getState()
+    // Collect missed/substituted words from the last diff result
+    const missedWords = (s.results?.diff ?? [])
+      .filter((w) => w.tag === 'missed' || w.tag === 'substituted')
+      .map((w) => w.tag === 'substituted' ? (w.expected ?? w.word) : w.word)
     s.resetTest()
     resetTimer(s.duration)
     const practiceText = generatePracticePrompt(missedWords, s.duration)
     useTestStore.getState().setPrompt(splitPrompt(practiceText))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clearSpeedArmingTimers, resetProvider])
-
-  const handleNext = useCallback(() => {
-    setIsPersonalBest(false)
-    setStartError(null)
-    const s = useTestStore.getState()
-    const last = s.prompt.join(' ')
-    clearSpeedArmingTimers()
-    setArmingCountdown(null)
-    startTimeRef.current = null
-    armingEndTsRef.current = null
-    firstSpeechTsRef.current = null
-    firstSpeechFiredRef.current = false
-    prevConfirmedLenRef.current = 0
-    prevEnrichedLenRef.current = 0
-    pendingConfirmedWordsRef.current = []
-    optimisticCountRef.current = 0
-    optimisticBaseIndexRef.current = 0
-    scoringFrozenRef.current = false
-    resetProvider()
-    s.resetTest()
-    resetTimer(s.duration)
-    const s2 = useTestStore.getState()
-    const text = regeneratePrompt(s2.promptType as PromptMode, s2.duration, last, s2.customPromptText)
-    s2.setPrompt(splitPrompt(text))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clearSpeedArmingTimers, resetProvider])
+  }, [resetProvider, resetTimer])
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
+  const handleStopRef = useRef(handleStop)
+  useEffect(() => { handleStopRef.current = handleStop }, [handleStop])
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName
@@ -688,18 +273,8 @@ export default function Home() {
         if (store.testState === 'running') handleStop()
         else if (store.testState === 'ended') handleRetry()
         else {
-          clearSpeedArmingTimers()
-          setArmingCountdown(null)
-          startTimeRef.current = null
-          armingEndTsRef.current = null
-          firstSpeechTsRef.current = null
-          firstSpeechFiredRef.current = false
-          prevConfirmedLenRef.current = 0
-          prevEnrichedLenRef.current = 0
-          pendingConfirmedWordsRef.current = []
-          optimisticCountRef.current = 0
-          optimisticBaseIndexRef.current = 0
-          scoringFrozenRef.current = false
+          setDissolvedCount(0)
+          testStartedAtRef.current = null
           resetProvider()
           store.resetTest()
           resetTimer(store.duration)
@@ -724,10 +299,10 @@ export default function Home() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store.testState, store.duration, handleRetry, handleNext, handleStop, handleStart, clearSpeedArmingTimers, resetTimer, resetProvider])
+  }, [store.testState, store.duration, handleRetry, handleNext, handleStop, handleStart, resetTimer, resetProvider])
 
   // ── Render ────────────────────────────────────────────────────────────────
-  // isRunning is declared above (needed for useSpeculativeMatch)
+  const isRunning = store.testState === 'running'
   const isEnded   = store.testState === 'ended'
   const isIdle    = store.testState === 'idle'
 
@@ -745,14 +320,11 @@ export default function Home() {
           <StatsBar
             key="stats-bar"
             mode={store.mode}
-            wpm={store.wpm}
-            rawWpm={store.rawWpm}
             wordCount={
               store.mode === 'clarity'
                 ? store.clarityTranscript.trim().split(/\s+/).filter(Boolean).length
-                : store.confirmedWords.length
+                : confirmedWords.length
             }
-            fillerCount={store.fillerCount}
             timeRemainingMs={timeRemaining}
             isWarning={isWarning}
             micState={store.micState}
@@ -775,37 +347,12 @@ export default function Home() {
               transition={testExitTransition}
             >
               <div className="relative w-full flex flex-col">
-                {/* Arming countdown overlay */}
-                {store.mode === 'speed' && isRunning && armingCountdown != null ? (
-                  <div
-                    className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center"
-                    style={{ background: 'color-mix(in srgb, var(--bg) 55%, transparent)' }}
-                    aria-live="polite"
-                    aria-label="Countdown to start"
-                  >
-                    <span
-                      className="font-mono font-bold tabular-nums"
-                      style={{ fontSize: 'clamp(4rem, 18vw, 7rem)', color: 'var(--accent)', lineHeight: 1 }}
-                    >
-                      {armingCountdown}
-                    </span>
-                  </div>
-                ) : null}
-
-                {store.mode === 'speed' && (
-                  <FillerFlash trigger={store.fillerFlashTrigger} isWarning={store.fillerWarning} />
-                )}
-
                 {store.mode === 'speed' ? (
                   <div className="flex flex-col w-full gap-10">
                     <TestArea
                       words={store.prompt}
-                      confirmedWords={store.confirmedWords}
-                      currentWordIndex={store.currentWordIndex}
-                      liveTranscript={interimText}
-                      isIdle={isIdle}
-                      testActive={isRunning}
-                      blindMode={store.settings.blindMode}
+                      dissolvedCount={dissolvedCount}
+                      isActive={isRunning}
                     />
                     {isIdle && (
                       <div className="flex flex-col items-center gap-3 w-full">
@@ -858,11 +405,10 @@ export default function Home() {
                 <>
                   <WaveformVisualiser
                     stream={micStream}
-                    isActive={store.testState === 'running'}
-                    hasError={waveformErrorFlash}
+                    isActive={isRunning}
+                    hasError={false}
                   />
 
-                  {/* Step 7 — Provider status indicator */}
                   {isRunning && (
                     <div
                       style={{
@@ -901,19 +447,10 @@ export default function Home() {
             <ResultsPanel
               key="results"
               mode={store.mode}
-              wpm={store.wpm}
-              rawWpm={store.rawWpm}
-              wordCount={store.confirmedWords.length}
-              fillerCount={store.fillerCount}
-              peakWpm={store.peakWpm}
-              consistency={store.consistency}
+              results={store.results}
               duration={store.duration}
               promptType={store.promptType}
               prompt={store.prompt}
-              confirmedWords={store.confirmedWords}
-              wpmSnapshots={store.wpmSnapshots}
-              testStartedAt={store.testStartedAt}
-              speedClockStartedAt={store.speedClockStartedAt}
               clarityScore={store.clarityScore}
               clarityGrade={store.clarityGrade}
               diffResult={store.diffResult}

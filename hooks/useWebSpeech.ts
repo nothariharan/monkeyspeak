@@ -4,7 +4,7 @@ import { useRef, useCallback, useState, useEffect } from 'react'
 import { useTestStore } from '@/store/testStore'
 import { tokensRoughlyMatch } from '@/lib/wordMatch'
 import { isFiller } from '@/lib/fillers'
-import type { SpeechProvider, EnrichedWord, SessionStartResult } from './useSpeechProvider'
+import type { SpeechProvider, SessionStartResult } from './useSpeechProvider'
 
 function getSpeechRecognitionCtor(): SpeechRecognitionConstructor | null {
   if (typeof window === 'undefined') return null
@@ -62,7 +62,6 @@ export function useWebSpeech(): SpeechProvider {
 
   const [interimText, setInterimText] = useState('')
   const [confirmedWords, setConfirmedWords] = useState<string[]>([])
-  const [enrichedWords, setEnrichedWords] = useState<EnrichedWord[]>([])
   const [fillerCount, setFillerCount] = useState(0)
   const [isListening, setIsListening] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -88,7 +87,6 @@ export function useWebSpeech(): SpeechProvider {
     interimEmittedTokensRef.current = []
     setInterimText('')
     setConfirmedWords([])
-    setEnrichedWords([])
     setFillerCount(0)
     setError(null)
   }, [clearInterimDebounce])
@@ -107,7 +105,6 @@ export function useWebSpeech(): SpeechProvider {
     setIsListening(false)
     clearInterimDebounce()
     setInterimText('')
-    setEnrichedWords([])
     interimEmittedTokensRef.current = []
   }, [clearInterimDebounce])
 
@@ -198,23 +195,18 @@ export function useWebSpeech(): SpeechProvider {
         }
 
         if (finalBatch.length > 0) {
-          // Commit all finalized words directly to confirmedWords and enrichedWords
           let newFillers = 0
           const realWords: string[] = []
-          const batchEndTs = Date.now() / 1000
-          const realEnriched: EnrichedWord[] = []
           for (const w of finalBatch) {
             if (isFiller(w)) {
               newFillers++
             } else {
               realWords.push(w)
-              realEnriched.push({ word: w, start: undefined, end: batchEndTs })
             }
           }
           if (newFillers > 0) setFillerCount((c) => c + newFillers)
           if (realWords.length > 0) {
             setConfirmedWords((prev) => [...prev, ...realWords])
-            setEnrichedWords((prev) => [...prev, ...realEnriched])
           }
           interimEmittedTokensRef.current = []
         }
@@ -288,9 +280,6 @@ export function useWebSpeech(): SpeechProvider {
   return {
     interimText,
     confirmedWords,
-    // Approximate timestamps: start is undefined, end is Date.now()/1000 at
-    // the moment the final batch arrived (batch-level, not acoustic per-word).
-    enrichedWords,
     fillerCount,
     isListening,
     error,
@@ -298,7 +287,6 @@ export function useWebSpeech(): SpeechProvider {
     startSession,
     stopSession,
     reset,
-    // No VAD in WebSpeech — both callbacks are no-ops
     onSpeechStart: () => {},
     onSpeechEnd: () => {},
   }

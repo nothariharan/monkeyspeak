@@ -18,11 +18,6 @@ export interface SpeechProviderState {
   interimText: string
   /** Words that have been finalised by the STT engine this session. */
   confirmedWords: string[]
-  /**
-   * Parallel to confirmedWords — same index, same length.
-   * Deepgram populates start/end/confidence; WebSpeech emits word-only objects.
-   */
-  enrichedWords: EnrichedWord[]
   /** Number of filler words detected this session. */
   fillerCount: number
   /** True between startSession() and stopSession(). */

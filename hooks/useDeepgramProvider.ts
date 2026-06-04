@@ -4,7 +4,7 @@ import { useRef, useCallback, useState, useEffect } from 'react'
 import { float32ToLinear16Pcm16k } from '@/lib/pcmDownsample'
 import { isFiller } from '@/lib/fillers'
 import { useTestStore } from '@/store/testStore'
-import type { SpeechProvider, EnrichedWord, SessionStartResult } from './useSpeechProvider'
+import type { SpeechProvider, SessionStartResult } from './useSpeechProvider'
 
 // ── Deepgram JSON wire types ──────────────────────────────────────────────────
 interface DgWord {
@@ -78,7 +78,6 @@ export async function prefetchDeepgramKey(): Promise<void> {}
 export function useDeepgramProvider(enabled = true): SpeechProvider {
   const [interimText, setInterimText]       = useState('')
   const [confirmedWords, setConfirmedWords] = useState<string[]>([])
-  const [enrichedWords, setEnrichedWords]   = useState<EnrichedWord[]>([])
   const [fillerCount, setFillerCount]       = useState(0)
   const [isListening, setIsListening]       = useState(false)
   const [error, setError]                   = useState<string | null>(null)
@@ -196,7 +195,6 @@ export function useDeepgramProvider(enabled = true): SpeechProvider {
   const reset = useCallback(() => {
     setInterimText('')
     setConfirmedWords([])
-    setEnrichedWords([])
     setFillerCount(0)
     setError(null)
   }, [])
@@ -234,7 +232,6 @@ export function useDeepgramProvider(enabled = true): SpeechProvider {
       setInterimText('')
       let newFillers = 0
       const realWords: string[] = []
-      const realEnriched: EnrichedWord[] = []
 
       if (wordObjs.length > 0) {
         for (const w of wordObjs) {
@@ -242,14 +239,12 @@ export function useDeepgramProvider(enabled = true): SpeechProvider {
             newFillers++
           } else {
             realWords.push(w.word)
-            realEnriched.push({ word: w.word, start: w.start, end: w.end, confidence: w.confidence })
           }
         }
       } else {
         for (const w of transcript.split(/\s+/).filter(Boolean)) {
           if (isFiller(w)) { newFillers++ } else {
             realWords.push(w)
-            realEnriched.push({ word: w })
           }
         }
       }
@@ -257,7 +252,6 @@ export function useDeepgramProvider(enabled = true): SpeechProvider {
       if (newFillers > 0) setFillerCount((c) => c + newFillers)
       if (realWords.length > 0) {
         setConfirmedWords((prev) => [...prev, ...realWords])
-        setEnrichedWords((prev) => [...prev, ...realEnriched])
       }
     } else if (msg.type === 'SpeechStarted') {
       onSpeechStartRef.current?.((msg as DgSpeechStartedEvent).timestamp ?? Date.now())
@@ -527,5 +521,5 @@ export function useDeepgramProvider(enabled = true): SpeechProvider {
 
   useEffect(() => () => { _teardown() }, [_teardown])
 
-  return { interimText, confirmedWords, enrichedWords, fillerCount, isListening, error, micStream, armSession, startSession, stopSession, reset, onSpeechStart, onSpeechEnd }
+  return { interimText, confirmedWords, fillerCount, isListening, error, micStream, armSession, startSession, stopSession, reset, onSpeechStart, onSpeechEnd }
 }

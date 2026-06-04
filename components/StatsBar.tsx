@@ -3,10 +3,7 @@
 import { motion } from 'framer-motion'
 
 interface StatsBarProps {
-  wpm: number
-  rawWpm: number
   wordCount: number
-  fillerCount: number
   timeRemainingMs: number
   isWarning: boolean
   micState: 'idle' | 'requesting' | 'active' | 'denied' | 'error'
@@ -21,10 +18,7 @@ function formatTime(ms: number): string {
 }
 
 export default function StatsBar({
-  wpm,
-  rawWpm,
   wordCount,
-  fillerCount,
   timeRemainingMs,
   isWarning,
   micState,
@@ -40,39 +34,11 @@ export default function StatsBar({
       aria-live="polite"
       aria-label="Live test statistics"
     >
-      {/* WPM — Speed mode */}
-      {mode === 'speed' && (
-        <div className="flex flex-col items-center gap-0.5">
-          <span className="stat-value" style={{ fontSize: '1.5rem' }}>
-            {wpm > 0 ? wpm : <span style={{ color: 'var(--text-muted)' }}>—</span>}
-          </span>
-          <span className="stat-label">wpm</span>
-          {rawWpm > 0 && (
-            <span
-              className="stat-label tabular-nums"
-              style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '-2px' }}
-            >
-              {rawWpm} raw
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* Word count — speed: matched words; clarity: transcript tokens */}
+      {/* Word count */}
       <div className="flex flex-col items-center gap-0.5">
         <span className="stat-value">{wordCount}</span>
         <span className="stat-label">{mode === 'clarity' ? 'typed' : 'words'}</span>
       </div>
-
-      {/* Fillers — Speed mode */}
-      {mode === 'speed' && (
-        <div className="flex flex-col items-center gap-0.5">
-          <span className="stat-value" style={{ color: fillerCount > 0 ? '#a78bfa' : undefined }}>
-            {fillerCount}
-          </span>
-          <span className="stat-label">fillers</span>
-        </div>
-      )}
 
       {/* Timer — Speed mode */}
       {mode === 'speed' && (

@@ -7,7 +7,7 @@
 interface SpeedShareStats {
   mode: 'speed'
   wpm: number
-  consistency: number
+  accuracy: number
   fillerCount: number
   duration: number
   promptType: string
@@ -80,7 +80,7 @@ export function generateShareCard(stats: ShareStats): void {
     // Secondary stats
     ctx.font = '13px "JetBrains Mono", monospace'
     ctx.fillStyle = ACTIVE
-    ctx.fillText(`${stats.consistency}% consistency  ·  ${stats.fillerCount} fillers removed`, 32, 178)
+    ctx.fillText(`${stats.accuracy}% accuracy  ·  ${stats.fillerCount} fillers removed`, 32, 178)
     ctx.fillStyle = MUTED
     ctx.fillText(`${stats.duration} seconds  ·  ${stats.promptType} mode`, 32, 200)
   } else {

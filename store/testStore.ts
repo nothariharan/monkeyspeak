@@ -1,7 +1,6 @@
 import { create } from 'zustand'
 import type { ProviderType } from '@/hooks/useSpeechProvider'
 import { persist } from 'zustand/middleware'
-import { computeConsistency } from '@/lib/stats/consistency'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -13,21 +12,6 @@ export type AccentColour = 'yellow' | 'coral' | 'blue' | 'green'
 export type FontChoice = 'jetbrains' | 'fira' | 'inconsolata'
 export type FontSize = 'small' | 'medium' | 'large'
 export type { ThemeName } from '@/lib/themes'
-
-export interface WordResult {
-  word: string
-  isCorrect: boolean
-  isFiller: boolean
-  timestamp: number
-  /** Seconds from audio-stream start when Deepgram first detected this word. */
-  startTime?: number
-  /** Seconds from audio-stream start when Deepgram finished this word. */
-  endTime?: number
-  /** ASR confidence score 0–1 as emitted by Deepgram. */
-  confidence?: number
-  /** True while the word has been advanced optimistically but not yet reconciled with a Deepgram final. */
-  isOptimistic?: boolean
-}
 
 export interface DiffWord {
   word: string
@@ -42,8 +26,8 @@ export interface PersonalBestEntry {
 
 export interface Settings {
   theme: import('@/lib/themes').ThemeName
-  accentHex: string          // raw hex from the theme's accent swatch
-  accentName: string         // swatch name for persistence
+  accentHex: string
+  accentName: string
   font: FontChoice
   fontSize: FontSize
   fillerFlash: boolean
@@ -52,22 +36,24 @@ export interface Settings {
   blindMode: boolean
   language: 'en-US' | 'en-GB' | 'en-AU'
   sttProvider: ProviderType
-  /** Deepgram only: send all mic audio without VAD gating (useful for debugging). */
   skipVad: boolean
-  /** Keyed by `speed-${duration}s-${promptType}` */
   personalBests: Record<string, PersonalBestEntry>
+  /** netWpm of the most recent speed run, used to show a delta on the results screen. */
+  lastSpeedWpm?: number
 }
 
-export interface WpmSnapshot {
-  wpm: number
-  timestamp: number
-}
-
-export type SpeedTimelineKind = 'wrong_word' | 'filler'
-
-export interface SpeedTimelineEvent {
-  atMs: number
-  kind: SpeedTimelineKind
+export interface SpeedResults {
+  netWpm: number
+  rawWpm: number
+  fillerCount: number
+  /** Percentage: correct prompt words / prompt.length * 100 */
+  accuracy: number
+  diff: DiffWord[]
+  elapsedSec: number
+  /** Raw spoken transcript (fillers stripped), shown in the detailed breakdown. */
+  transcript: string
+  /** netWpm delta vs the previous speed run (null when there is no prior run). */
+  deltaWpm: number | null
 }
 
 interface TestStore {
@@ -80,26 +66,9 @@ interface TestStore {
 
   // ── Prompt
   prompt: string[]
-  currentWordIndex: number
 
-  // ── Speed mode metrics
-  confirmedWords: WordResult[]
-  fillerCount: number
-  wpm: number
-  rawWpm: number
-  peakWpm: number
-  consistency: number
-  wpmSnapshots: WpmSnapshot[]
-  /** Per-word burst rawWPM values (one per correct word with Deepgram endTime). */
-  wordRawWpms: number[]
-  /** Deepgram endTime (seconds) of the last confirmed correct word; null until first correct word. */
-  lastCorrectWordEndTime: number | null
-  /** Wall time when startTest() ran (session arm); null when idle */
-  testStartedAt: number | null
-  /** Speed mode: WPM/timer/graph epoch — set on first speech (after optional arming); null until then */
-  speedClockStartedAt: number | null
-  /** Elapsed ms from speedClockStartedAt (fallback testStartedAt) for graph markers */
-  speedTimelineEvents: SpeedTimelineEvent[]
+  // ── Speed results (populated only when testState === 'ended')
+  results: SpeedResults | null
 
   // ── Clarity mode
   clarityTranscript: string
@@ -109,11 +78,6 @@ interface TestStore {
 
   // ── Settings (persisted)
   settings: Settings
-
-  // ── Filler flash state
-  fillerFlashTrigger: number   // incremented each time a filler is detected
-  recentFillerCount: number    // fillers in last 10-second window
-  fillerWarning: boolean       // true if 3+ fillers in 10s
 
   // ── Mic state
   micState: 'idle' | 'requesting' | 'active' | 'denied' | 'error'
@@ -125,18 +89,7 @@ interface TestStore {
   setPromptType: (t: PromptType) => void
   setCustomPromptText: (text: string) => void
   setPrompt: (words: string[]) => void
-  addWord: (result: WordResult) => void
-  optimisticAdvanceWord: (result: WordResult) => void
-  patchWord: (index: number, patch: Partial<WordResult>) => void
-  detectFiller: () => void
-  advanceWord: () => void
-  setWpm: (wpm: number) => void
-  setRawWpm: (wpm: number) => void
-  setPeakWpm: (wpm: number) => void
-  addWpmSnapshot: (snapshot: WpmSnapshot) => void
-  pushWordRawWpm: (v: number) => void
-  setLastCorrectWordEndTime: (t: number) => void
-  finaliseConsistency: () => void
+  setResults: (r: SpeedResults | null) => void
   setClarityTranscript: (t: string) => void
   setDiffResult: (result: DiffWord[], score: number, grade: TestStore['clarityGrade']) => void
   updateSettings: (patch: Partial<Settings>) => void
@@ -146,17 +99,13 @@ interface TestStore {
   checkAndUpdatePersonalBest: (key: string, wpm: number) => boolean
   resetTest: () => void
   startTest: () => void
-  setSpeedClockStartedAt: (t: number) => void
 }
-
-// Tracks pending filler-warning reset timers so they can be cancelled on reset.
-const fillerWarningTimers: ReturnType<typeof setTimeout>[] = []
 
 // ─── Default settings ─────────────────────────────────────────────────────────
 
 const DEFAULT_SETTINGS: Settings = {
   theme: 'mocha',
-  accentHex: '#cba6f7',   // mocha mauve
+  accentHex: '#cba6f7',
   accentName: 'mauve',
   font: 'jetbrains',
   fontSize: 'medium',
@@ -175,127 +124,27 @@ const DEFAULT_SETTINGS: Settings = {
 export const useTestStore = create<TestStore>()(
   persist(
     (set, get) => ({
-      // Defaults
       mode: 'speed',
       testState: 'idle',
       duration: 30,
       promptType: 'sentences',
       customPromptText: '',
       prompt: [],
-      currentWordIndex: 0,
-      confirmedWords: [],
-      fillerCount: 0,
-      wpm: 0,
-      rawWpm: 0,
-      peakWpm: 0,
-      consistency: 100,
-      wpmSnapshots: [],
-      wordRawWpms: [],
-      lastCorrectWordEndTime: null,
-      testStartedAt: null,
-      speedClockStartedAt: null,
-      speedTimelineEvents: [],
+      results: null,
       clarityTranscript: '',
       diffResult: [],
       clarityScore: 0,
       clarityGrade: 'needs work',
       settings: DEFAULT_SETTINGS,
-      fillerFlashTrigger: 0,
-      recentFillerCount: 0,
-      fillerWarning: false,
       micState: 'idle',
-
-      // ── Actions ────────────────────────────────────────────────────────────
 
       setMode: (mode) => set({ mode }),
       setTestState: (testState) => set({ testState }),
       setDuration: (duration) => set({ duration }),
       setPromptType: (promptType) => set({ promptType }),
       setCustomPromptText: (customPromptText) => set({ customPromptText }),
-      setPrompt: (prompt) => set({ prompt, currentWordIndex: 0 }),
-
-      addWord: (result) =>
-        set((s) => {
-          const confirmedWords = [...s.confirmedWords, result]
-          const t0 = s.speedClockStartedAt ?? s.testStartedAt
-          const speedTimelineEvents =
-            s.testState === 'running' && t0 != null && !result.isCorrect
-              ? [...s.speedTimelineEvents, { atMs: Date.now() - t0, kind: 'wrong_word' as const }]
-              : s.speedTimelineEvents
-          return { confirmedWords, speedTimelineEvents }
-        }),
-
-      optimisticAdvanceWord: (result) =>
-        set((s) => ({
-          confirmedWords: [...s.confirmedWords, { ...result, isOptimistic: true }],
-          currentWordIndex: s.currentWordIndex + 1,
-        })),
-
-      patchWord: (index, patch) =>
-        set((s) => {
-          if (index < 0 || index >= s.confirmedWords.length) return {}
-          const confirmedWords = [...s.confirmedWords]
-          confirmedWords[index] = { ...confirmedWords[index]!, ...patch }
-          const t0 = s.speedClockStartedAt ?? s.testStartedAt
-          const speedTimelineEvents =
-            patch.isCorrect === false && s.testState === 'running' && t0 != null
-              ? [...s.speedTimelineEvents, { atMs: Date.now() - t0, kind: 'wrong_word' as const }]
-              : s.speedTimelineEvents
-          return { confirmedWords, speedTimelineEvents }
-        }),
-
-      detectFiller: () => {
-        const s = get()
-        const now = Date.now()
-        // Count fillers detected in last 10 seconds
-        const recentWindow = 10_000
-        // We'll track recentFillerCount separately and set fillerWarning
-        const newCount = s.recentFillerCount + 1
-        const isWarning = newCount >= 3
-        const t0 = s.speedClockStartedAt ?? s.testStartedAt
-        const speedTimelineEvents =
-          s.testState === 'running' && t0 != null
-            ? [...s.speedTimelineEvents, { atMs: now - t0, kind: 'filler' as const }]
-            : s.speedTimelineEvents
-        set({
-          fillerCount: s.fillerCount + 1,
-          fillerFlashTrigger: s.fillerFlashTrigger + 1,
-          recentFillerCount: newCount,
-          fillerWarning: isWarning,
-          speedTimelineEvents,
-        })
-        // Reset recent count after 10s; track the timer so reset can cancel it.
-        const tid = setTimeout(() => {
-          set((cur) => ({
-            recentFillerCount: Math.max(0, cur.recentFillerCount - 1),
-            fillerWarning: cur.recentFillerCount - 1 >= 3,
-          }))
-          const idx = fillerWarningTimers.indexOf(tid)
-          if (idx !== -1) fillerWarningTimers.splice(idx, 1)
-        }, recentWindow)
-        fillerWarningTimers.push(tid)
-      },
-
-      advanceWord: () =>
-        set((s) => ({ currentWordIndex: s.currentWordIndex + 1 })),
-
-      setWpm: (wpm) => set({ wpm }),
-      setRawWpm: (rawWpm) => set({ rawWpm }),
-      setPeakWpm: (peakWpm) => set({ peakWpm }),
-      addWpmSnapshot: (snapshot) =>
-        set((s) => ({ wpmSnapshots: [...s.wpmSnapshots, snapshot] })),
-
-      pushWordRawWpm: (v) =>
-        set((s) => ({ wordRawWpms: [...s.wordRawWpms, v] })),
-
-      setLastCorrectWordEndTime: (t) => set({ lastCorrectWordEndTime: t }),
-
-      finaliseConsistency: () => {
-        const { wordRawWpms, wpmSnapshots } = get()
-        // Prefer per-word acoustic WPMs when available; fall back to 5-second snapshots
-        const values = wordRawWpms.length >= 2 ? wordRawWpms : wpmSnapshots.map((s) => s.wpm)
-        set({ consistency: computeConsistency(values) })
-      },
+      setPrompt: (prompt) => set({ prompt }),
+      setResults: (results) => set({ results }),
 
       setClarityTranscript: (clarityTranscript) => set({ clarityTranscript }),
 
@@ -338,29 +187,10 @@ export const useTestStore = create<TestStore>()(
         return false
       },
 
-      setSpeedClockStartedAt: (speedClockStartedAt) => set({ speedClockStartedAt }),
-
       startTest: () => {
-        fillerWarningTimers.splice(0).forEach(clearTimeout)
-        const t = Date.now()
         set({
           testState: 'running',
-          confirmedWords: [],
-          fillerCount: 0,
-          wpm: 0,
-          rawWpm: 0,
-          peakWpm: 0,
-          consistency: 100,
-          wpmSnapshots: [],
-          wordRawWpms: [],
-          lastCorrectWordEndTime: null,
-          testStartedAt: t,
-          speedClockStartedAt: null,
-          speedTimelineEvents: [],
-          currentWordIndex: 0,
-          fillerFlashTrigger: 0,
-          recentFillerCount: 0,
-          fillerWarning: false,
+          results: null,
           clarityTranscript: '',
           diffResult: [],
           clarityScore: 0,
@@ -369,38 +199,20 @@ export const useTestStore = create<TestStore>()(
       },
 
       resetTest: () => {
-        fillerWarningTimers.splice(0).forEach(clearTimeout)
         set({
           testState: 'idle',
-          confirmedWords: [],
-          fillerCount: 0,
-          wpm: 0,
-          rawWpm: 0,
-          peakWpm: 0,
-          consistency: 100,
-          wpmSnapshots: [],
-          wordRawWpms: [],
-          lastCorrectWordEndTime: null,
-          testStartedAt: null,
-          speedClockStartedAt: null,
-          speedTimelineEvents: [],
-          currentWordIndex: 0,
-          fillerFlashTrigger: 0,
-          recentFillerCount: 0,
-          fillerWarning: false,
+          results: null,
           clarityTranscript: '',
           diffResult: [],
           clarityScore: 0,
+          clarityGrade: 'needs work',
           micState: 'idle',
         })
       },
     }),
     {
       name: 'monkeyspeak-settings',
-      // Only persist settings, not transient test state
       partialize: (state) => ({ settings: state.settings }),
-      // Deep-merge persisted settings with DEFAULT_SETTINGS so any new fields
-      // added after a user first ran the app always get their default values.
       merge: (persisted, current) => {
         const p = persisted as { settings?: Partial<Settings> }
         return {
@@ -408,7 +220,6 @@ export const useTestStore = create<TestStore>()(
           settings: {
             ...DEFAULT_SETTINGS,
             ...(p?.settings ?? {}),
-            // Ensure object fields that may be missing are always present
             personalBests: {
               ...DEFAULT_SETTINGS.personalBests,
               ...(p?.settings?.personalBests ?? {}),

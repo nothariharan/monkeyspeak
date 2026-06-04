@@ -17,28 +17,3 @@ export function rawWpmFromChars(allChars: number, elapsedSeconds: number): numbe
   if (elapsedSeconds <= 0) return 0
   return Math.round((allChars / 5) * (60 / elapsedSeconds))
 }
-
-/**
- * Per-word burst WPM using acoustic timestamps from Deepgram.
- *
- * Formula: ((wordLen + 1) / 5) * (60 / deltaSeconds)
- * +1 accounts for the trailing space after each word.
- *
- * @param wordLengthChars  Number of characters in the word (not including space)
- * @param deltaSeconds     Acoustic duration: endTime of this word minus endTime of previous correct word
- */
-export function perWordRawWpm(wordLengthChars: number, deltaSeconds: number): number {
-  if (deltaSeconds <= 0) return 0
-  return Math.round(((wordLengthChars + 1) / 5) * (60 / deltaSeconds))
-}
-
-/**
- * Per-word burst WPM using wall-clock milliseconds (WebSpeech fallback).
- *
- * @param wordLengthChars Number of characters in the word
- * @param deltaMs         Wall-clock ms elapsed since the previous correct word's timestamp
- */
-export function perWordRawWpmFromMs(wordLengthChars: number, deltaMs: number): number {
-  if (deltaMs <= 0) return 0
-  return perWordRawWpm(wordLengthChars, deltaMs / 1000)
-}

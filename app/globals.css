@@ -155,6 +155,28 @@ body {
 .diff-missed       { color: var(--text-muted); text-decoration: line-through; }
 .diff-added        { color: var(--orange); text-decoration: underline; }
 
+/* Results stat card */
+.result-card {
+  border: 1px solid color-mix(in srgb, var(--text-muted) 40%, transparent);
+  border-radius: 0.6rem;
+  padding: 0.85rem 1rem;
+  background: color-mix(in srgb, var(--bg-surface) 55%, transparent);
+}
+
+/* Accuracy bar */
+.accuracy-track {
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-muted) 35%, transparent);
+  overflow: hidden;
+}
+.accuracy-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
 /* Results divider */
 .results-divider {
   width: 100%;
