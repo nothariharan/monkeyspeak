@@ -1,32 +1,26 @@
 'use client'
 
-import { motion } from 'framer-motion'
 import { useEffect, useRef } from 'react'
+import { gsap } from 'gsap'
 
 export interface WaveformVisualiserProps {
   stream: MediaStream | null
   isActive: boolean
   hasError: boolean
   barCount?: number
+  embedded?: boolean
 }
 
-const BAR_WIDTH = 3
-const BAR_GAP = 5
-const BAR_RADIUS = 2
-const MAX_BAR_HEIGHT = 36
-const DEFAULT_BAR_COUNT = 28
+const BAR_WIDTH = 4
+const BAR_GAP = 4
+const MAX_BAR_HEIGHT = 48
+const DEFAULT_BAR_COUNT = 32
 
 type Rgb = [number, number, number]
 type AudioContextWindow = Window &
   typeof globalThis & {
     webkitAudioContext?: typeof AudioContext
   }
-
-const IDLE_COLOR: Rgb = [42, 42, 53]
-const BASE_COLOR: Rgb = [58, 58, 80]
-const ACCENT_COLOR: Rgb = [126, 184, 247]
-const BRIGHT_COLOR: Rgb = [200, 216, 240]
-const ERROR_COLOR: Rgb = [202, 71, 84]
 
 function lerp(start: number, end: number, amount: number) {
   return start + (end - start) * amount
@@ -44,44 +38,17 @@ function rgbToCss(color: Rgb) {
   return `rgb(${Math.round(color[0])}, ${Math.round(color[1])}, ${Math.round(color[2])})`
 }
 
-function drawRoundedRect(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  radius: number
-) {
-  const safeRadius = Math.min(radius, width / 2, height / 2)
-  const maybeRoundRect = (ctx as CanvasRenderingContext2D & {
-    roundRect?: (
-      x: number,
-      y: number,
-      w: number,
-      h: number,
-      radii?: number | DOMPointInit | Iterable<number | DOMPointInit>
-    ) => void
-  }).roundRect
-
-  if (maybeRoundRect) {
-    ctx.beginPath()
-    maybeRoundRect.call(ctx, x, y, width, height, safeRadius)
-    ctx.fill()
-    return
+function parseAccentRgb(): Rgb {
+  if (typeof document === 'undefined') return [59, 130, 246]
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()
+  if (accent.startsWith('#')) {
+    const hex = accent.slice(1)
+    const r = parseInt(hex.slice(0, 2), 16)
+    const g = parseInt(hex.slice(2, 4), 16)
+    const b = parseInt(hex.slice(4, 6), 16)
+    return [r, g, b]
   }
-
-  ctx.beginPath()
-  ctx.moveTo(x + safeRadius, y)
-  ctx.lineTo(x + width - safeRadius, y)
-  ctx.quadraticCurveTo(x + width, y, x + width, y + safeRadius)
-  ctx.lineTo(x + width, y + height - safeRadius)
-  ctx.quadraticCurveTo(x + width, y + height, x + width - safeRadius, y + height)
-  ctx.lineTo(x + safeRadius, y + height)
-  ctx.quadraticCurveTo(x, y + height, x, y + height - safeRadius)
-  ctx.lineTo(x, y + safeRadius)
-  ctx.quadraticCurveTo(x, y, x + safeRadius, y)
-  ctx.closePath()
-  ctx.fill()
+  return [59, 130, 246]
 }
 
 export default function WaveformVisualiser({
@@ -89,7 +56,9 @@ export default function WaveformVisualiser({
   isActive,
   hasError,
   barCount = DEFAULT_BAR_COUNT,
+  embedded = true,
 }: WaveformVisualiserProps) {
+  const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const animationRef = useRef<number | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
@@ -101,34 +70,33 @@ export default function WaveformVisualiser({
   const isActiveRef = useRef(isActive)
   const errorUntilRef = useRef(0)
   const spikeUntilRef = useRef(0)
+  const accentRef = useRef<Rgb>([59, 130, 246])
 
   useEffect(() => {
     isActiveRef.current = isActive
   }, [isActive])
 
   useEffect(() => {
+    accentRef.current = parseAccentRgb()
+  }, [isActive])
+
+  useEffect(() => {
     heightsRef.current = Array.from({ length: barCount }, (_, i) => heightsRef.current[i] ?? 8)
-    colorsRef.current = Array.from({ length: barCount }, (_, i) => colorsRef.current[i] ?? IDLE_COLOR)
+    colorsRef.current = Array.from({ length: barCount }, (_, i) => colorsRef.current[i] ?? [200, 200, 200])
   }, [barCount])
 
   useEffect(() => {
     if (!hasError) return
-
     const now = performance.now()
     errorUntilRef.current = now + 600
     spikeUntilRef.current = now + 150
 
-    const canvas = canvasRef.current
-    if (!canvas) return
-
-    canvas.classList.remove('wave-shake')
-    void canvas.offsetWidth
-    canvas.classList.add('wave-shake')
-
-    const timeout = window.setTimeout(() => {
-      canvas.classList.remove('wave-shake')
-    }, 520)
-
+    const container = containerRef.current
+    if (!container) return
+    container.classList.remove('wave-shake')
+    void container.offsetWidth
+    container.classList.add('wave-shake')
+    const timeout = window.setTimeout(() => container.classList.remove('wave-shake'), 520)
     return () => window.clearTimeout(timeout)
   }, [hasError])
 
@@ -145,7 +113,6 @@ export default function WaveformVisualiser({
     const audioCtx = new AudioContextCtor()
     const source = audioCtx.createMediaStreamSource(stream)
     const analyser = audioCtx.createAnalyser()
-
     analyser.fftSize = 512
     analyser.smoothingTimeConstant = 0.75
     source.connect(analyser)
@@ -155,9 +122,7 @@ export default function WaveformVisualiser({
     analyserRef.current = analyser
     dataArrayRef.current = new Uint8Array(analyser.fftSize)
 
-    if (audioCtx.state === 'suspended') {
-      void audioCtx.resume()
-    }
+    if (audioCtx.state === 'suspended') void audioCtx.resume()
 
     return () => {
       source.disconnect()
@@ -173,15 +138,16 @@ export default function WaveformVisualiser({
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-
     const ctx = canvas.getContext('2d')
     if (!ctx) return
+
+    const IDLE_COLOR: Rgb = [200, 200, 200]
+    const BASE_COLOR: Rgb = [180, 180, 180]
 
     const resizeCanvas = () => {
       const dpr = window.devicePixelRatio || 1
       const width = canvas.clientWidth
       const height = canvas.clientHeight
-
       canvas.width = Math.floor(width * dpr)
       canvas.height = Math.floor(height * dpr)
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
@@ -190,11 +156,9 @@ export default function WaveformVisualiser({
     const getTargetsFromAudio = () => {
       const analyser = analyserRef.current
       const dataArray = dataArrayRef.current
-
       if (!analyser || !dataArray) return null
 
       analyser.getByteTimeDomainData(dataArray)
-
       let sumSq = 0
       for (let i = 0; i < dataArray.length; i += 1) {
         const x = (dataArray[i] - 128) / 128
@@ -211,17 +175,15 @@ export default function WaveformVisualiser({
     }
 
     const getTargetColor = (height: number): Rgb => {
+      const accent = accentRef.current
       const ratio = height / MAX_BAR_HEIGHT
-
-      if (ratio > 0.75) {
-        return lerpColor(ACCENT_COLOR, BRIGHT_COLOR, Math.min(1, (ratio - 0.75) / 0.25))
-      }
-
-      if (ratio > 0.4) {
-        return lerpColor(BASE_COLOR, ACCENT_COLOR, Math.min(1, (ratio - 0.4) / 0.35))
-      }
-
-      return BASE_COLOR
+      const bright: Rgb = [
+        Math.min(255, accent[0] + 60),
+        Math.min(255, accent[1] + 60),
+        Math.min(255, accent[2] + 60),
+      ]
+      if (ratio > 0.5) return lerpColor(accent, bright, Math.min(1, (ratio - 0.5) / 0.5))
+      return lerpColor(BASE_COLOR, accent, Math.min(1, ratio / 0.5))
     }
 
     const render = () => {
@@ -234,27 +196,26 @@ export default function WaveformVisualiser({
       const audioTargets = isActiveRef.current ? getTargetsFromAudio() : null
       const totalBarsWidth = barCount * BAR_WIDTH + (barCount - 1) * BAR_GAP
       const startX = (width - totalBarsWidth) / 2
+      const ERROR_COLOR: Rgb = [239, 68, 68]
 
       ctx.clearRect(0, 0, width, height)
-      ctx.fillStyle = '#0e0e10'
-      ctx.fillRect(0, 0, width, height)
 
       for (let i = 0; i < barCount; i += 1) {
-        const idleHeight = Math.sin(Date.now() / 700 + i * 0.45) * 6 + 8
+        const idleHeight = Math.sin(Date.now() / 700 + i * 0.45) * 6 + 10
         const audioHeight = audioTargets?.[i] ?? idleHeight
         const targetHeight = isActiveRef.current && audioTargets ? audioHeight : idleHeight
         const smoothHeight = lerp(heightsRef.current[i] ?? 8, targetHeight, 0.18)
-        const renderedHeight = Math.max(2, Math.min(MAX_BAR_HEIGHT, isSpiking ? smoothHeight * 1.4 : smoothHeight))
+        const renderedHeight = Math.max(4, Math.min(MAX_BAR_HEIGHT, isSpiking ? smoothHeight * 1.4 : smoothHeight))
         const targetColor = isError ? ERROR_COLOR : isActiveRef.current ? getTargetColor(renderedHeight) : IDLE_COLOR
 
         heightsRef.current[i] = smoothHeight
         colorsRef.current[i] = lerpColor(colorsRef.current[i] ?? targetColor, targetColor, isError ? 0.65 : 0.18)
 
         const x = startX + i * (BAR_WIDTH + BAR_GAP)
-        const y = centerY - renderedHeight
+        const y = centerY - renderedHeight / 2
 
         ctx.fillStyle = rgbToCss(colorsRef.current[i])
-        drawRoundedRect(ctx, x, y, BAR_WIDTH, renderedHeight * 2, BAR_RADIUS)
+        ctx.fillRect(x, y, BAR_WIDTH, renderedHeight)
       }
 
       animationRef.current = window.requestAnimationFrame(render)
@@ -265,30 +226,40 @@ export default function WaveformVisualiser({
     animationRef.current = window.requestAnimationFrame(render)
 
     return () => {
-      if (animationRef.current !== null) {
-        window.cancelAnimationFrame(animationRef.current)
-      }
+      if (animationRef.current !== null) window.cancelAnimationFrame(animationRef.current)
       window.removeEventListener('resize', resizeCanvas)
     }
   }, [barCount])
 
-  return (
-    <motion.div
-      aria-hidden="true"
-      initial={{ opacity: 0.5, y: 10 }}
-      animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0.5, y: 10 }}
-      transition={isActive ? { duration: 0.4, ease: 'easeOut' } : { duration: 0.3, ease: 'easeIn' }}
-      style={{
+  useEffect(() => {
+    if (!containerRef.current || !isActive) return
+    const ctx = gsap.context(() => {
+      gsap.from(containerRef.current, { opacity: 0, y: 8, duration: 0.35, ease: 'power2.out' })
+    }, containerRef)
+    return () => ctx.revert()
+  }, [isActive])
+
+  const wrapperStyle: React.CSSProperties = embedded
+    ? {
+        width: '100%',
+        height: 64,
+        borderTop: '3px solid var(--border)',
+        background: 'var(--surface)',
+      }
+    : {
         position: 'fixed',
         bottom: 0,
         left: 0,
         width: '100vw',
         height: 88,
         zIndex: 50,
-        background: '#0e0e10',
+        background: 'var(--surface)',
+        borderTop: '3px solid var(--border)',
         pointerEvents: 'none',
-      }}
-    >
+      }
+
+  return (
+    <div ref={containerRef} aria-hidden="true" style={wrapperStyle}>
       <style>{`
         @keyframes waveShake {
           0%   { transform: translateX(0) }
@@ -298,19 +269,9 @@ export default function WaveformVisualiser({
           80%  { transform: translateX(3px) }
           100% { transform: translateX(0) }
         }
-
-        .wave-shake {
-          animation: waveShake 0.5s ease-out forwards;
-        }
+        .wave-shake { animation: waveShake 0.5s ease-out forwards; }
       `}</style>
-      <canvas
-        ref={canvasRef}
-        style={{
-          display: 'block',
-          width: '100%',
-          height: '100%',
-        }}
-      />
-    </motion.div>
+      <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: '100%' }} />
+    </div>
   )
 }

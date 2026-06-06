@@ -11,24 +11,34 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        bg:       '#0d0d0d',
-        'bg-light': '#f5f5f0',
-        muted:    '#3a3a3a',
-        'muted-light': '#c0c0b8',
-        active:   '#e2e2e2',
+        bg:       'var(--bg)',
+        surface:  'var(--surface)',
+        border:   'var(--border)',
+        muted:    'var(--text-muted)',
+        active:   'var(--text-active)',
         accent:   'var(--accent)',
-        error:    '#ca4754',
-        stats:    '#888888',
-        orange:   '#f09050',
-        filler:   'rgba(139,92,246,0.08)',
+        success:  'var(--success)',
+        error:    'var(--error)',
+        stats:    'var(--text-stats)',
+        orange:   'var(--orange)',
       },
       fontFamily: {
-        mono: ['var(--font-mono)', 'JetBrains Mono', 'Fira Code', 'Inconsolata', 'monospace'],
+        mono:    ['var(--font-mono)', 'JetBrains Mono', 'Fira Code', 'Inconsolata', 'monospace'],
+        display: ['var(--font-display)', 'Archivo Black', 'Archivo', 'system-ui', 'sans-serif'],
+      },
+      borderWidth: {
+        3: '3px',
+      },
+      boxShadow: {
+        brutal:    '6px 6px 0 var(--shadow)',
+        'brutal-sm': '4px 4px 0 var(--shadow)',
+        'brutal-lg': '8px 8px 0 var(--shadow)',
       },
       animation: {
         'cursor-pulse': 'cursor-pulse 1s ease-in-out infinite',
         'mic-ring':     'mic-ring 1.5s ease-in-out infinite',
         'dot-pulse':    'dot-pulse 1s ease-in-out infinite',
+        'live-pulse':   'live-pulse 1.2s ease-in-out infinite',
       },
       keyframes: {
         'cursor-pulse': {
@@ -42,6 +52,10 @@ module.exports = {
         'dot-pulse': {
           '0%, 100%': { opacity: '1' },
           '50%':      { opacity: '0.2' },
+        },
+        'live-pulse': {
+          '0%, 100%': { opacity: '1', transform: 'scale(1)' },
+          '50%':      { opacity: '0.5', transform: 'scale(0.85)' },
         },
       },
     },

@@ -1,50 +1,84 @@
 'use client'
 
+import { useEffect, useRef } from 'react'
+import { gsap } from 'gsap'
+
 interface MicButtonProps {
   onStart: () => void
   micState: 'idle' | 'requesting' | 'active' | 'denied' | 'error'
 }
 
 export default function MicButton({ onStart, micState }: MicButtonProps) {
+  const containerRef = useRef<HTMLDivElement>(null)
   const isDenied = micState === 'denied' || micState === 'error'
   const isLoading = micState === 'requesting'
 
+  useEffect(() => {
+    if (!containerRef.current) return
+    const ctx = gsap.context(() => {
+      gsap.from(containerRef.current, {
+        scale: 0.8,
+        opacity: 0,
+        duration: 0.5,
+        ease: 'back.out(1.7)',
+        delay: 0.2,
+      })
+    }, containerRef)
+    return () => ctx.revert()
+  }, [])
+
   return (
-    <div className="flex w-full justify-center">
+    <div ref={containerRef} className="flex flex-col items-center gap-4 w-full">
       <button
         type="button"
         id="btn-start"
         onClick={() => !isDenied && !isLoading && onStart()}
-        disabled={isLoading}
+        disabled={isLoading || isDenied}
         aria-label="Start test"
-        className="font-mono text-sm lowercase tracking-wide bg-transparent border-0 py-2 px-3 rounded-md transition-colors hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)] focus-visible:ring-[var(--accent)]"
+        className="relative flex items-center justify-center transition-transform hover:scale-105 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100"
         style={{
-          color: isDenied ? 'var(--error)' : 'var(--text-stats)',
+          width: 120,
+          height: 120,
+          borderRadius: '50%',
+          background: isDenied ? 'var(--error)' : 'var(--accent)',
+          border: '4px solid var(--border)',
+          boxShadow: '8px 8px 0 var(--shadow)',
           cursor: isDenied ? 'not-allowed' : isLoading ? 'wait' : 'pointer',
         }}
       >
         {isLoading ? (
-          <span className="inline-flex items-center gap-2 justify-center">
-            <svg
-              className="animate-spin shrink-0"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              aria-hidden
-            >
-              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-            </svg>
-            requesting microphone access…
-          </span>
-        ) : isDenied ? (
-          'microphone access denied — check browser permissions'
+          <svg
+            className="animate-spin"
+            width="40"
+            height="40"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="#fff"
+            strokeWidth="2"
+            aria-hidden
+          >
+            <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+          </svg>
         ) : (
-          'press enter or click to start'
+          <svg width="44" height="44" viewBox="0 0 24 24" fill="none" aria-hidden>
+            <rect x="9" y="2" width="6" height="12" rx="3" fill="#fff" stroke="var(--border)" strokeWidth="1.5" />
+            <path d="M5 11a7 7 0 0 0 14 0" stroke="#fff" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+            <line x1="12" y1="18" x2="12" y2="22" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" />
+            <line x1="8" y1="22" x2="16" y2="22" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" />
+          </svg>
         )}
       </button>
+
+      <p
+        className="font-mono text-xs text-center max-w-xs"
+        style={{ color: isDenied ? 'var(--error)' : 'var(--text-stats)' }}
+      >
+        {isLoading
+          ? 'requesting microphone access…'
+          : isDenied
+            ? 'microphone access denied — check browser permissions'
+            : 'press enter or click to start'}
+      </p>
     </div>
   )
 }

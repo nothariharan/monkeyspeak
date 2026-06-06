@@ -4,6 +4,7 @@ import { useEffect, useRef, useCallback } from 'react'
 import { gsap } from 'gsap'
 import { Flip } from 'gsap/Flip'
 import type { CSSProperties } from 'react'
+import WaveformVisualiser from '@/components/WaveformVisualiser'
 
 gsap.registerPlugin(Flip)
 
@@ -11,12 +12,28 @@ interface TestAreaProps {
   words: string[]
   dissolvedCount: number
   isActive: boolean
+  micStream?: MediaStream | null
+  hasSttError?: boolean
+  timeRemainingMs?: number
 }
 
-/** Lines shown in the viewport during an active test */
 const ACTIVE_VISIBLE_LINES = 3
 
-export default function TestArea({ words, dissolvedCount, isActive }: TestAreaProps) {
+function formatTimer(ms: number): string {
+  const total = Math.ceil(ms / 1000)
+  const m = Math.floor(total / 60)
+  const s = total % 60
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
+export default function TestArea({
+  words,
+  dissolvedCount,
+  isActive,
+  micStream = null,
+  hasSttError = false,
+  timeRemainingMs = 0,
+}: TestAreaProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const wordRefsMap = useRef<Map<number, HTMLSpanElement>>(new Map())
   const underlineTweenRef = useRef<gsap.core.Tween | null>(null)
@@ -26,14 +43,10 @@ export default function TestArea({ words, dissolvedCount, isActive }: TestAreaPr
   const prevLineRef = useRef(0)
 
   const setWordRef = useCallback((index: number) => (el: HTMLSpanElement | null) => {
-    if (el) {
-      wordRefsMap.current.set(index, el)
-    } else {
-      wordRefsMap.current.delete(index)
-    }
+    if (el) wordRefsMap.current.set(index, el)
+    else wordRefsMap.current.delete(index)
   }, [])
 
-  // Group word spans into visual (wrap) lines by their vertical offset.
   const measureLines = useCallback(() => {
     const map: number[] = []
     let lineIdx = -1
@@ -49,14 +62,12 @@ export default function TestArea({ words, dissolvedCount, isActive }: TestAreaPr
     lineCountRef.current = lineIdx + 1
   }, [words])
 
-  // Reset scroll and dissolved state when prompt changes or test becomes idle
   useEffect(() => {
     if (!containerRef.current) return
     containerRef.current.style.transform = 'translateY(0)'
     containerRef.current.style.transition = 'none'
     prevLineRef.current = 0
     lineOfIndexRef.current = []
-    // Restore visibility for all words (e.g. on retry)
     wordRefsMap.current.forEach((el) => {
       el.style.visibility = ''
       el.style.position = ''
@@ -66,8 +77,6 @@ export default function TestArea({ words, dissolvedCount, isActive }: TestAreaPr
     })
   }, [words])
 
-  // Measure visual lines once the test is active (and re-measure on resize
-  // before any line has dusted away, since layout is stable until then).
   useEffect(() => {
     if (!isActive) return
     const id = requestAnimationFrame(measureLines)
@@ -79,8 +88,6 @@ export default function TestArea({ words, dissolvedCount, isActive }: TestAreaPr
     }
   }, [isActive, measureLines])
 
-  // Dust away a whole line once its last word has been spoken, then slide the
-  // remaining lines up into reading position.
   useEffect(() => {
     if (!isActive) return
     let lineOf = lineOfIndexRef.current
@@ -97,7 +104,6 @@ export default function TestArea({ words, dissolvedCount, isActive }: TestAreaPr
     const container = containerRef.current
     if (!container) return
 
-    // Survivors = words on lines still ahead of the reading position
     const survivors: HTMLSpanElement[] = []
     for (let i = 0; i < words.length; i++) {
       if (lineOf[i] >= currentLine) {
@@ -107,13 +113,12 @@ export default function TestArea({ words, dissolvedCount, isActive }: TestAreaPr
     }
     const state = Flip.getState(survivors)
 
-    // Dust every word on the completed line(s) [prevLine, currentLine)
     let order = 0
     for (let i = 0; i < words.length; i++) {
       if (lineOf[i] >= prevLine && lineOf[i] < currentLine) {
         const el = wordRefsMap.current.get(i)
         if (!el) continue
-        el.style.position = 'absolute' // pin at static spot so survivors can rise
+        el.style.position = 'absolute'
         gsap.to(el, {
           opacity: 0,
           filter: 'blur(6px)',
@@ -122,22 +127,15 @@ export default function TestArea({ words, dissolvedCount, isActive }: TestAreaPr
           duration: 0.45,
           ease: 'power2.in',
           delay: order * 0.04,
-          onComplete: () => {
-            el.style.visibility = 'hidden'
-          },
+          onComplete: () => { el.style.visibility = 'hidden' },
         })
         order++
       }
     }
 
-    // Slide the remaining lines up smoothly
-    Flip.from(state, {
-      duration: 0.45,
-      ease: 'power2.out',
-    })
+    Flip.from(state, { duration: 0.45, ease: 'power2.out' })
   }, [dissolvedCount, isActive, words.length, measureLines])
 
-  // Current word underline pulse
   useEffect(() => {
     if (!isActive) {
       underlineTweenRef.current?.kill()
@@ -171,81 +169,130 @@ export default function TestArea({ words, dissolvedCount, isActive }: TestAreaPr
     lineHeight: 'var(--test-line-height)',
   }
 
-  return (
-    <div className="flex flex-col gap-4 items-stretch w-full">
+  const content = (
+    <div
+      style={{
+        maxWidth: '100%',
+        ...(isActive
+          ? {
+              maxHeight: `calc(${ACTIVE_VISIBLE_LINES} * var(--test-line-height))`,
+              overflow: 'hidden',
+              paddingBottom: 4,
+            }
+          : {
+              ...testTextStyles,
+              maxHeight: `calc(${ACTIVE_VISIBLE_LINES} * var(--test-line-height))`,
+              overflow: 'hidden',
+            }),
+      }}
+      aria-label="Speaking prompt"
+      aria-live="polite"
+    >
       <div
-        style={{
-          maxWidth: '100%',
-          ...(isActive
-            ? {
-                maxHeight: `calc(${ACTIVE_VISIBLE_LINES} * var(--test-line-height))`,
-                overflow: 'hidden',
-                paddingBottom: 4,
-              }
-            : {
-                ...testTextStyles,
-                maxHeight: `calc(${ACTIVE_VISIBLE_LINES} * var(--test-line-height))`,
-                overflow: 'hidden',
-              }),
-        }}
-        aria-label="Speaking prompt"
-        aria-live="polite"
+        ref={containerRef}
+        className="select-none w-full text-center"
+        style={isActive ? testTextStyles : {}}
       >
-        <div
-          ref={containerRef}
-          className="select-none w-full text-left"
-          style={isActive ? testTextStyles : {}}
-        >
-          {words.map((word, i) => {
-            const isCurrent = isActive && i === dissolvedCount
-            const isDissolved = isActive && i < dissolvedCount
+        {words.map((word, i) => {
+          const isCurrent = isActive && i === dissolvedCount
+          const isDissolved = isActive && i < dissolvedCount
 
-            const color = !isActive
-              ? i === 0
+          const color = !isActive
+            ? i === 0
+              ? 'var(--accent)'
+              : 'var(--text-muted)'
+            : isDissolved
+              ? 'var(--success)'
+              : isCurrent
                 ? 'var(--accent)'
                 : 'var(--text-muted)'
-              : isDissolved
-                ? 'var(--text-muted)'
-                : isCurrent
-                  ? 'var(--accent)'
-                  : 'var(--text-active)'
 
-            return (
-              <span
-                key={`${i}-${word}`}
-                ref={isActive ? setWordRef(i) : undefined}
-                style={{
-                  display: 'inline-block',
-                  marginRight: '0.45em',
-                  position: 'relative',
-                  color,
-                  fontWeight: isCurrent ? 500 : 400,
-                  transition: 'color 0.25s ease',
-                }}
-              >
-                {word}
+          return (
+            <span
+              key={`${i}-${word}`}
+              ref={isActive ? setWordRef(i) : undefined}
+              className={isDissolved ? 'word correct' : isCurrent ? 'word current' : 'word unspoken'}
+              style={{
+                display: 'inline-block',
+                marginRight: '0.45em',
+                position: 'relative',
+                color,
+                fontWeight: isCurrent ? 700 : isDissolved ? 600 : 400,
+                transition: 'color 0.25s ease',
+              }}
+            >
+              {word}
+              {isCurrent && (
+                <span
+                  ref={underlineRef}
+                  style={{
+                    position: 'absolute',
+                    bottom: 2,
+                    left: 0,
+                    right: 0,
+                    height: 3,
+                    background: 'var(--accent)',
+                    opacity: 0.4,
+                  }}
+                  aria-hidden
+                />
+              )}
+            </span>
+          )
+        })}
+      </div>
+    </div>
+  )
 
-                {isCurrent && (
-                  <span
-                    ref={underlineRef}
-                    style={{
-                      position: 'absolute',
-                      bottom: 2,
-                      left: 0,
-                      right: 0,
-                      height: 2,
-                      background: 'var(--accent)',
-                      borderRadius: 1,
-                      opacity: 0.4,
-                    }}
-                    aria-hidden
-                  />
-                )}
-              </span>
-            )
-          })}
+  if (!isActive) {
+    return (
+      <div className="flex flex-col gap-4 items-stretch w-full">
+        {content}
+      </div>
+    )
+  }
+
+  return (
+    <div className="brutal-card w-full flex flex-col gap-0 overflow-hidden">
+      {/* Live status bar */}
+      <div
+        className="flex items-center justify-between px-5 py-3"
+        style={{ borderBottom: '3px solid var(--border)' }}
+      >
+        <div className="flex items-center gap-2">
+          <span className="live-dot" />
+          <span className="font-display text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--success)' }}>
+            Live
+          </span>
+        </div>
+        {timeRemainingMs > 0 && (
+          <span
+            className="font-display text-sm font-black tabular-nums"
+            style={{ color: 'var(--text-active)' }}
+          >
+            {formatTimer(timeRemainingMs)}
+          </span>
+        )}
+      </div>
+
+      <div className="px-6 py-8 flex flex-col items-center gap-6">
+        {content}
+
+        {/* Listening pill */}
+        <div className="brutal-pill brutal-pill-live">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+          </svg>
+          Listening…
         </div>
       </div>
+
+      <WaveformVisualiser
+        stream={micStream}
+        isActive={isActive}
+        hasError={hasSttError}
+        embedded
+      />
     </div>
   )
 }

@@ -1,10 +1,10 @@
 'use client'
 
-import { motion, AnimatePresence } from 'framer-motion'
+import { useEffect, useRef } from 'react'
+import { gsap } from 'gsap'
 import { useTestStore } from '@/store/testStore'
 import type { Duration, PromptType } from '@/store/testStore'
 import type { ProviderType } from '@/hooks/useSpeechProvider'
-import { prefetchDeepgramKey } from '@/hooks/useDeepgramProvider'
 
 const SPEED_DURATIONS: Duration[] = [15, 30, 60, 120]
 const SPEED_PROMPTS:  { label: string; value: PromptType }[] = [
@@ -19,18 +19,60 @@ const CLARITY_PROMPTS: { label: string; value: PromptType }[] = [
   { label: 'custom',          value: 'custom' },
 ]
 
-const ANIM = {
-  initial: { opacity: 0, y: -8 },
-  animate: { opacity: 1, y: 0, transition: { duration: 0.2 } },
-  exit:    { opacity: 0, y: -8, transition: { duration: 0.15 } },
-}
-
 const PROVIDERS: { label: string; value: ProviderType }[] = [
   { label: 'browser', value: 'webspeech' },
   { label: 'deepgram', value: 'deepgram' },
 ]
 
+function SegmentGroup({
+  label,
+  children,
+}: {
+  label: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <span className="stat-label">{label}</span>
+      <div className="brutal-segment flex flex-wrap justify-center">{children}</div>
+    </div>
+  )
+}
+
+function SegmentBtn({
+  active,
+  onClick,
+  disabled,
+  id,
+  children,
+}: {
+  active: boolean
+  onClick: () => void
+  disabled?: boolean
+  id: string
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      id={id}
+      onClick={onClick}
+      disabled={disabled}
+      aria-pressed={active}
+      className="mode-tab"
+      style={{
+        background: active ? 'var(--accent)' : 'var(--surface)',
+        color: active ? '#fff' : 'var(--text-stats)',
+        opacity: disabled ? 0.4 : 1,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+      }}
+    >
+      {children}
+    </button>
+  )
+}
+
 export default function ConfigBar() {
+  const barRef = useRef<HTMLDivElement>(null)
   const {
     mode, duration, promptType, customPromptText, testState, settings, setSttProvider,
     setDuration, setPromptType, setCustomPromptText,
@@ -38,133 +80,77 @@ export default function ConfigBar() {
 
   const isRunning = testState === 'running'
   const currentProvider = settings.sttProvider ?? 'webspeech'
-
-  const handleProviderChange = (p: ProviderType) => {
-    if (isRunning) return
-    setSttProvider(p)
-    if (p === 'deepgram') {
-      // Pre-fetch token immediately so it's warm when the user clicks start
-      prefetchDeepgramKey()
-    }
-  }
-
   const promptOptions = mode === 'speed' ? SPEED_PROMPTS : CLARITY_PROMPTS
 
+  useEffect(() => {
+    if (!barRef.current) return
+    const ctx = gsap.context(() => {
+      gsap.from(barRef.current, { opacity: 0, y: -12, duration: 0.35, ease: 'power2.out' })
+    }, barRef)
+    return () => ctx.revert()
+  }, [])
+
   return (
-    <motion.div {...ANIM} className="flex flex-col items-center gap-3 py-4 px-6">
-      <div className="flex flex-wrap items-center justify-center gap-6">
-        {/* Timer group — Speed only */}
+    <div ref={barRef} className="flex flex-col items-center gap-5 py-4 px-6">
+      <div className="flex flex-wrap items-start justify-center gap-6">
         {mode === 'speed' && (
-          <div className="flex items-center gap-1" role="group" aria-label="Duration">
+          <SegmentGroup label="duration">
             {SPEED_DURATIONS.map((d) => (
-              <button
+              <SegmentBtn
                 key={d}
                 id={`duration-${d}`}
-                className={`pill-btn ${duration === d ? 'active' : ''}`}
+                active={duration === d}
                 onClick={() => setDuration(d)}
-                aria-pressed={duration === d}
               >
                 {d}s
-              </button>
+              </SegmentBtn>
             ))}
-          </div>
+          </SegmentGroup>
         )}
 
-        {/* Separator */}
-        {mode === 'speed' && (
-          <span style={{ color: 'var(--text-muted)' }}>|</span>
-        )}
-
-        {/* Prompt type group */}
-        <div className="flex items-center gap-1" role="group" aria-label="Prompt type">
+        <SegmentGroup label="prompt">
           {promptOptions.map((opt) => (
-            <button
+            <SegmentBtn
               key={opt.value}
               id={`prompt-${opt.value}`}
-              className={`pill-btn ${promptType === opt.value ? 'active' : ''}`}
+              active={promptType === opt.value}
               onClick={() => setPromptType(opt.value)}
-              aria-pressed={promptType === opt.value}
             >
               {opt.label}
-            </button>
+            </SegmentBtn>
           ))}
-        </div>
-      </div>
+        </SegmentGroup>
 
-      {/* STT provider toggle — Speed mode only */}
-      {mode === 'speed' && (
-        <div
-          className="flex items-center gap-2"
-          style={{ marginTop: '0.25rem' }}
-          role="group"
-          aria-label="Speech-to-text provider"
-        >
-          <span
-            style={{
-              fontSize: '0.68rem',
-              color: 'var(--text-muted)',
-              fontFamily: 'var(--font-mono), ui-monospace, monospace',
-              letterSpacing: '0.06em',
-              userSelect: 'none',
-            }}
-          >
-            stt
-          </span>
-
-          {PROVIDERS.map((p) => {
-            const isActive = currentProvider === p.value
-            return (
-              <button
+        {mode === 'speed' && (
+          <SegmentGroup label="stt">
+            {PROVIDERS.map((p) => (
+              <SegmentBtn
                 key={p.value}
                 id={`stt-provider-${p.value}`}
-                onClick={() => handleProviderChange(p.value)}
+                active={currentProvider === p.value}
                 disabled={isRunning}
-                aria-pressed={isActive}
-                aria-label={`Use ${p.label} for speech recognition`}
-                style={{
-                  fontFamily: 'var(--font-mono), ui-monospace, monospace',
-                  fontSize: '0.68rem',
-                  letterSpacing: '0.04em',
-                  padding: '2px 10px',
-                  borderRadius: '999px',
-                  border: `1px solid ${isActive ? 'var(--accent)' : 'var(--text-muted)'}`,
-                  background: isActive ? 'color-mix(in srgb, var(--accent) 12%, transparent)' : 'transparent',
-                  color: isActive ? 'var(--accent)' : 'var(--text-muted)',
-                  cursor: isRunning ? 'not-allowed' : 'pointer',
-                  opacity: isRunning ? 0.4 : 1,
-                  transition: 'all 0.15s ease',
-                  lineHeight: '1.6',
-                }}
+                onClick={() => !isRunning && setSttProvider(p.value)}
               >
                 {p.label}
-              </button>
-            )
-          })}
+              </SegmentBtn>
+            ))}
+          </SegmentGroup>
+        )}
+      </div>
+
+      {promptType === 'custom' && (
+        <div className="w-full max-w-2xl">
+          <textarea
+            id="custom-text-input"
+            className="clarity-input mt-2"
+            rows={3}
+            placeholder="paste your custom text here…"
+            value={customPromptText}
+            onChange={(e) => setCustomPromptText(e.target.value)}
+            aria-label="Custom prompt text"
+          />
         </div>
       )}
-
-      {/* Custom text input */}
-      <AnimatePresence>
-        {promptType === 'custom' && (
-          <motion.div
-            key="custom-input"
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto', transition: { duration: 0.2 } }}
-            exit={{ opacity: 0, height: 0, transition: { duration: 0.15 } }}
-            className="w-full max-w-2xl overflow-hidden"
-          >
-            <textarea
-              id="custom-text-input"
-              className="clarity-input mt-2"
-              rows={3}
-              placeholder="paste your custom text here…"
-              value={customPromptText}
-              onChange={(e) => setCustomPromptText(e.target.value)}
-              aria-label="Custom prompt text"
-            />
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </motion.div>
+    </div>
   )
 }

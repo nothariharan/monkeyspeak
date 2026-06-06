@@ -2,7 +2,6 @@
 
 import { useRef, useCallback, useState, useEffect } from 'react'
 import { useTestStore } from '@/store/testStore'
-import { tokensRoughlyMatch } from '@/lib/wordMatch'
 import { isFiller } from '@/lib/fillers'
 import type { SpeechProvider, SessionStartResult } from './useSpeechProvider'
 
@@ -51,7 +50,7 @@ export function prewarmWebSpeechRecognition(lang: string): Promise<void> {
  *
  * Confirmed words are final-only (monotonic). Interim complete tokens are kept
  * only in `interimEmittedTokensRef` for final-batch dedupe, not merged into
- * confirmed state (visual speculation lives in useSpeculativeMatch).
+ * confirmed state.
  *  - prewarm on startSession
  *  - continuous restart on onend
  *
@@ -211,8 +210,7 @@ export function useWebSpeech(): SpeechProvider {
           interimEmittedTokensRef.current = []
         }
 
-        // ── Interim display (immediate — no debounce needed; speculative
-        //    matching in useSpeculativeMatch handles noise suppression)
+        // ── Interim display (immediate — no debounce needed)
         clearInterimDebounce()
         if (interimTrim.length === 0) {
           setInterimText('')

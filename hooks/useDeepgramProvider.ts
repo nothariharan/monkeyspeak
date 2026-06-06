@@ -69,12 +69,6 @@ async function probeProxyBackendReachable(): Promise<{ ok: boolean; status?: num
   }
 }
 
-/**
- * No-op now that the proxy handles auth server-side — kept so ConfigBar's
- * call to prefetchDeepgramKey() continues to compile.
- */
-export async function prefetchDeepgramKey(): Promise<void> {}
-
 export function useDeepgramProvider(enabled = true): SpeechProvider {
   const [interimText, setInterimText]       = useState('')
   const [confirmedWords, setConfirmedWords] = useState<string[]>([])

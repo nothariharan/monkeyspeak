@@ -1,143 +1,161 @@
-// ─── Theme Definitions (Catppuccin-inspired) ──────────────────────────────────
-// Latte = light · Frappe = medium dark · Macchiato = dark · Mocha = darkest
+// ─── Brutalist Theme Definitions ─────────────────────────────────────────────
+// Latte = light (default) · Frappe = medium · Macchiato = dark · Mocha = darkest
 
 export type ThemeName = 'latte' | 'frappe' | 'macchiato' | 'mocha'
 
 export interface AccentSwatch {
-  name: string        // display name / identifier
-  hex:  string        // the actual colour value
+  name: string
+  hex:  string
 }
 
 export interface ThemeDef {
   name:       ThemeName
   label:      string
-  // Base UI colours
   bg:         string
   bgSurface:  string
+  surface:    string
+  border:     string
+  shadow:     string
   textMuted:  string
   textStats:  string
   textActive: string
-  textCurrent: string  // For the current word to speak
+  textCurrent: string
+  success:    string
   error:      string
   orange:     string
-  // Accent swatches available in this theme
   accents:    AccentSwatch[]
 }
 
 export const THEMES: Record<ThemeName, ThemeDef> = {
   latte: {
     name:         'latte',
-    label:        'Latte',
-    bg:           '#eff1f5',
-    bgSurface:    '#e6e9ef',
-    textMuted:    '#6c6f85', // Subtext0 (was #bcc0cc)
-    textStats:    '#5c5f77', // Subtext1 (was #8c8fa1)
-    textActive:   '#4c4f69',
-    textCurrent:  '#4c4f69',
-    error:        '#d20f39',
-    orange:       '#fe640b',
+    label:        'Light',
+    bg:           '#f5f2ea',
+    bgSurface:    '#ffffff',
+    surface:      '#ffffff',
+    border:       '#111111',
+    shadow:       '#111111',
+    textMuted:    '#a8a8a8',
+    textStats:    '#666666',
+    textActive:   '#111111',
+    textCurrent:  '#111111',
+    success:      '#22c55e',
+    error:        '#ef4444',
+    orange:       '#f97316',
     accents: [
       { name: 'rosewater', hex: '#dc8a78' },
       { name: 'flamingo',  hex: '#dd7878' },
       { name: 'pink',      hex: '#ea76cb' },
       { name: 'mauve',     hex: '#8839ef' },
-      { name: 'red',       hex: '#d20f39' },
+      { name: 'red',       hex: '#ef4444' },
       { name: 'maroon',    hex: '#e64553' },
       { name: 'peach',     hex: '#fe640b' },
-      { name: 'yellow',    hex: '#df8e1d' },
-      { name: 'green',     hex: '#40a02b' },
-      { name: 'teal',      hex: '#179299' },
-      { name: 'sky',       hex: '#04a5e5' },
+      { name: 'yellow',    hex: '#eab308' },
+      { name: 'green',     hex: '#22c55e' },
+      { name: 'teal',      hex: '#14b8a6' },
+      { name: 'sky',       hex: '#0ea5e9' },
       { name: 'sapphire',  hex: '#209fb5' },
-      { name: 'blue',      hex: '#1e66f5' },
-      { name: 'lavender',  hex: '#7287fd' },
+      { name: 'blue',      hex: '#3b82f6' },
+      { name: 'lavender',  hex: '#8b5cf6' },
     ],
   },
 
   frappe: {
     name:         'frappe',
-    label:        'Frappé',
-    bg:           '#303446',
-    bgSurface:    '#292c3c',
-    textMuted:    '#838ba7', // Overlay0 (was #414559)
-    textStats:    '#949cbb', // Overlay1 (was #737994)
-    textActive:   '#c6d0f5',
-    textCurrent:  '#c6d0f5', // Use active color for current by default
-    error:        '#e78284',
-    orange:       '#ef9f76',
+    label:        'Sand',
+    bg:           '#e8e4d9',
+    bgSurface:    '#f0ece3',
+    surface:      '#f5f2ea',
+    border:       '#111111',
+    shadow:       '#111111',
+    textMuted:    '#8a8578',
+    textStats:    '#5c5a52',
+    textActive:   '#1a1a1a',
+    textCurrent:  '#1a1a1a',
+    success:      '#16a34a',
+    error:        '#dc2626',
+    orange:       '#ea580c',
     accents: [
-      { name: 'rosewater', hex: '#f2d5cf' },
-      { name: 'flamingo',  hex: '#eebebe' },
-      { name: 'pink',      hex: '#f4b8e4' },
-      { name: 'mauve',     hex: '#ca9ee6' },
-      { name: 'red',       hex: '#e78284' },
-      { name: 'maroon',    hex: '#ea999c' },
-      { name: 'peach',     hex: '#ef9f76' },
-      { name: 'yellow',    hex: '#e5c890' },
-      { name: 'green',     hex: '#a6d189' },
-      { name: 'teal',      hex: '#81c8be' },
-      { name: 'sky',       hex: '#99d1db' },
-      { name: 'sapphire',  hex: '#85c1dc' },
-      { name: 'blue',      hex: '#8caaee' },
-      { name: 'lavender',  hex: '#babbf1' },
+      { name: 'rosewater', hex: '#c97b6d' },
+      { name: 'flamingo',  hex: '#c96b6b' },
+      { name: 'pink',      hex: '#d45bb5' },
+      { name: 'mauve',     hex: '#7c3aed' },
+      { name: 'red',       hex: '#dc2626' },
+      { name: 'maroon',    hex: '#c44553' },
+      { name: 'peach',     hex: '#ea580c' },
+      { name: 'yellow',    hex: '#ca8a04' },
+      { name: 'green',     hex: '#16a34a' },
+      { name: 'teal',      hex: '#0d9488' },
+      { name: 'sky',       hex: '#0284c7' },
+      { name: 'sapphire',  hex: '#1a8fb5' },
+      { name: 'blue',      hex: '#2563eb' },
+      { name: 'lavender',  hex: '#7c3aed' },
     ],
   },
 
   macchiato: {
     name:         'macchiato',
-    label:        'Macchiato',
-    bg:           '#24273a',
-    bgSurface:    '#1e2030',
-    textMuted:    '#8087a2', // Overlay0 (was #363a4f)
-    textStats:    '#939ab7', // Overlay1 (was #6e738d)
-    textActive:   '#cad3f5',
-    textCurrent:  '#cad3f5',
-    error:        '#ed8796',
-    orange:       '#f5a97f',
+    label:        'Dark',
+    bg:           '#1a1a2e',
+    bgSurface:    '#16213e',
+    surface:      '#0f3460',
+    border:       '#e2e2e2',
+    shadow:       '#000000',
+    textMuted:    '#6b7280',
+    textStats:    '#9ca3af',
+    textActive:   '#f3f4f6',
+    textCurrent:  '#f3f4f6',
+    success:      '#4ade80',
+    error:        '#f87171',
+    orange:       '#fb923c',
     accents: [
       { name: 'rosewater', hex: '#f4dbd6' },
       { name: 'flamingo',  hex: '#f0c6c6' },
       { name: 'pink',      hex: '#f5bde6' },
       { name: 'mauve',     hex: '#c6a0f6' },
-      { name: 'red',       hex: '#ed8796' },
+      { name: 'red',       hex: '#f87171' },
       { name: 'maroon',    hex: '#ee99a0' },
-      { name: 'peach',     hex: '#f5a97f' },
-      { name: 'yellow',    hex: '#eed49f' },
-      { name: 'green',     hex: '#a6da95' },
-      { name: 'teal',      hex: '#8bd5ca' },
-      { name: 'sky',       hex: '#91d7e3' },
+      { name: 'peach',     hex: '#fb923c' },
+      { name: 'yellow',    hex: '#facc15' },
+      { name: 'green',     hex: '#4ade80' },
+      { name: 'teal',      hex: '#2dd4bf' },
+      { name: 'sky',       hex: '#38bdf8' },
       { name: 'sapphire',  hex: '#7dc4e4' },
-      { name: 'blue',      hex: '#8aadf4' },
-      { name: 'lavender',  hex: '#b7bdf8' },
+      { name: 'blue',      hex: '#60a5fa' },
+      { name: 'lavender',  hex: '#a78bfa' },
     ],
   },
 
   mocha: {
     name:         'mocha',
-    label:        'Mocha',
-    bg:           '#1e1e2e',
-    bgSurface:    '#181825',
-    textMuted:    '#7f849c', // Overlay0 (was #313244)
-    textStats:    '#9399b2', // Overlay1 (was #6c7086)
-    textActive:   '#cdd6f4',
-    textCurrent:  '#cdd6f4',
-    error:        '#f38ba8',
-    orange:       '#fab387',
+    label:        'Black',
+    bg:           '#0a0a0a',
+    bgSurface:    '#141414',
+    surface:      '#1a1a1a',
+    border:       '#ffffff',
+    shadow:       '#ffffff',
+    textMuted:    '#525252',
+    textStats:    '#a3a3a3',
+    textActive:   '#fafafa',
+    textCurrent:  '#fafafa',
+    success:      '#86efac',
+    error:        '#fca5a5',
+    orange:       '#fdba74',
     accents: [
-      { name: 'rosewater', hex: '#f5e0dc' },
-      { name: 'flamingo',  hex: '#f2cdcd' },
-      { name: 'pink',      hex: '#f5c2e7' },
-      { name: 'mauve',     hex: '#cba6f7' },
-      { name: 'red',       hex: '#f38ba8' },
-      { name: 'maroon',    hex: '#eba0ac' },
-      { name: 'peach',     hex: '#fab387' },
-      { name: 'yellow',    hex: '#f9e2af' },
-      { name: 'green',     hex: '#a6e3a1' },
-      { name: 'teal',      hex: '#94e2d5' },
-      { name: 'sky',       hex: '#89dceb' },
-      { name: 'sapphire',  hex: '#74c7ec' },
-      { name: 'blue',      hex: '#89b4fa' },
-      { name: 'lavender',  hex: '#b4befe' },
+      { name: 'rosewater', hex: '#fecaca' },
+      { name: 'flamingo',  hex: '#fca5a5' },
+      { name: 'pink',      hex: '#f9a8d4' },
+      { name: 'mauve',     hex: '#d8b4fe' },
+      { name: 'red',       hex: '#fca5a5' },
+      { name: 'maroon',    hex: '#fda4af' },
+      { name: 'peach',     hex: '#fdba74' },
+      { name: 'yellow',    hex: '#fde047' },
+      { name: 'green',     hex: '#86efac' },
+      { name: 'teal',      hex: '#5eead4' },
+      { name: 'sky',       hex: '#7dd3fc' },
+      { name: 'sapphire',  hex: '#93c5fd' },
+      { name: 'blue',      hex: '#93c5fd' },
+      { name: 'lavender',  hex: '#c4b5fd' },
     ],
   },
 }
@@ -146,18 +164,21 @@ export const THEME_ORDER: ThemeName[] = ['latte', 'frappe', 'macchiato', 'mocha'
 
 /**
  * Apply a theme + accent to the document root as CSS custom properties.
- * Called both on mount (restore) and on setting change.
  */
 export function applyTheme(theme: ThemeDef, accentHex: string) {
   const root = document.documentElement
   root.style.setProperty('--bg',           theme.bg)
   root.style.setProperty('--bg-surface',   theme.bgSurface)
-  root.style.setProperty('--text-muted',   theme.textMuted)
-  root.style.setProperty('--text-stats',   theme.textStats)
-  root.style.setProperty('--text-active',  theme.textActive)
+  root.style.setProperty('--surface',     theme.surface)
+  root.style.setProperty('--border',      theme.border)
+  root.style.setProperty('--shadow',      theme.shadow)
+  root.style.setProperty('--text-muted',  theme.textMuted)
+  root.style.setProperty('--text-stats',  theme.textStats)
+  root.style.setProperty('--text-active', theme.textActive)
   root.style.setProperty('--text-current', theme.textCurrent)
-  root.style.setProperty('--error',        theme.error)
-  root.style.setProperty('--orange',       theme.orange)
-  root.style.setProperty('--accent',       accentHex)
+  root.style.setProperty('--success',     theme.success)
+  root.style.setProperty('--error',       theme.error)
+  root.style.setProperty('--orange',      theme.orange)
+  root.style.setProperty('--accent',      accentHex)
   root.dataset.theme = theme.name
 }

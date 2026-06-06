@@ -8,7 +8,6 @@ export type Mode = 'speed' | 'clarity'
 export type TestState = 'idle' | 'running' | 'ended'
 export type Duration = 15 | 30 | 60 | 120
 export type PromptType = 'sentences' | 'numbers' | 'custom' | 'technical' | 'tongue-twisters'
-export type AccentColour = 'yellow' | 'coral' | 'blue' | 'green'
 export type FontChoice = 'jetbrains' | 'fira' | 'inconsolata'
 export type FontSize = 'small' | 'medium' | 'large'
 export type { ThemeName } from '@/lib/themes'
@@ -54,6 +53,10 @@ export interface SpeedResults {
   transcript: string
   /** netWpm delta vs the previous speed run (null when there is no prior run). */
   deltaWpm: number | null
+  /** Highest speaking momentum reached during the session (0–100). */
+  peakMomentum: number
+  /** Speaking pace consistency score 0–100. */
+  consistency: number
 }
 
 interface TestStore {
@@ -104,9 +107,9 @@ interface TestStore {
 // ─── Default settings ─────────────────────────────────────────────────────────
 
 const DEFAULT_SETTINGS: Settings = {
-  theme: 'mocha',
-  accentHex: '#cba6f7',
-  accentName: 'mauve',
+  theme: 'latte',
+  accentHex: '#3b82f6',
+  accentName: 'blue',
   font: 'jetbrains',
   fontSize: 'medium',
   fillerFlash: true,
@@ -156,7 +159,7 @@ export const useTestStore = create<TestStore>()(
         set({ settings: newSettings })
         if (typeof document !== 'undefined') {
           import('@/lib/themes').then(({ applyTheme, THEMES }) => {
-            const theme = THEMES[newSettings.theme]
+            const theme = THEMES[newSettings.theme] ?? THEMES.latte
             applyTheme(theme, newSettings.accentHex)
           })
           const html = document.documentElement

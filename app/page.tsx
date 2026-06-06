@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useCallback, useState } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
+import { gsap } from 'gsap'
 
 import { useTestStore } from '@/store/testStore'
 import { useTimer } from '@/hooks/useTimer'
@@ -10,17 +10,18 @@ import { generatePrompt, regeneratePrompt, generatePracticePrompt, type PromptMo
 import { diffWords, calcClarityScore } from '@/lib/diff'
 import { alignTranscriptToPrompt, countFillers } from '@/lib/alignTranscriptToPrompt'
 import { netWpmFromChars, rawWpmFromChars } from '@/lib/stats/wpm'
+import { computeConsistency } from '@/lib/stats/consistency'
+import { useSpeakingGame } from '@/hooks/useSpeakingGame'
 
 import Header from '@/components/Header'
 import ConfigBar from '@/components/ConfigBar'
 import StatsBar from '@/components/StatsBar'
-import TestArea from '@/components/TestArea'
+import SpeakingGame from '@/components/game/SpeakingGame'
 import MicButton from '@/components/MicButton'
 import ClarityInput from '@/components/ClarityInput'
 import ResultsPanel from '@/components/ResultsPanel'
 import SettingsPanel from '@/components/SettingsPanel'
-import WaveformVisualiser from '@/components/WaveformVisualiser'
-
+import DoodleAnnotations from '@/components/decor/DoodleAnnotations'
 function splitPrompt(text: string): string[] {
   return text.split(/\s+/).filter(Boolean)
 }
@@ -31,11 +32,12 @@ export default function Home() {
   const [isPersonalBest, setIsPersonalBest] = useState(false)
   const [startError, setStartError] = useState<string | null>(null)
   const [dissolvedCount, setDissolvedCount] = useState(0)
+  const [isEnding, setIsEnding] = useState(false)
+  const heroRef = useRef<HTMLDivElement>(null)
+  const gameMetricsRef = useRef({ peakMomentum: 0, rawWpms: [] as number[] })
 
+  const [testStartedAt, setTestStartedAt] = useState<number | null>(null)
   const testStartedAtRef = useRef<number | null>(null)
-
-  // Mirror STT state into refs so the finalize callback can read fresh values
-  // without needing them as effect dependencies.
   const confirmedWordsRef = useRef<string[]>([])
   const interimTextRef = useRef('')
 
@@ -43,7 +45,6 @@ export default function Home() {
   const {
     interimText,
     confirmedWords,
-    fillerCount: sttFillerCount,
     isListening,
     error: sttError,
     micStream,
@@ -51,17 +52,20 @@ export default function Home() {
     startSession,
     stopSession,
     reset: resetProvider,
-    onSpeechStart,
   } = useActiveSpeechProvider(sttProvider)
 
-  // Keep refs in sync with STT state
   useEffect(() => { confirmedWordsRef.current = confirmedWords }, [confirmedWords])
   useEffect(() => { interimTextRef.current = interimText }, [interimText])
 
-  // ── STT-driven dissolve ───────────────────────────────────────────────────
-  // Words dissolve as the STT engine hears them. Interim results update almost
-  // instantly, so fold them in alongside confirmed words; keep the count
-  // monotonic so a shrinking interim never "un-dissolves" a word.
+  const isSpeedRunning = store.testState === 'running' && store.mode === 'speed'
+
+  const speakingGame = useSpeakingGame({
+    prompt: store.prompt,
+    confirmedWords,
+    isActive: isSpeedRunning,
+    startedAt: testStartedAt,
+  })
+
   useEffect(() => {
     if (store.testState !== 'running' || store.mode !== 'speed') return
     const interim = interimText.trim()
@@ -70,12 +74,21 @@ export default function Home() {
     setDissolvedCount((c) => Math.min(Math.max(c, liveCount), store.prompt.length))
   }, [confirmedWords.length, interimText, store.testState, store.mode, store.prompt.length])
 
-  // ── Restore persisted settings to DOM on mount ────────────────────────────
+  useEffect(() => {
+    gameMetricsRef.current.rawWpms = speakingGame.rawWpms
+  }, [speakingGame.rawWpms])
+
+  const handlePeakMomentum = useCallback((peak: number) => {
+    if (peak > gameMetricsRef.current.peakMomentum) {
+      gameMetricsRef.current.peakMomentum = peak
+    }
+  }, [])
+
   useEffect(() => {
     const { settings } = store
     const html = document.documentElement
     import('@/lib/themes').then(({ THEMES, applyTheme }) => {
-      const theme = THEMES[settings.theme] ?? THEMES.mocha
+      const theme = THEMES[settings.theme] ?? THEMES.latte
       applyTheme(theme, settings.accentHex)
     })
     html.dataset.font = settings.font
@@ -83,7 +96,6 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ── Finalize speed test ───────────────────────────────────────────────────
   const finalizeSpeed = useCallback((elapsedSec: number) => {
     stopSession()
 
@@ -113,16 +125,32 @@ export default function Home() {
     const newBest = s.checkAndUpdatePersonalBest(pbKey, netWpm)
     setIsPersonalBest(newBest)
 
-    // Delta vs the previous run, then remember this run for next time.
     const prevWpm = s.settings.lastSpeedWpm
     const deltaWpm = typeof prevWpm === 'number' ? netWpm - prevWpm : null
     s.updateSettings({ lastSpeedWpm: netWpm })
 
-    s.setResults({ netWpm, rawWpm, fillerCount, accuracy, diff, elapsedSec, transcript: fullTranscript, deltaWpm })
-    s.setTestState('ended')
+    const metrics = gameMetricsRef.current
+    const consistency = computeConsistency(metrics.rawWpms)
+
+    setIsEnding(true)
+    window.setTimeout(() => {
+      s.setResults({
+        netWpm,
+        rawWpm,
+        fillerCount,
+        accuracy,
+        diff,
+        elapsedSec,
+        transcript: fullTranscript,
+        deltaWpm,
+        peakMomentum: metrics.peakMomentum,
+        consistency,
+      })
+      s.setTestState('ended')
+      setIsEnding(false)
+    }, 1200)
   }, [stopSession])
 
-  // ── Timer ─────────────────────────────────────────────────────────────────
   const handleTimerEnd = useCallback(() => {
     finalizeSpeed(store.duration)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -131,7 +159,6 @@ export default function Home() {
   const { timeRemaining, isWarning, start: startTimer, stop: stopTimer, reset: resetTimer } =
     useTimer(store.duration, handleTimerEnd)
 
-  // ── STT error → mic state ─────────────────────────────────────────────────
   useEffect(() => {
     if (sttError) store.setMicState('error')
     else if (isListening) store.setMicState('active')
@@ -139,7 +166,6 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sttError, isListening])
 
-  // ── Prompt management ─────────────────────────────────────────────────────
   const loadPrompt = useCallback(() => {
     const s = useTestStore.getState()
     const text = generatePrompt(s.promptType as PromptMode, s.duration, s.customPromptText)
@@ -157,12 +183,9 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ── Test actions ──────────────────────────────────────────────────────────
   const handleStart = useCallback(async () => {
     setStartError(null)
     if (store.prompt.length === 0) loadPrompt()
-
-    const s = useTestStore.getState()
 
     if (store.mode === 'speed') {
       resetProvider()
@@ -181,13 +204,19 @@ export default function Home() {
         return
       }
 
+      const now = Date.now()
       store.startTest()
-      testStartedAtRef.current = Date.now()
+      setTestStartedAt(now)
+      testStartedAtRef.current = now
       setDissolvedCount(0)
+      setIsEnding(false)
+      gameMetricsRef.current = { peakMomentum: 0, rawWpms: [] }
       startTimer()
     } else {
+      const now = Date.now()
       store.startTest()
-      testStartedAtRef.current = Date.now()
+      setTestStartedAt(now)
+      testStartedAtRef.current = now
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store.mode, store.prompt.length, loadPrompt, armSession, startSession, resetProvider, startTimer])
@@ -215,6 +244,9 @@ export default function Home() {
     setIsPersonalBest(false)
     setStartError(null)
     setDissolvedCount(0)
+    setIsEnding(false)
+    gameMetricsRef.current = { peakMomentum: 0, rawWpms: [] }
+    setTestStartedAt(null)
     testStartedAtRef.current = null
     resetProvider()
     const s = useTestStore.getState()
@@ -230,6 +262,9 @@ export default function Home() {
     setIsPersonalBest(false)
     setStartError(null)
     setDissolvedCount(0)
+    setIsEnding(false)
+    gameMetricsRef.current = { peakMomentum: 0, rawWpms: [] }
+    setTestStartedAt(null)
     testStartedAtRef.current = null
     resetProvider()
     const s = useTestStore.getState()
@@ -245,10 +280,12 @@ export default function Home() {
   const handlePractice = useCallback(() => {
     setIsPersonalBest(false)
     setDissolvedCount(0)
+    setIsEnding(false)
+    gameMetricsRef.current = { peakMomentum: 0, rawWpms: [] }
+    setTestStartedAt(null)
     testStartedAtRef.current = null
     resetProvider()
     const s = useTestStore.getState()
-    // Collect missed/substituted words from the last diff result
     const missedWords = (s.results?.diff ?? [])
       .filter((w) => w.tag === 'missed' || w.tag === 'substituted')
       .map((w) => w.tag === 'substituted' ? (w.expected ?? w.word) : w.word)
@@ -259,7 +296,6 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resetProvider, resetTimer])
 
-  // ── Keyboard shortcuts ────────────────────────────────────────────────────
   const handleStopRef = useRef(handleStop)
   useEffect(() => { handleStopRef.current = handleStop }, [handleStop])
 
@@ -274,6 +310,8 @@ export default function Home() {
         else if (store.testState === 'ended') handleRetry()
         else {
           setDissolvedCount(0)
+          setIsEnding(false)
+          setTestStartedAt(null)
           testStartedAtRef.current = null
           resetProvider()
           store.resetTest()
@@ -301,167 +339,143 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store.testState, store.duration, handleRetry, handleNext, handleStop, handleStart, resetTimer, resetProvider])
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // Hero entrance animation
+  useEffect(() => {
+    if (!heroRef.current || store.testState !== 'idle') return
+    const ctx = gsap.context(() => {
+      gsap.from('.hero-animate', {
+        opacity: 0,
+        y: 24,
+        stagger: 0.1,
+        duration: 0.6,
+        ease: 'power3.out',
+      })
+    }, heroRef)
+    return () => ctx.revert()
+  }, [store.testState, store.mode])
+
   const isRunning = store.testState === 'running'
   const isEnded   = store.testState === 'ended'
   const isIdle    = store.testState === 'idle'
-
-  const testExit = { opacity: 0, y: -16 }
-  const testExitTransition = { duration: 0.22, ease: 'easeIn' as const }
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg)' }}>
       <Header onSettingsOpen={() => setSettingsOpen(true)} />
 
-      <AnimatePresence>{isIdle && <ConfigBar key="config-bar" />}</AnimatePresence>
+      {isIdle && <ConfigBar />}
 
-      <AnimatePresence>
-        {isRunning && (
-          <StatsBar
-            key="stats-bar"
-            mode={store.mode}
-            wordCount={
-              store.mode === 'clarity'
-                ? store.clarityTranscript.trim().split(/\s+/).filter(Boolean).length
-                : confirmedWords.length
-            }
-            timeRemainingMs={timeRemaining}
-            isWarning={isWarning}
-            micState={store.micState}
-          />
-        )}
-      </AnimatePresence>
+      {isRunning && store.mode === 'clarity' && (
+        <StatsBar
+          mode={store.mode}
+          wordCount={store.clarityTranscript.trim().split(/\s+/).filter(Boolean).length}
+          timeRemainingMs={timeRemaining}
+          isWarning={isWarning}
+          micState={store.micState}
+        />
+      )}
 
       <main
-        className={`flex-1 flex flex-col items-center px-6 py-8 mx-auto w-full justify-center ${
-          store.mode === 'speed' ? 'max-w-[1400px]' : 'max-w-3xl'
-        } ${store.mode === 'speed' && !isEnded ? 'pb-[88px]' : ''}`}
+        className={`flex-1 flex flex-col items-center px-6 py-8 mx-auto w-full ${
+          store.mode === 'speed' ? 'max-w-[900px]' : 'max-w-3xl'
+        } ${isIdle ? 'justify-start' : 'justify-center'}`}
       >
-        <AnimatePresence mode="wait">
-          {!isEnded ? (
-            <motion.div
-              key="test"
-              className="relative w-full flex flex-col items-stretch"
-              initial={false}
-              exit={testExit}
-              transition={testExitTransition}
-            >
-              <div className="relative w-full flex flex-col">
-                {store.mode === 'speed' ? (
-                  <div className="flex flex-col w-full gap-10">
-                    <TestArea
-                      words={store.prompt}
-                      dissolvedCount={dissolvedCount}
-                      isActive={isRunning}
-                    />
-                    {isIdle && (
-                      <div className="flex flex-col items-center gap-3 w-full">
-                        {startError && (
-                          <div
-                            role="alert"
-                            style={{
-                              background: 'color-mix(in srgb, var(--error, #f87171) 15%, var(--bg))',
-                              border: '1px solid var(--error, #f87171)',
-                              borderRadius: '0.5rem',
-                              padding: '0.5rem 1rem',
-                              color: 'var(--fg)',
-                              fontSize: '0.85rem',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              gap: '1rem',
-                              maxWidth: 480,
-                              width: '100%',
-                            }}
-                          >
-                            <span>{startError}</span>
-                            <button
-                              onClick={() => setStartError(null)}
-                              aria-label="Dismiss error"
-                              style={{ cursor: 'pointer', opacity: 0.7, background: 'none', border: 'none', color: 'inherit', fontSize: '1rem', lineHeight: 1, padding: 0 }}
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        )}
-                        <MicButton onStart={handleStart} micState={store.micState} />
+        {!isEnded ? (
+          <div className="relative w-full flex flex-col items-stretch">
+            {store.mode === 'speed' ? (
+              <div className="flex flex-col w-full gap-8">
+                {/* Idle hero */}
+                {isIdle && (
+                  <div ref={heroRef} className="relative flex flex-col items-center gap-8 pt-4 pb-2">
+                    <DoodleAnnotations showIdle />
+
+                    <div className="hero-animate text-center flex flex-col gap-3 max-w-2xl">
+                      <h1
+                        className="font-display font-black uppercase leading-none tracking-tight"
+                        style={{
+                          fontSize: 'clamp(2rem, 6vw, 3.5rem)',
+                          color: 'var(--text-active)',
+                        }}
+                      >
+                        How Fast Can You Speak?
+                      </h1>
+                      <p className="font-mono text-sm md:text-base" style={{ color: 'var(--text-stats)' }}>
+                        Read the words. Speak out loud.{' '}
+                        <span style={{ color: 'var(--accent)', textDecoration: 'underline', textUnderlineOffset: 3 }}>
+                          Beat your score.
+                        </span>
+                      </p>
+                    </div>
+
+                    {/* Mic — centered */}
+                    <div className="hero-animate relative flex items-center justify-center w-full">
+                      <MicButton onStart={handleStart} micState={store.micState} />
+                    </div>
+
+                    {startError && (
+                      <div
+                        role="alert"
+                        className="brutal-card-sm px-4 py-3 flex items-center justify-between gap-4 w-full max-w-md"
+                        style={{
+                          background: 'color-mix(in srgb, var(--error) 12%, var(--surface))',
+                          color: 'var(--error)',
+                          fontSize: '0.85rem',
+                        }}
+                      >
+                        <span className="font-mono">{startError}</span>
+                        <button
+                          onClick={() => setStartError(null)}
+                          aria-label="Dismiss error"
+                          style={{ cursor: 'pointer', background: 'none', border: 'none', color: 'inherit', fontSize: '1rem' }}
+                        >
+                          ✕
+                        </button>
                       </div>
                     )}
                   </div>
-                ) : (
-                  <ClarityInput
-                    testState={store.testState}
-                    transcript={store.clarityTranscript}
-                    diffResult={store.diffResult}
-                    prompt={store.prompt}
-                    onChange={(val) => store.setClarityTranscript(val)}
-                    onStop={handleStop}
-                    onStart={handleStart}
+                )}
+
+                {/* Running — live test card */}
+                {(isRunning || isEnding) && (
+                  <SpeakingGame
+                    words={store.prompt}
+                    timeRemainingMs={timeRemaining}
+                    dissolvedCount={dissolvedCount}
+                    micStream={micStream}
+                    game={speakingGame}
+                    isEnding={isEnding}
+                    onPeakMomentum={handlePeakMomentum}
                   />
                 )}
               </div>
-
-              {store.mode === 'speed' && (
-                <>
-                  <WaveformVisualiser
-                    stream={micStream}
-                    isActive={isRunning}
-                    hasError={false}
-                  />
-
-                  {isRunning && (
-                    <div
-                      style={{
-                        position: 'fixed',
-                        bottom: '1rem',
-                        right: '1.25rem',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.35rem',
-                        fontSize: '0.65rem',
-                        color: '#44445a',
-                        fontFamily: 'var(--font-mono), ui-monospace, monospace',
-                        letterSpacing: '0.04em',
-                        pointerEvents: 'none',
-                        userSelect: 'none',
-                      }}
-                      aria-label={`Active STT provider: ${sttProvider}`}
-                    >
-                      <span
-                        style={{
-                          width: 6,
-                          height: 6,
-                          borderRadius: '50%',
-                          background: isListening ? '#4ade80' : '#555566',
-                          display: 'inline-block',
-                          flexShrink: 0,
-                        }}
-                      />
-                      {sttProvider === 'deepgram' ? 'deepgram' : 'browser'}
-                    </div>
-                  )}
-                </>
-              )}
-            </motion.div>
-          ) : (
-            <ResultsPanel
-              key="results"
-              mode={store.mode}
-              results={store.results}
-              duration={store.duration}
-              promptType={store.promptType}
-              prompt={store.prompt}
-              clarityScore={store.clarityScore}
-              clarityGrade={store.clarityGrade}
-              diffResult={store.diffResult}
-              isPersonalBest={isPersonalBest}
-              personalBestWpm={store.settings.personalBests[`speed-${store.duration}s-${store.promptType}`]?.wpm}
-              onRetry={handleRetry}
-              onNext={handleNext}
-              onPractice={handlePractice}
-            />
-          )}
-        </AnimatePresence>
+            ) : (
+              <ClarityInput
+                testState={store.testState}
+                transcript={store.clarityTranscript}
+                diffResult={store.diffResult}
+                prompt={store.prompt}
+                onChange={(val) => store.setClarityTranscript(val)}
+                onStop={handleStop}
+                onStart={handleStart}
+              />
+            )}
+          </div>
+        ) : (
+          <ResultsPanel
+            mode={store.mode}
+            results={store.results}
+            duration={store.duration}
+            promptType={store.promptType}
+            prompt={store.prompt}
+            clarityScore={store.clarityScore}
+            clarityGrade={store.clarityGrade}
+            diffResult={store.diffResult}
+            isPersonalBest={isPersonalBest}
+            personalBestWpm={store.settings.personalBests[`speed-${store.duration}s-${store.promptType}`]?.wpm}
+            onRetry={handleRetry}
+            onNext={handleNext}
+            onPractice={handlePractice}
+          />
+        )}
       </main>
 
       <SettingsPanel isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
