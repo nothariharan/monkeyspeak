@@ -24,6 +24,37 @@ export const SPEAK_ROW_CONFIG = {
 
 export type SpeakRow = keyof typeof SPEAK_ROW_CONFIG
 
+export type WpmTier = 'sleeping' | 'smiling' | 'beatboxing' | 'mic' | 'shades'
+
+const WPM_TIER_POSE: Record<WpmTier, { row: SpeakRow; col: number }> = {
+  sleeping: { row: 'sleepy', col: 0 },
+  smiling: { row: 'calm', col: 0 },
+  beatboxing: { row: 'sleepy', col: 2 },
+  mic: { row: 'cool', col: 3 },
+  shades: { row: 'cool', col: 0 },
+}
+
+export function getWpmTier(wpm: number): WpmTier {
+  if (wpm >= 150) return 'shades'
+  if (wpm >= 100) return 'mic'
+  if (wpm >= 50) return 'beatboxing'
+  if (wpm >= 25) return 'smiling'
+  return 'sleeping'
+}
+
+/** Map 0–100 speaking momentum to monkey pose tier. */
+export function getMomentumTier(momentum: number): WpmTier {
+  if (momentum >= 85) return 'shades'
+  if (momentum >= 60) return 'mic'
+  if (momentum >= 35) return 'beatboxing'
+  if (momentum >= 15) return 'smiling'
+  return 'sleeping'
+}
+
+export function getSpeakMonPose(tier: WpmTier): { row: SpeakRow; col: number } {
+  return WPM_TIER_POSE[tier]
+}
+
 export function getMainMonFrameRect(img: HTMLImageElement, index: number): SpriteFrame {
   const frameCount = MAIN_MON_FRAMES
   const clamped = Math.max(0, Math.min(frameCount - 1, index))
@@ -54,39 +85,9 @@ export function getSpeakMonFrameRect(
   return { sx, sy, w: ex - sx, h: ey - sy }
 }
 
-export function getSpeakRow(momentum: number): SpeakRow {
-  if (momentum < 30) return 'sleepy'
-  if (momentum < 70) return 'calm'
-  return 'cool'
-}
-
-export function getSpeakRowFrameCount(row: SpeakRow): number {
-  return SPEAK_ROW_CONFIG[row].cols
-}
-
-export function getMainMonFrameIndex(
-  liveWpm: number,
-  momentum: number,
-  companionState: string
-): number {
-  if (companionState === 'sleepy') return 3
-  if (liveWpm >= 100 || momentum > 80) return 4
-  if (liveWpm >= 50) return 2
-  if (liveWpm >= 5) return 1
-  return 0
-}
-
-export function shouldUseSpeakMon(
-  liveWpm: number,
-  momentum: number,
-  companionState: string
-): boolean {
-  return (
-    liveWpm >= 8 ||
-    momentum >= 25 ||
-    companionState === 'speaking' ||
-    companionState === 'excited'
-  )
+export function getSpeakMonFrameForTier(img: HTMLImageElement, tier: WpmTier): SpriteFrame {
+  const { row, col } = getSpeakMonPose(tier)
+  return getSpeakMonFrameRect(img, row, col)
 }
 
 export type SpriteAnchor = 'center' | 'bottom-left'

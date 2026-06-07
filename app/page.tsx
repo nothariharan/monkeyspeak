@@ -36,7 +36,7 @@ export default function Home() {
   const [isEnding, setIsEnding] = useState(false)
   const [micHovered, setMicHovered] = useState(false)
   const heroRef = useRef<HTMLDivElement>(null)
-  const gameMetricsRef = useRef({ peakMomentum: 0, rawWpms: [] as number[] })
+  const gameMetricsRef = useRef({ rawWpms: [] as number[] })
 
   const [testStartedAt, setTestStartedAt] = useState<number | null>(null)
   const testStartedAtRef = useRef<number | null>(null)
@@ -79,12 +79,6 @@ export default function Home() {
   useEffect(() => {
     gameMetricsRef.current.rawWpms = speakingGame.rawWpms
   }, [speakingGame.rawWpms])
-
-  const handlePeakMomentum = useCallback((peak: number) => {
-    if (peak > gameMetricsRef.current.peakMomentum) {
-      gameMetricsRef.current.peakMomentum = peak
-    }
-  }, [])
 
   useEffect(() => {
     const { settings } = store
@@ -145,7 +139,6 @@ export default function Home() {
         elapsedSec,
         transcript: fullTranscript,
         deltaWpm,
-        peakMomentum: metrics.peakMomentum,
         consistency,
       })
       s.setTestState('ended')
@@ -212,7 +205,7 @@ export default function Home() {
       testStartedAtRef.current = now
       setDissolvedCount(0)
       setIsEnding(false)
-      gameMetricsRef.current = { peakMomentum: 0, rawWpms: [] }
+      gameMetricsRef.current = { rawWpms: [] }
       startTimer()
     } else {
       const now = Date.now()
@@ -247,7 +240,7 @@ export default function Home() {
     setStartError(null)
     setDissolvedCount(0)
     setIsEnding(false)
-    gameMetricsRef.current = { peakMomentum: 0, rawWpms: [] }
+    gameMetricsRef.current = { rawWpms: [] }
     setTestStartedAt(null)
     testStartedAtRef.current = null
     resetProvider()
@@ -265,7 +258,7 @@ export default function Home() {
     setStartError(null)
     setDissolvedCount(0)
     setIsEnding(false)
-    gameMetricsRef.current = { peakMomentum: 0, rawWpms: [] }
+    gameMetricsRef.current = { rawWpms: [] }
     setTestStartedAt(null)
     testStartedAtRef.current = null
     resetProvider()
@@ -283,7 +276,7 @@ export default function Home() {
     setIsPersonalBest(false)
     setDissolvedCount(0)
     setIsEnding(false)
-    gameMetricsRef.current = { peakMomentum: 0, rawWpms: [] }
+    gameMetricsRef.current = { rawWpms: [] }
     setTestStartedAt(null)
     testStartedAtRef.current = null
     resetProvider()
@@ -453,7 +446,6 @@ export default function Home() {
                     micStream={micStream}
                     game={speakingGame}
                     isEnding={isEnding}
-                    onPeakMomentum={handlePeakMomentum}
                   />
                 )}
               </div>

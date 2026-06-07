@@ -2,7 +2,7 @@
 
 import { useRef, useEffect } from 'react'
 import { gsap } from 'gsap'
-import type { CompanionState } from '@/hooks/useVoiceActivity'
+type CompanionState = 'idle' | 'sleepy' | 'listening' | 'speaking' | 'excited' | 'celebrating'
 
 interface MonkeyCompanionProps {
   state: CompanionState

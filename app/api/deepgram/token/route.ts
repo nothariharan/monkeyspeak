@@ -4,14 +4,14 @@ import { NextResponse } from 'next/server'
 /** Avoid stale compiled handler + CDN-ish caching. */
 export const dynamic = 'force-dynamic'
 
-function devIssuedViaHeader(issuedVia: 'jwt' | 'api_key' | 'none'): HeadersInit {
+function devIssuedViaHeader(issuedVia: 'jwt' | 'none'): HeadersInit {
   if (process.env.NODE_ENV !== 'development') return {}
   return { 'X-Debug-Token-Issued-Via': issuedVia }
 }
 
 function devTokenPayload(
   base: { token: string; ttlSeconds: number },
-  via: 'jwt' | 'api_key'
+  via: 'jwt'
 ): { token: string; ttlSeconds: number; _debugIssuedVia?: string } {
   if (process.env.NODE_ENV !== 'development') return base
   return { ...base, _debugIssuedVia: via }
@@ -28,11 +28,10 @@ function formatGrantError(err: unknown): string {
 
 /**
  * Issues a short-lived Deepgram JWT for the browser SDK via auth.grantToken().
- * Falls back to the raw API key only if grant fails or DEEPGRAM_SKIP_GRANT_TOKEN=true.
+ * Never returns the permanent API key — only ephemeral JWTs.
  */
 export async function POST() {
   const apiKey = process.env.DEEPGRAM_API_KEY
-  const skipGrant = process.env.DEEPGRAM_SKIP_GRANT_TOKEN === 'true'
 
   if (!apiKey) {
     return NextResponse.json({ error: 'DEEPGRAM_API_KEY not configured' }, {
@@ -41,29 +40,29 @@ export async function POST() {
     })
   }
 
-  let tokenToReturn = apiKey
-  let issuedVia: 'jwt' | 'api_key' = 'api_key'
+  try {
+    const deepgram = createClient(apiKey)
+    const { result, error } = await deepgram.auth.grantToken()
 
-  if (!skipGrant) {
-    try {
-      const deepgram = createClient(apiKey)
-      const { result, error } = await deepgram.auth.grantToken()
-
-      if (!error && result?.access_token) {
-        tokenToReturn = result.access_token
-        issuedVia = 'jwt'
-      } else {
-        console.warn(`[deepgram/token] grantToken unavailable (${formatGrantError(error)}); falling back to API key.`)
-      }
-    } catch {
-      console.warn(`[deepgram/token] grantToken threw; falling back to API key.`)
+    if (error || !result?.access_token) {
+      console.warn(`[deepgram/token] grantToken unavailable (${formatGrantError(error)})`)
+      return NextResponse.json(
+        { error: 'Unable to issue Deepgram token. Try again later.' },
+        { status: 503, headers: devIssuedViaHeader('none') }
+      )
     }
-  }
 
-  return NextResponse.json(
-    devTokenPayload({ token: tokenToReturn, ttlSeconds: issuedVia === 'jwt' ? 28 : 3600 }, issuedVia),
-    { headers: devIssuedViaHeader(issuedVia) }
-  )
+    return NextResponse.json(
+      devTokenPayload({ token: result.access_token, ttlSeconds: 28 }, 'jwt'),
+      { headers: devIssuedViaHeader('jwt') }
+    )
+  } catch (err) {
+    console.warn(`[deepgram/token] grantToken threw (${formatGrantError(err)})`)
+    return NextResponse.json(
+      { error: 'Unable to issue Deepgram token. Try again later.' },
+      { status: 503, headers: devIssuedViaHeader('none') }
+    )
+  }
 }
 
 export async function GET() {

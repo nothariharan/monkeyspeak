@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
 import type { SpeakingGameState } from '@/hooks/useSpeakingGame'
 import { useVoiceActivity } from '@/hooks/useVoiceActivity'
+import { useSpeakingMomentum } from '@/hooks/useSpeakingMomentum'
 import GameHUD from '@/components/game/GameHUD'
 import DissolveText from '@/components/game/DissolveText'
 import AmbientEnvironment from '@/components/game/AmbientEnvironment'
@@ -16,7 +16,6 @@ interface SpeakingGameProps {
   micStream: MediaStream | null
   game: SpeakingGameState
   isEnding?: boolean
-  onPeakMomentum?: (peak: number) => void
 }
 
 export default function SpeakingGame({
@@ -26,38 +25,25 @@ export default function SpeakingGame({
   micStream,
   game,
   isEnding = false,
-  onPeakMomentum,
 }: SpeakingGameProps) {
-  const peakMomentumRef = useRef(0)
-  const voice = useVoiceActivity({
-    micStream,
-    isActive: !isEnding,
-    isEnding,
+  const active = !isEnding
+  const voice = useVoiceActivity({ micStream, isActive: active, isEnding })
+  const momentum = useSpeakingMomentum({
+    dissolvedCount,
+    rawWpms: game.rawWpms,
+    isActive: active,
   })
-
-  useEffect(() => {
-    if (voice.momentum <= peakMomentumRef.current) return
-    peakMomentumRef.current = voice.momentum
-    onPeakMomentum?.(voice.momentum)
-  }, [voice.momentum, onPeakMomentum])
 
   return (
     <div className="game-focus-mode" role="main" aria-label="Speaking test">
-      <AmbientEnvironment momentum={voice.momentum} energy={voice.energy} />
+      <AmbientEnvironment energy={voice.energy} />
 
       <div className="game-focus-card">
         <div className="game-focus-content">
-          <GameHUD
-            wpm={game.liveWpm}
-            timeRemainingMs={timeRemainingMs}
-            momentum={voice.momentum}
-          />
+          <GameHUD timeRemainingMs={timeRemainingMs} momentum={momentum} />
 
           <div className="game-wave-zone game-wave-zone--top">
-            <VoiceWave
-              stream={micStream}
-              isActive={!isEnding}
-            />
+            <VoiceWave stream={micStream} isActive={active} />
           </div>
 
           <div className="game-reading-zone">
@@ -65,12 +51,7 @@ export default function SpeakingGame({
           </div>
 
           <div className="game-monkey-zone">
-            <MonkeyDisplay
-              liveWpm={game.liveWpm}
-              momentum={voice.momentum}
-              companionState={voice.companionState}
-              isActive={!isEnding}
-            />
+            <MonkeyDisplay momentum={momentum} isActive={active} />
           </div>
         </div>
       </div>

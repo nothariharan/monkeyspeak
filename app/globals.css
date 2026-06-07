@@ -526,6 +526,10 @@ body {
   font-family: var(--font-mono);
 }
 
+.game-hud-spacer {
+  min-width: 0;
+}
+
 .game-hud-stat {
   display: flex;
   flex-direction: column;
@@ -603,20 +607,63 @@ body {
   opacity: 0.5;
 }
 
+/* Momentum fire HUD */
+.momentum-fire {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-self: end;
+  min-width: 7.5rem;
+}
+
+.momentum-fire-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-stats);
+  margin-bottom: 0.35rem;
+}
+
+.momentum-fire-core {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.momentum-fire-icon {
+  display: flex;
+  color: #f97316;
+  filter: drop-shadow(0 0 4px rgba(249, 115, 22, 0.4));
+}
+
+.momentum-fire-value {
+  font-family: var(--font-display);
+  font-size: clamp(1.85rem, 5vw, 2.5rem);
+  font-weight: 900;
+  color: #ea580c;
+  line-height: 1;
+  transform-origin: center center;
+}
+
 /* Monkey display zone */
 .game-monkey-zone {
   display: flex;
   justify-content: center;
   align-items: center;
-  height: 200px;
-  padding: 0 2rem;
+  height: min(42vh, 420px);
+  padding: 0 2rem 1rem;
   flex-shrink: 0;
 }
 
 .monkey-display {
   position: relative;
-  width: 200px;
-  height: 280px;
+  width: min(300px, 42vw);
+  height: min(420px, 58vw);
+  max-height: 100%;
 }
 
 .monkey-display-canvas {

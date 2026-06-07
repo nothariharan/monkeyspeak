@@ -2,85 +2,65 @@
 
 import { useEffect, useRef } from 'react'
 import { gsap } from 'gsap'
-import type { CompanionState } from '@/hooks/useVoiceActivity'
 import {
   drawSpriteFrame,
-  getMainMonFrameIndex,
-  getMainMonFrameRect,
-  getSpeakMonFrameRect,
-  getSpeakRow,
-  getSpeakRowFrameCount,
+  getMomentumTier,
+  getSpeakMonFrameForTier,
   loadSprite,
-  shouldUseSpeakMon,
 } from '@/lib/spriteUtils'
 
 interface MonkeyDisplayProps {
-  liveWpm: number
   momentum: number
-  companionState: CompanionState
   isActive?: boolean
 }
 
-const DISPLAY_W = 200
-const DISPLAY_H = 280
-const SPEAK_FRAME_MS = 120
+const DISPLAY_W = 300
+const DISPLAY_H = 420
 
-export default function MonkeyDisplay({
-  liveWpm,
-  momentum,
-  companionState,
-  isActive = true,
-}: MonkeyDisplayProps) {
+export default function MonkeyDisplay({ momentum, isActive = true }: MonkeyDisplayProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const mainImgRef = useRef<HTMLImageElement | null>(null)
-  const speakImgRef = useRef<HTMLImageElement | null>(null)
-  const animFrameRef = useRef<number | null>(null)
-  const speakFrameRef = useRef(0)
-  const lastSpeakTickRef = useRef(0)
-  const lastSpeakRowRef = useRef('')
-  const currentMainFrameRef = useRef(0)
+  const imgRef = useRef<HTMLImageElement | null>(null)
+  const lastTierRef = useRef<string>('')
 
-  const paint = () => {
+  const paintTier = (value: number) => {
     const canvas = canvasRef.current
     const ctx = canvas?.getContext('2d')
-    const mainImg = mainImgRef.current
-    const speakImg = speakImgRef.current
-    if (!canvas || !ctx || !mainImg || !speakImg) return
+    const img = imgRef.current
+    if (!canvas || !ctx || !img) return
 
-    const useSpeak = shouldUseSpeakMon(liveWpm, momentum, companionState)
+    const tier = getMomentumTier(value)
+    if (tier === lastTierRef.current) return
 
-    if (useSpeak) {
-      const row = getSpeakRow(momentum)
-      if (row !== lastSpeakRowRef.current) {
-        lastSpeakRowRef.current = row
-        speakFrameRef.current = 0
-      }
-      const frameRect = getSpeakMonFrameRect(speakImg, row, speakFrameRef.current)
-      drawSpriteFrame(ctx, speakImg, frameRect, DISPLAY_W, DISPLAY_H)
-    } else {
-      const frameIndex = getMainMonFrameIndex(liveWpm, momentum, companionState)
-      currentMainFrameRef.current = frameIndex
-      drawSpriteFrame(ctx, mainImg, getMainMonFrameRect(mainImg, frameIndex), DISPLAY_W, DISPLAY_H)
+    const prevTier = lastTierRef.current
+    lastTierRef.current = tier
+
+    const frame = getSpeakMonFrameForTier(img, tier)
+    drawSpriteFrame(ctx, img, frame, DISPLAY_W, DISPLAY_H)
+
+    if (prevTier && containerRef.current) {
+      gsap.fromTo(
+        containerRef.current,
+        { scale: 0.96 },
+        { scale: 1, duration: 0.25, ease: 'back.out(2)' }
+      )
     }
   }
 
   useEffect(() => {
     let cancelled = false
 
-    Promise.all([loadSprite('/main_mon.png'), loadSprite('/speak_mon.png')]).then(
-      ([mainImg, speakImg]) => {
-        if (cancelled) return
-        mainImgRef.current = mainImg
-        speakImgRef.current = speakImg
-        const canvas = canvasRef.current
-        if (canvas) {
-          canvas.width = DISPLAY_W
-          canvas.height = DISPLAY_H
-          paint()
-        }
+    loadSprite('/speak_mon.png').then((img) => {
+      if (cancelled) return
+      imgRef.current = img
+      const canvas = canvasRef.current
+      if (canvas) {
+        canvas.width = DISPLAY_W
+        canvas.height = DISPLAY_H
+        lastTierRef.current = ''
+        paintTier(momentum)
       }
-    )
+    })
 
     return () => {
       cancelled = true
@@ -89,34 +69,10 @@ export default function MonkeyDisplay({
   }, [])
 
   useEffect(() => {
-    if (!isActive) return
-
-    const tick = (now: number) => {
-      const useSpeak = shouldUseSpeakMon(liveWpm, momentum, companionState)
-
-      if (useSpeak) {
-        const row = getSpeakRow(momentum)
-        const frameCount = getSpeakRowFrameCount(row)
-        if (now - lastSpeakTickRef.current >= SPEAK_FRAME_MS) {
-          speakFrameRef.current = (speakFrameRef.current + 1) % frameCount
-          lastSpeakTickRef.current = now
-        }
-      }
-
-      paint()
-      animFrameRef.current = requestAnimationFrame(tick)
-    }
-
-    animFrameRef.current = requestAnimationFrame(tick)
-
-    return () => {
-      if (animFrameRef.current !== null) {
-        cancelAnimationFrame(animFrameRef.current)
-        animFrameRef.current = null
-      }
-    }
+    if (!isActive || !imgRef.current) return
+    paintTier(momentum)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isActive, liveWpm, momentum, companionState])
+  }, [momentum, isActive])
 
   useEffect(() => {
     if (!containerRef.current) return

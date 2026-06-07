@@ -4,7 +4,6 @@ import { useRef, useEffect } from 'react'
 import { gsap } from 'gsap'
 
 interface AmbientEnvironmentProps {
-  momentum: number
   energy: number
 }
 
@@ -19,7 +18,7 @@ const FLOATERS = [
   { left: '5%', top: '50%', size: 11, delay: 1.5 },
 ]
 
-export default function AmbientEnvironment({ momentum, energy }: AmbientEnvironmentProps) {
+export default function AmbientEnvironment({ energy }: AmbientEnvironmentProps) {
   const envRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const env = envRef.current
@@ -47,9 +46,9 @@ export default function AmbientEnvironment({ momentum, energy }: AmbientEnvironm
   useEffect(() => {
     const env = envRef.current
     if (!env) return
-    const opacity = 0.15 + (momentum / 100) * 0.45 + energy * 0.2
+    const opacity = 0.15 + energy * 0.35
     env.style.setProperty('--ambient-opacity', String(opacity))
-  }, [momentum, energy])
+  }, [energy])
 
   return (
     <div ref={envRef} className="ambient-environment" aria-hidden>

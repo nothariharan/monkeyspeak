@@ -53,8 +53,6 @@ export interface SpeedResults {
   transcript: string
   /** netWpm delta vs the previous speed run (null when there is no prior run). */
   deltaWpm: number | null
-  /** Highest speaking momentum reached during the session (0–100). */
-  peakMomentum: number
   /** Speaking pace consistency score 0–100. */
   consistency: number
 }

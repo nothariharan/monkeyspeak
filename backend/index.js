@@ -29,7 +29,9 @@ app.get('/api/deepgram/token', async (req, res) => {
   }
 
   if (!projectId) {
-    return res.json({ key: apiKey });
+    return res.status(503).json({
+      error: 'DEEPGRAM_PROJECT_ID not configured — cannot issue ephemeral token',
+    });
   }
 
   try {
@@ -50,13 +52,27 @@ app.get('/api/deepgram/token', async (req, res) => {
     );
 
     if (!response.ok) {
-      return res.json({ key: apiKey });
+      console.warn('[deepgram/token] ephemeral key creation failed:', response.status);
+      return res.status(503).json({
+        error: 'Unable to issue Deepgram token. Try again later.',
+      });
     }
 
     const data = await response.json();
-    return res.json({ key: data.result?.key ?? apiKey });
-  } catch {
-    return res.json({ key: apiKey });
+    const ephemeralKey = data.result?.key;
+
+    if (!ephemeralKey) {
+      return res.status(503).json({
+        error: 'Unable to issue Deepgram token. Try again later.',
+      });
+    }
+
+    return res.json({ key: ephemeralKey });
+  } catch (err) {
+    console.warn('[deepgram/token] ephemeral key creation threw:', err?.message ?? err);
+    return res.status(503).json({
+      error: 'Unable to issue Deepgram token. Try again later.',
+    });
   }
 });
 

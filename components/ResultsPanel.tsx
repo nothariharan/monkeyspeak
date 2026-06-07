@@ -95,7 +95,6 @@ export default function ResultsPanel({
   onPractice,
 }: ResultsPanelProps) {
   const [displayWpm, setDisplayWpm] = useState(0)
-  const [displayMomentum, setDisplayMomentum] = useState(0)
   const [showDetail, setShowDetail] = useState(false)
   const [showStats, setShowStats] = useState(false)
   const panelRef = useRef<HTMLDivElement | null>(null)
@@ -117,7 +116,6 @@ export default function ResultsPanel({
 
   useEffect(() => {
     setShowStats(false)
-    setDisplayMomentum(0)
     setDisplayWpm(0)
     const ctx = gsap.context(() => {
       if (mode === 'speed' && results) {
@@ -144,26 +142,18 @@ export default function ResultsPanel({
             ease: 'power3.out',
           })
         })
-        const momentumObj = { val: 0 }
-        gsap.to(momentumObj, {
-          val: results.peakMomentum,
-          duration: 0.9,
-          ease: 'power2.out',
-          delay: 0.35,
-          onUpdate: () => setDisplayMomentum(Math.round(momentumObj.val)),
-        })
         const wpmObj = { val: 0 }
         gsap.to(wpmObj, {
           val: results.netWpm,
           duration: 1.2,
           ease: 'power2.out',
-          delay: 1.0,
+          delay: 0.35,
           onUpdate: () => setDisplayWpm(Math.round(wpmObj.val)),
         })
         gsap.fromTo(
           '.accuracy-fill',
           { width: '0%' },
-          { width: `${results.accuracy}%`, duration: 0.9, ease: 'power2.out', delay: 1.35 }
+          { width: `${results.accuracy}%`, duration: 0.9, ease: 'power2.out', delay: 0.7 }
         )
       } else {
         gsap.from('.stat-card', {
@@ -243,20 +233,13 @@ export default function ResultsPanel({
     >
       {mode === 'speed' && results ? (
         <div className="w-full max-w-[720px] py-8 md:py-10 flex flex-col gap-6">
-          {/* Session momentum reveal */}
+          {/* Session summary */}
           <div
             ref={revealRef}
             className="session-reveal clean-card p-6 md:p-8 flex flex-col items-center gap-4 text-center"
             style={{ background: 'color-mix(in srgb, var(--accent) 8%, var(--surface))' }}
           >
-            <p className="stat-label">peak momentum</p>
-            <span
-              className="font-display font-black tabular-nums"
-              style={{ fontSize: 'clamp(2rem, 6vw, 3rem)', color: 'var(--accent)', lineHeight: 1 }}
-              aria-label={`Peak momentum ${results.peakMomentum}`}
-            >
-              {displayMomentum}
-            </span>
+            <p className="stat-label">session complete</p>
             <div className="flex flex-wrap items-center justify-center gap-6 font-mono text-sm" style={{ color: 'var(--text-stats)' }}>
               <span>avg wpm <strong style={{ color: 'var(--text-active)' }}>{results.netWpm}</strong></span>
               <span>accuracy <strong style={{ color: 'var(--text-active)' }}>{results.accuracy}%</strong></span>
@@ -307,16 +290,6 @@ export default function ResultsPanel({
 
           {/* Metric cards */}
           <div className={`grid grid-cols-2 sm:grid-cols-3 gap-3 ${showStats ? '' : 'opacity-0'}`}>
-            <MetricCard
-              label="peak momentum"
-              value={results.peakMomentum}
-              iconBg="color-mix(in srgb, var(--accent) 20%, var(--surface))"
-              icon={
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.5">
-                  <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-                </svg>
-              }
-            />
             <MetricCard
               label="accuracy"
               value={`${results.accuracy}%`}
