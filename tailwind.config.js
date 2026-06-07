@@ -26,13 +26,10 @@ module.exports = {
         mono:    ['var(--font-mono)', 'JetBrains Mono', 'Fira Code', 'Inconsolata', 'monospace'],
         display: ['var(--font-display)', 'Archivo Black', 'Archivo', 'system-ui', 'sans-serif'],
       },
-      borderWidth: {
-        3: '3px',
-      },
       boxShadow: {
-        brutal:    '6px 6px 0 var(--shadow)',
-        'brutal-sm': '4px 4px 0 var(--shadow)',
-        'brutal-lg': '8px 8px 0 var(--shadow)',
+        soft:    'var(--shadow-soft)',
+        'soft-sm': 'var(--shadow-soft-sm)',
+        accent:  'var(--shadow-accent)',
       },
       animation: {
         'cursor-pulse': 'cursor-pulse 1s ease-in-out infinite',

@@ -85,7 +85,7 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
 
       <aside
         ref={panelRef}
-        className="fixed top-0 right-0 h-full w-[360px] z-50 overflow-y-auto flex flex-col brutal-card"
+        className="fixed top-0 right-0 h-full w-[360px] z-50 overflow-y-auto flex flex-col clean-card"
         style={{
           background: 'var(--surface)',
           borderRight: 'none',
@@ -121,7 +121,7 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
           {/* Theme */}
           <section className="flex flex-col gap-3">
             <p className="stat-label">theme</p>
-            <div className="brutal-segment w-full" role="tablist" aria-label="Theme">
+            <div className="clean-segment w-full" role="tablist" aria-label="Theme">
               {THEME_ORDER.map((t) => {
                 const def = THEMES[t]
                 const isActive = previewTheme === t
@@ -145,7 +145,7 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
             </div>
 
             <div
-              className="brutal-card-sm p-3 flex items-center justify-between font-mono text-xs"
+              className="clean-card-sm p-3 flex items-center justify-between font-mono text-xs"
               style={{ background: currentThemeDef.bg }}
             >
               <span style={{ color: currentThemeDef.textStats }}>preview</span>
@@ -199,7 +199,7 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                   id={`font-${value}`}
                   onClick={() => updateSettings({ font: value })}
                   aria-pressed={settings.font === value}
-                  className="text-left px-3 py-2 font-mono text-sm transition-all brutal-card-sm"
+                  className="text-left px-3 py-2 font-mono text-sm transition-all clean-card-sm"
                   style={{
                     fontFamily: `'${label}', monospace`,
                     background: settings.font === value ? 'var(--accent)' : 'var(--surface)',
@@ -212,7 +212,7 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
             </div>
 
             <p className="stat-label mt-1">size</p>
-            <div className="brutal-segment w-full">
+            <div className="clean-segment w-full">
               {SIZES.map(({ value, label }) => (
                 <button
                   key={value}
@@ -259,7 +259,7 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
               id="select-language"
               value={settings.language}
               onChange={(e) => updateSettings({ language: e.target.value as typeof settings.language })}
-              className="brutal-card-sm px-3 py-2 font-mono text-sm w-full"
+              className="clean-card-sm px-3 py-2 font-mono text-sm w-full"
               style={{
                 background: 'var(--surface)',
                 color: 'var(--text-active)',

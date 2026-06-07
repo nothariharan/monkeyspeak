@@ -28,7 +28,7 @@ export default function Header({ onSettingsOpen }: HeaderProps) {
   return (
     <header
       className="grid grid-cols-[1fr_auto_1fr] items-center gap-4 px-6 py-4 select-none"
-      style={{ borderBottom: '2px solid var(--border)' }}
+      style={{ borderBottom: '1px solid var(--border)' }}
     >
       {/* Logo */}
       <span
@@ -40,7 +40,7 @@ export default function Header({ onSettingsOpen }: HeaderProps) {
       </span>
 
       {/* Center — mode switcher */}
-      <div className="brutal-segment shrink-0" role="tablist" aria-label="Mode selection">
+      <div className="clean-segment shrink-0" role="tablist" aria-label="Mode selection">
         <button
           id="mode-speed"
           role="tab"

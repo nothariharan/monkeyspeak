@@ -7,6 +7,7 @@ import GameHUD from '@/components/game/GameHUD'
 import DissolveText from '@/components/game/DissolveText'
 import AmbientEnvironment from '@/components/game/AmbientEnvironment'
 import VoiceWave from '@/components/game/VoiceWave'
+import MonkeyDisplay from '@/components/game/MonkeyDisplay'
 
 interface SpeakingGameProps {
   words: string[]
@@ -52,13 +53,22 @@ export default function SpeakingGame({
             momentum={voice.momentum}
           />
 
+          <div className="game-wave-zone game-wave-zone--top">
+            <VoiceWave
+              stream={micStream}
+              isActive={!isEnding}
+            />
+          </div>
+
           <div className="game-reading-zone">
             <DissolveText words={words} dissolvedCount={dissolvedCount} />
           </div>
 
-          <div className="game-wave-zone">
-            <VoiceWave
-              stream={micStream}
+          <div className="game-monkey-zone">
+            <MonkeyDisplay
+              liveWpm={game.liveWpm}
+              momentum={voice.momentum}
+              companionState={voice.companionState}
               isActive={!isEnding}
             />
           </div>

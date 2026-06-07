@@ -37,7 +37,7 @@ export default function ClarityInput({
         Speak this prompt using your voice tool
       </p>
 
-      <div className="brutal-card w-full p-5 text-left" aria-label="Prompt text">
+      <div className="clean-card w-full p-5 text-left" aria-label="Prompt text">
         <p
           style={{
             fontSize: 'var(--test-font-size)',
@@ -64,7 +64,7 @@ export default function ClarityInput({
         />
       ) : (
         <div
-          className="brutal-card w-full p-5 text-left"
+          className="clean-card w-full p-5 text-left"
           style={{
             fontSize: 'var(--test-font-size)',
             lineHeight: 'var(--test-line-height)',
@@ -89,7 +89,7 @@ export default function ClarityInput({
           <button
             id="btn-clarity-start"
             onClick={onStart}
-            className="brutal-btn brutal-btn-filled"
+            className="clean-btn clean-btn-filled"
             aria-label="Start clarity test"
           >
             Start
@@ -99,7 +99,7 @@ export default function ClarityInput({
           <button
             id="btn-clarity-stop"
             onClick={onStop}
-            className="brutal-btn brutal-btn-outline"
+            className="clean-btn clean-btn-outline"
             style={{ borderColor: 'var(--error)', color: 'var(--error)' }}
             aria-label="Stop clarity test"
           >

@@ -6,9 +6,10 @@ import { gsap } from 'gsap'
 interface MicButtonProps {
   onStart: () => void
   micState: 'idle' | 'requesting' | 'active' | 'denied' | 'error'
+  onHoverChange?: (hovered: boolean) => void
 }
 
-export default function MicButton({ onStart, micState }: MicButtonProps) {
+export default function MicButton({ onStart, micState, onHoverChange }: MicButtonProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const isDenied = micState === 'denied' || micState === 'error'
   const isLoading = micState === 'requesting'
@@ -33,6 +34,10 @@ export default function MicButton({ onStart, micState }: MicButtonProps) {
         type="button"
         id="btn-start"
         onClick={() => !isDenied && !isLoading && onStart()}
+        onMouseEnter={() => onHoverChange?.(true)}
+        onMouseLeave={() => onHoverChange?.(false)}
+        onFocus={() => onHoverChange?.(true)}
+        onBlur={() => onHoverChange?.(false)}
         disabled={isLoading || isDenied}
         aria-label="Start test"
         className="relative flex items-center justify-center transition-transform hover:scale-105 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100"
@@ -41,8 +46,8 @@ export default function MicButton({ onStart, micState }: MicButtonProps) {
           height: 120,
           borderRadius: '50%',
           background: isDenied ? 'var(--error)' : 'var(--accent)',
-          border: '4px solid var(--border)',
-          boxShadow: '8px 8px 0 var(--shadow)',
+          border: 'none',
+          boxShadow: 'var(--shadow-accent)',
           cursor: isDenied ? 'not-allowed' : isLoading ? 'wait' : 'pointer',
         }}
       >
@@ -61,7 +66,7 @@ export default function MicButton({ onStart, micState }: MicButtonProps) {
           </svg>
         ) : (
           <svg width="44" height="44" viewBox="0 0 24 24" fill="none" aria-hidden>
-            <rect x="9" y="2" width="6" height="12" rx="3" fill="#fff" stroke="var(--border)" strokeWidth="1.5" />
+            <rect x="9" y="2" width="6" height="12" rx="3" fill="#fff" />
             <path d="M5 11a7 7 0 0 0 14 0" stroke="#fff" strokeWidth="2.5" fill="none" strokeLinecap="round" />
             <line x1="12" y1="18" x2="12" y2="22" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" />
             <line x1="8" y1="22" x2="16" y2="22" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" />

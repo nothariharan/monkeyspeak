@@ -246,7 +246,7 @@ export default function ResultsPanel({
           {/* Session momentum reveal */}
           <div
             ref={revealRef}
-            className="session-reveal brutal-card p-6 md:p-8 flex flex-col items-center gap-4 text-center"
+            className="session-reveal clean-card p-6 md:p-8 flex flex-col items-center gap-4 text-center"
             style={{ background: 'color-mix(in srgb, var(--accent) 8%, var(--surface))' }}
           >
             <p className="stat-label">peak momentum</p>
@@ -266,7 +266,7 @@ export default function ResultsPanel({
 
           {/* Hero score block */}
           <div
-            className={`brutal-card stat-card p-6 md:p-8 flex flex-col gap-3 ${showStats ? '' : 'opacity-0'}`}
+            className={`clean-card stat-card p-6 md:p-8 flex flex-col gap-3 ${showStats ? '' : 'opacity-0'}`}
             style={{
               background: isPersonalBest
                 ? 'color-mix(in srgb, var(--success) 18%, var(--surface))'
@@ -371,7 +371,7 @@ export default function ResultsPanel({
           </div>
 
           {/* Breakdown */}
-          <div className="brutal-card-sm stat-card flex flex-col gap-3 p-5">
+          <div className="clean-card-sm stat-card flex flex-col gap-3 p-5">
             <p className="stat-label">breakdown</p>
             <div className="accuracy-track">
               <div className="accuracy-fill" style={{ width: 0 }} />
@@ -437,18 +437,18 @@ export default function ResultsPanel({
           {/* Actions */}
           <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center gap-3">
-              <button type="button" id="btn-retry" onClick={onRetry} className="brutal-btn brutal-btn-filled flex-1 sm:flex-none">
+              <button type="button" id="btn-retry" onClick={onRetry} className="clean-btn clean-btn-filled flex-1 sm:flex-none">
                 Try Again
               </button>
-              <button type="button" id="btn-next" onClick={onNext} className="brutal-btn brutal-btn-outline flex-1 sm:flex-none">
+              <button type="button" id="btn-next" onClick={onNext} className="clean-btn clean-btn-outline flex-1 sm:flex-none">
                 New Test
               </button>
               {onPractice && diffCounts.missed + diffCounts.substituted > 0 && (
-                <button type="button" id="btn-practice" onClick={onPractice} className="brutal-btn brutal-btn-outline">
+                <button type="button" id="btn-practice" onClick={onPractice} className="clean-btn clean-btn-outline">
                   Practice Missed
                 </button>
               )}
-              <button type="button" id="btn-share" onClick={handleShare} className="brutal-btn brutal-btn-outline">
+              <button type="button" id="btn-share" onClick={handleShare} className="clean-btn clean-btn-outline">
                 Share
               </button>
             </div>
@@ -484,7 +484,7 @@ export default function ResultsPanel({
           </div>
 
           <div className="min-w-0 flex flex-col gap-8">
-            <div className="brutal-card stat-card p-6 flex items-baseline gap-4 flex-wrap">
+            <div className="clean-card stat-card p-6 flex items-baseline gap-4 flex-wrap">
               <span
                 className="font-display font-black"
                 style={{ fontSize: '3.5rem', color: 'var(--accent)', lineHeight: 1 }}
@@ -505,13 +505,13 @@ export default function ResultsPanel({
             </p>
 
             <div className="flex flex-wrap items-center gap-3">
-              <button type="button" id="btn-retry" onClick={onRetry} className="brutal-btn brutal-btn-filled">
+              <button type="button" id="btn-retry" onClick={onRetry} className="clean-btn clean-btn-filled">
                 Try Again
               </button>
-              <button type="button" id="btn-next" onClick={onNext} className="brutal-btn brutal-btn-outline">
+              <button type="button" id="btn-next" onClick={onNext} className="clean-btn clean-btn-outline">
                 New Test
               </button>
-              <button type="button" id="btn-share" onClick={handleShare} className="brutal-btn brutal-btn-outline">
+              <button type="button" id="btn-share" onClick={handleShare} className="clean-btn clean-btn-outline">
                 Share
               </button>
             </div>

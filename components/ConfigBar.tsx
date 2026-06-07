@@ -34,7 +34,7 @@ function SegmentGroup({
   return (
     <div className="flex flex-col items-center gap-2">
       <span className="stat-label">{label}</span>
-      <div className="brutal-segment flex flex-wrap justify-center">{children}</div>
+      <div className="clean-segment flex flex-wrap justify-center">{children}</div>
     </div>
   )
 }

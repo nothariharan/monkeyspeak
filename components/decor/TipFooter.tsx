@@ -6,7 +6,7 @@ export default function TipFooter() {
   return (
     <footer className="w-full max-w-3xl mx-auto px-6 pb-8 flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
       <div
-        className="brutal-card-sm flex-1 flex items-center gap-4 p-4"
+        className="clean-card-sm flex-1 flex items-center gap-4 p-4"
         style={{ background: '#fef9c3' }}
       >
         <MonkeyMascot size={40} />
@@ -24,7 +24,7 @@ export default function TipFooter() {
       </div>
       <button
         type="button"
-        className="brutal-btn brutal-btn-outline shrink-0"
+        className="clean-btn clean-btn-outline shrink-0"
         aria-label="How it works"
         onClick={() => {}}
       >
