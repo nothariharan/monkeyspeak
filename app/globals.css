@@ -440,36 +440,434 @@ body {
   animation: live-pulse 1.2s ease-in-out infinite;
 }
 
-/* Hero layout */
+/* Hero layout — idle landing stage */
 .hero-shell {
   position: relative;
   width: 100%;
-  min-height: 420px;
+  min-height: clamp(480px, 72vh, 640px);
 }
 
-.side-monkey {
-  position: fixed;
-  left: 0;
-  bottom: clamp(4rem, 12vh, 7rem);
-  width: clamp(140px, 16vw, 200px);
-  height: clamp(168px, 19vw, 240px);
-  pointer-events: none;
-  z-index: 10;
+.hero-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 0.5rem 0 0;
+  overflow: hidden;
 }
 
-.side-monkey-canvas {
-  display: block;
+.hero-stage-content {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(1rem, 2.5vw, 1.5rem);
   width: 100%;
-  height: 100%;
-  image-rendering: pixelated;
+  max-width: 52rem;
+  /* 220px circle + 2rem breathing = ~15.75rem */
+  padding-bottom: clamp(14rem, 26vw, 17rem);
+}
+
+.hero-title-block {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 100%;
+}
+
+.hero-title {
+  font-size: clamp(2.2rem, 7vw, 5rem);
+  line-height: 0.95;
+  letter-spacing: -0.03em;
+  color: var(--text-active);
+  text-transform: lowercase;
+  transition: transform 0.25s ease;
+}
+
+.hero-stage[data-mic-hovered='true'] .hero-title {
+  transform: scale(1.02);
+}
+
+.hero-title-accent {
+  display: inline-block;
+  margin: 0 0.05em;
+  transition: transform 0.2s ease;
+}
+
+.hero-stage[data-mic-hovered='true'] .hero-title-accent {
+  transform: rotate(-8deg) scale(1.15);
+}
+
+.hero-title-emoji {
+  display: inline-block;
+  transition: transform 0.25s ease;
+}
+
+.hero-stage[data-mic-hovered='true'] .hero-title-emoji {
+  transform: rotate(6deg) scale(1.08);
+}
+
+.hero-subtitle {
+  font-size: clamp(0.8rem, 2vw, 1rem);
+  color: var(--text-stats);
+  text-transform: lowercase;
+}
+
+.hero-subtitle-highlight {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.hero-mic-zone {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.hero-preflight {
+  position: relative;
+  z-index: 3;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+
+/* ───────────────────────────────────────────
+   HERO MONKEY — circular CTA button
+   ─────────────────────────────────────────── */
+.hero-monkey-stage {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.hero-monkey-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  pointer-events: auto;
+}
+
+/* Simple expanding line ring — no gradient, no fill */
+.hero-monkey-ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: calc(var(--monkey-size, 230px) + 20px);
+  height: calc(var(--monkey-size, 230px) + 20px);
+  transform: translate(-50%, -50%) scale(1);
+  border-radius: 50%;
+  border: 1.5px solid var(--accent);
+  pointer-events: none;
+  opacity: 0.5;
+  animation: monkey-ring-expand 2.6s ease-out infinite;
+}
+
+/* A second, slightly delayed ring for depth */
+.hero-monkey-ring::after {
+  content: '';
+  position: absolute;
+  inset: -14px;
+  border-radius: 50%;
+  border: 1px solid var(--accent);
+  opacity: 0.25;
+  animation: monkey-ring-expand 2.6s ease-out 1.3s infinite;
+}
+
+@keyframes monkey-ring-expand {
+  0%   { transform: translate(-50%, -50%) scale(0.95); opacity: 0.55; }
+  100% { transform: translate(-50%, -50%) scale(1.2);  opacity: 0;    }
+}
+
+.hero-monkey-btn {
+  --monkey-size: 230px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  border-radius: 50%;
+  outline: none;
+  display: block;
+}
+
+.hero-monkey-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 10px;
+  border-radius: 50%;
+}
+
+.hero-monkey-btn:disabled {
+  cursor: not-allowed;
+  filter: grayscale(0.35) opacity(0.65);
+}
+
+/* Single circle — solid accent border, white fill, no gradient, no shadow */
+.hero-monkey-circle {
+  width: var(--monkey-size, 230px);
+  height: var(--monkey-size, 230px);
+  border-radius: 50%;
+  border: 3px solid var(--accent);
+  background: var(--surface);
+  overflow: hidden;
+  position: relative;
+  transition: border-color 0.18s ease;
+}
+
+.hero-monkey-btn:hover .hero-monkey-circle,
+.hero-monkey-btn:focus-visible .hero-monkey-circle {
+  border-width: 4px;
+}
+
+/* CSS background-image sprite — frame-x driven by GSAP, no CSS animation */
+.hero-monkey-sprite {
+  position: absolute;
+  inset: 0;
+  background-image: url('/monmiddle.png');
+  /*
+   * 500% width = 5 frames, each frame = container width.
+   * Height is explicit (330%) so the browser never needs to calculate 'auto'
+   * before the image loads — avoids the invisible-on-load race condition.
+   * 330% of 230px = 759px ≈ the sprite's natural proportional height (765px).
+   */
+  background-size: 500% 330%;
+  background-position-x: 0%;
+  background-position-y: 53%;
+  background-repeat: no-repeat;
+  /* No CSS animation — GSAP sets backgroundPositionX directly */
+  will-change: background-position-x;
+}
+
+/* Loading overlay */
+.hero-monkey-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+}
+
+/* Hand-drawn "click to speak" callout */
+.hero-monkey-callout {
+  position: absolute;
+  top: 0.6rem;
+  right: -6rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  pointer-events: none;
+}
+
+.hero-monkey-callout-arrow {
+  width: 52px;
+  height: 44px;
+  transform: scaleX(-1);
+}
+
+.hero-monkey-callout-label {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: var(--accent);
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  display: block;
+  margin-left: 0.3rem;
+  transform: rotate(-3deg);
+  transition: color 0.15s ease;
+}
+
+.hero-monkey-error-badge {
+  font-size: 0.68rem;
+  color: var(--error);
+  text-align: center;
+  max-width: 230px;
+  margin: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-monkey-sprite {
+    animation: none;
+    background-position: 50% 53%;
+  }
+  .hero-monkey-ring {
+    animation: none;
+    opacity: 0.3;
+  }
+  .hero-monkey-ring::after {
+    animation: none;
+    opacity: 0;
+  }
 }
 
 @media (max-width: 640px) {
-  .side-monkey {
-    width: 120px;
-    height: 144px;
-    bottom: 3rem;
-    opacity: 0.9;
+  .hero-monkey-btn {
+    --monkey-size: 185px;
+  }
+  .hero-monkey-callout {
+    right: -5rem;
+    top: 0.3rem;
+  }
+  .hero-monkey-callout-arrow {
+    width: 38px;
+    height: 32px;
+  }
+  .hero-monkey-callout-label {
+    font-size: 0.62rem;
+  }
+}
+
+/* Speech-themed hero doodles */
+.hero-doodles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 1;
+  transition: opacity 0.3s ease;
+}
+
+.hero-doodles[data-energized='true'] .hero-doodle--wave path {
+  stroke: var(--orange);
+}
+
+.hero-doodle {
+  position: absolute;
+}
+
+.hero-doodle--wave {
+  left: 4%;
+  top: 18%;
+  width: 72px;
+  height: 28px;
+}
+
+.hero-doodle--bolt {
+  right: 6%;
+  top: 14%;
+  width: 22px;
+  height: 30px;
+}
+
+.hero-doodle--bubble {
+  right: 10%;
+  top: 38%;
+  background: var(--surface);
+  border: 2px solid var(--border);
+  box-shadow: 3px 3px 0 var(--shadow);
+  padding: 0.3rem 0.65rem;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.65rem;
+  color: var(--accent);
+  text-transform: lowercase;
+  border-radius: var(--radius-pill);
+}
+
+.hero-doodle--quote {
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  font-weight: 900;
+  color: color-mix(in srgb, var(--accent) 35%, transparent);
+  line-height: 1;
+}
+
+.hero-doodle--quote:not(.hero-doodle--quote-right) {
+  left: 8%;
+  top: 42%;
+}
+
+.hero-doodle--quote-right {
+  right: 14%;
+  bottom: 38%;
+}
+
+.hero-doodle--curve {
+  left: 12%;
+  bottom: 32%;
+  width: 52px;
+  height: 44px;
+}
+
+.hero-doodle--mic-glyph {
+  left: 50%;
+  top: 62%;
+  width: 18px;
+  height: 26px;
+  transform: translateX(-50%);
+  opacity: 0.5;
+}
+
+.hero-doodle--spark {
+  font-size: 0.85rem;
+  color: var(--orange);
+  opacity: 0.7;
+}
+
+.hero-doodle--spark:not(.hero-doodle--spark-2) {
+  left: 22%;
+  top: 28%;
+}
+
+.hero-doodle--spark-2 {
+  right: 22%;
+  bottom: 48%;
+  font-size: 0.65rem;
+  color: var(--accent);
+}
+
+@media (max-width: 640px) {
+  .hero-shell {
+    min-height: 420px;
+  }
+
+  .hero-stage-content {
+    padding-bottom: 7.5rem;
+  }
+
+  .hero-monkey-viewport {
+    height: min(180px, 38vw);
+  }
+
+  .hero-monkey-canvas {
+    transform: translateY(12%);
+  }
+
+  .hero-doodle--wave,
+  .hero-doodle--bolt,
+  .hero-doodle--curve,
+  .hero-doodle--quote,
+  .hero-doodle--spark {
+    display: none;
+  }
+
+  .hero-doodle--bubble {
+    right: 4%;
+    top: 12%;
+    font-size: 0.6rem;
+  }
+
+  .hero-doodle--mic-glyph {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-stage[data-mic-hovered='true'] .hero-title,
+  .hero-stage[data-mic-hovered='true'] .hero-title-accent,
+  .hero-stage[data-mic-hovered='true'] .hero-title-emoji {
+    transform: none;
   }
 }
 

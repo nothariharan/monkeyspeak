@@ -91,7 +91,7 @@ export default function ConfigBar() {
   }, [])
 
   return (
-    <div ref={barRef} className="flex flex-col items-center gap-5 py-4 px-6">
+    <div ref={barRef} className="hero-preflight flex flex-col items-center gap-4 py-3 px-6">
       <div className="flex flex-wrap items-start justify-center gap-6">
         {mode === 'speed' && (
           <SegmentGroup label="duration">

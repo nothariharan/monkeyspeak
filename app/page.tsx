@@ -22,8 +22,9 @@ import MicButton from '@/components/MicButton'
 import ClarityInput from '@/components/ClarityInput'
 import ResultsPanel from '@/components/ResultsPanel'
 import SettingsPanel from '@/components/SettingsPanel'
-import DoodleAnnotations from '@/components/decor/DoodleAnnotations'
-import SideMonkey from '@/components/decor/SideMonkey'
+import HeroDoodles from '@/components/decor/HeroDoodles'
+import HeroMonkey from '@/components/decor/HeroMonkey'
+// MicButton kept for clarity mode; HeroMonkey is the CTA for speed idle
 function splitPrompt(text: string): string[] {
   return text.split(/\s+/).filter(Boolean)
 }
@@ -368,10 +369,6 @@ export default function Home() {
 
       {isIdle && <ConfigBar />}
 
-      {isIdle && store.mode === 'speed' && (
-        <SideMonkey micHovered={micHovered} />
-      )}
-
       {isRunning && store.mode === 'clarity' && (
         <StatsBar
           mode={store.mode}
@@ -393,56 +390,52 @@ export default function Home() {
               <div className="flex flex-col w-full gap-8">
                 {/* Idle hero */}
                 {isIdle && (
-                  <div ref={heroRef} className="hero-shell relative flex flex-col items-center gap-8 pt-4 pb-2">
-                    <DoodleAnnotations showIdle />
+                  <div
+                    ref={heroRef}
+                    className="hero-shell hero-stage"
+                    data-mic-hovered={micHovered ? 'true' : 'false'}
+                  >
+                    <HeroDoodles micHovered={micHovered} />
 
-                    <div className="hero-animate text-center flex flex-col gap-3 max-w-2xl relative z-[2]">
-                      <h1
-                        className="font-display font-black leading-none tracking-tight"
-                        style={{
-                          fontSize: 'clamp(2rem, 6vw, 3.5rem)',
-                          color: 'var(--text-active)',
-                        }}
-                      >
-                        How fast can you speak
-                      </h1>
-                      <p className="font-mono text-sm md:text-base" style={{ color: 'var(--text-stats)' }}>
-                        Read it. Say it.{' '}
-                        <span style={{ color: 'var(--accent)', textDecoration: 'underline', textUnderlineOffset: 3 }}>
-                          Beat your score.
-                        </span>
-                      </p>
-                    </div>
-
-                    {/* Mic — centered */}
-                    <div className="hero-animate relative flex items-center justify-center w-full z-[2]">
-                      <MicButton
-                        onStart={handleStart}
-                        micState={store.micState}
-                        onHoverChange={setMicHovered}
-                      />
-                    </div>
-
-                    {startError && (
-                      <div
-                        role="alert"
-                        className="clean-card-sm px-4 py-3 flex items-center justify-between gap-4 w-full max-w-md"
-                        style={{
-                          background: 'color-mix(in srgb, var(--error) 12%, var(--surface))',
-                          color: 'var(--error)',
-                          fontSize: '0.85rem',
-                        }}
-                      >
-                        <span className="font-mono">{startError}</span>
-                        <button
-                          onClick={() => setStartError(null)}
-                          aria-label="Dismiss error"
-                          style={{ cursor: 'pointer', background: 'none', border: 'none', color: 'inherit', fontSize: '1rem' }}
-                        >
-                          ✕
-                        </button>
+                    <div className="hero-stage-content">
+                      <div className="hero-animate hero-title-block">
+                        <h1 className="hero-title font-display font-black">
+                          how fast<span className="hero-title-accent">⚡</span>can you speak{' '}
+                          <span className="hero-title-emoji">🙊</span>
+                        </h1>
+                        <p className="hero-subtitle font-mono">
+                          read it. say it.{' '}
+                          <span className="hero-subtitle-highlight">beat your score.</span>
+                        </p>
                       </div>
-                    )}
+
+                      {startError && (
+                        <div
+                          role="alert"
+                          className="hero-animate clean-card-sm px-4 py-3 flex items-center justify-between gap-4 w-full max-w-md"
+                          style={{
+                            background: 'color-mix(in srgb, var(--error) 12%, var(--surface))',
+                            color: 'var(--error)',
+                            fontSize: '0.85rem',
+                          }}
+                        >
+                          <span className="font-mono">{startError}</span>
+                          <button
+                            onClick={() => setStartError(null)}
+                            aria-label="Dismiss error"
+                            style={{ cursor: 'pointer', background: 'none', border: 'none', color: 'inherit', fontSize: '1rem' }}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    <HeroMonkey
+                      onStart={handleStart}
+                      micState={store.micState}
+                      onHoverChange={setMicHovered}
+                    />
                   </div>
                 )}
 
