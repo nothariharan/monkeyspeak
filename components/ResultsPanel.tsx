@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { gsap } from 'gsap'
 import { generateShareCard } from '@/lib/shareCard'
+import SessionGraph from '@/components/game/SessionGraph'
 import type { DiffWord, SpeedResults } from '@/store/testStore'
 
 interface ResultsPanelProps {
@@ -342,6 +343,10 @@ export default function ResultsPanel({
               }
             />
           </div>
+
+          {results.timeline && results.timeline.wpm.length > 1 && (
+            <SessionGraph timeline={results.timeline} durationSec={duration} />
+          )}
 
           {/* Breakdown */}
           <div className="clean-card-sm stat-card flex flex-col gap-3 p-5">

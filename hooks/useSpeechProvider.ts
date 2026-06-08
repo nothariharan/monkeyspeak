@@ -16,6 +16,8 @@ export interface EnrichedWord {
 export interface SpeechProviderState {
   /** Current interim (unconfirmed) transcript from the STT engine. */
   interimText: string
+  /** Non-final spoken words used only for immediate live UI progress. */
+  previewWords: string[]
   /** Words that have been finalised by the STT engine this session. */
   confirmedWords: string[]
   /** Number of filler words detected this session. */

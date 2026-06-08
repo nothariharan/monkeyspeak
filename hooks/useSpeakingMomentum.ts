@@ -2,10 +2,11 @@
 
 import { useRef, useState, useEffect } from 'react'
 
-const MOMENTUM_DRAIN = 0.7
-const IDLE_MS = 700
+const MOMENTUM_DRAIN = 0.55
+const IDLE_MS = 900
 const MIN_GAP_SEC = 0.1
 const MAX_GAP_SEC = 4
+const VOICE_THRESHOLD = 0.06
 
 /** Map words-per-second to a 0–100 momentum score. */
 function rateToMomentum(wordsPerSec: number): number {
@@ -17,18 +18,29 @@ interface UseSpeakingMomentumOptions {
   dissolvedCount: number
   rawWpms: number[]
   isActive: boolean
+  energy: number
+  isSpeaking: boolean
 }
 
 export function useSpeakingMomentum({
   dissolvedCount,
   rawWpms,
   isActive,
+  energy,
+  isSpeaking,
 }: UseSpeakingMomentumOptions): number {
   const momentumRef = useRef(0)
   const lastDissolvedRef = useRef(0)
   const lastAdvanceAtRef = useRef<number | null>(null)
+  const energyRef = useRef(energy)
+  const isSpeakingRef = useRef(isSpeaking)
   const [momentum, setMomentum] = useState(0)
   const frameCountRef = useRef(0)
+
+  useEffect(() => {
+    energyRef.current = energy
+    isSpeakingRef.current = isSpeaking
+  }, [energy, isSpeaking])
 
   useEffect(() => {
     if (!isActive) {
@@ -75,14 +87,27 @@ export function useSpeakingMomentum({
     const tick = () => {
       const now = Date.now()
       const lastAt = lastAdvanceAtRef.current
-      const idle = lastAt === null || now - lastAt > IDLE_MS
+      const speaking = isSpeakingRef.current
+      const currentEnergy = energyRef.current
+      const voiceActive = speaking && currentEnergy > VOICE_THRESHOLD
+
+      const idle =
+        !voiceActive && (lastAt === null || now - lastAt > IDLE_MS)
+
+      if (voiceActive) {
+        const voiceTarget = Math.min(100, currentEnergy * 85)
+        momentumRef.current = Math.min(
+          100,
+          momentumRef.current * 0.88 + voiceTarget * 0.12
+        )
+      }
 
       if (idle) {
         momentumRef.current = Math.max(0, momentumRef.current - MOMENTUM_DRAIN)
-      } else {
+      } else if (!voiceActive && lastAt !== null) {
         const sinceWord = (now - lastAt) / 1000
-        if (sinceWord > 0.35) {
-          momentumRef.current = Math.max(0, momentumRef.current - MOMENTUM_DRAIN * 0.4)
+        if (sinceWord > 0.4) {
+          momentumRef.current = Math.max(0, momentumRef.current - MOMENTUM_DRAIN * 0.35)
         }
       }
 

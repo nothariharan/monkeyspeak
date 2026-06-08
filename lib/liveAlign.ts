@@ -21,7 +21,7 @@ export interface LiveScorerSnapshot {
   events: GameEvent[]
 }
 
-const LOOKAHEAD = 2
+const LOOKAHEAD = 3
 const HEIGHT_CORRECT = 1
 const HEIGHT_INCORRECT = -0.5
 const HEIGHT_MISSED = -0.3

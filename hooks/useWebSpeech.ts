@@ -60,6 +60,7 @@ export function useWebSpeech(): SpeechProvider {
   const { settings } = useTestStore()
 
   const [interimText, setInterimText] = useState('')
+  const [previewWords, setPreviewWords] = useState<string[]>([])
   const [confirmedWords, setConfirmedWords] = useState<string[]>([])
   const [fillerCount, setFillerCount] = useState(0)
   const [isListening, setIsListening] = useState(false)
@@ -72,23 +73,17 @@ export function useWebSpeech(): SpeechProvider {
 
   /** Complete interim tokens (not the trailing partial); used to strip finals only. */
   const interimEmittedTokensRef = useRef<string[]>([])
-  const interimDebounceRef = useRef<number | null>(null)
-
-  const clearInterimDebounce = useCallback(() => {
-    if (interimDebounceRef.current != null) {
-      window.clearTimeout(interimDebounceRef.current)
-      interimDebounceRef.current = null
-    }
-  }, [])
+  const previewWordsRef = useRef<string[]>([])
 
   const reset = useCallback(() => {
-    clearInterimDebounce()
     interimEmittedTokensRef.current = []
     setInterimText('')
+    previewWordsRef.current = []
+    setPreviewWords([])
     setConfirmedWords([])
     setFillerCount(0)
     setError(null)
-  }, [clearInterimDebounce])
+  }, [])
 
   const stopSession = useCallback(() => {
     listeningRef.current = false
@@ -102,10 +97,11 @@ export function useWebSpeech(): SpeechProvider {
     }
     setMicStream(null)
     setIsListening(false)
-    clearInterimDebounce()
     setInterimText('')
+    previewWordsRef.current = []
+    setPreviewWords([])
     interimEmittedTokensRef.current = []
-  }, [clearInterimDebounce])
+  }, [])
 
   const startSession = useCallback(async (): Promise<SessionStartResult> => {
     const Ctor = getSpeechRecognitionCtor()
@@ -168,15 +164,13 @@ export function useWebSpeech(): SpeechProvider {
           }
         }
 
-        // ── Handle new finals ──────────────────────────────────────────────
-        let hasNewFinal = false
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          if (event.results[i]?.isFinal) { hasNewFinal = true; break }
-        }
-        if (hasNewFinal) {
-          clearInterimDebounce()
-          // Don't clear interimText here — the interim display section below
-          // handles it based on remaining non-final results.
+        const previewBatch = interimEmittedTokensRef.current.filter((word) => !isFiller(word))
+        if (previewBatch.length === 0) {
+          previewWordsRef.current = []
+          setPreviewWords([])
+        } else if (previewBatch.length >= previewWordsRef.current.length) {
+          previewWordsRef.current = previewBatch
+          setPreviewWords(previewBatch)
         }
 
         const finalBatch: string[] = []
@@ -197,21 +191,24 @@ export function useWebSpeech(): SpeechProvider {
           let newFillers = 0
           const realWords: string[] = []
           for (const w of finalBatch) {
-            if (isFiller(w)) {
+            const norm = w.toLowerCase().replace(/[^a-z0-9']/g, '').trim()
+            if (!norm) continue
+            if (isFiller(norm)) {
               newFillers++
             } else {
-              realWords.push(w)
+              realWords.push(norm)
             }
           }
           if (newFillers > 0) setFillerCount((c) => c + newFillers)
           if (realWords.length > 0) {
             setConfirmedWords((prev) => [...prev, ...realWords])
           }
+          previewWordsRef.current = []
+          setPreviewWords([])
           interimEmittedTokensRef.current = []
         }
 
-        // ── Interim display (immediate — no debounce needed)
-        clearInterimDebounce()
+        // ── Interim display (immediate)
         if (interimTrim.length === 0) {
           setInterimText('')
         } else {
@@ -229,8 +226,9 @@ export function useWebSpeech(): SpeechProvider {
         }
         setMicStream(null)
         recognitionRef.current = null
-        clearInterimDebounce()
         setInterimText('')
+        previewWordsRef.current = []
+        setPreviewWords([])
         setIsListening(false)
       }
 
@@ -268,15 +266,18 @@ export function useWebSpeech(): SpeechProvider {
       streamRef.current = null
       recognitionRef.current = null
       listeningRef.current = false
+      previewWordsRef.current = []
+      setPreviewWords([])
       return { ok: false, error: msg }
     }
-  }, [settings.language, clearInterimDebounce])
+  }, [settings.language])
 
   // Cleanup on unmount
   useEffect(() => () => { stopSession() }, [stopSession])
 
   return {
     interimText,
+    previewWords,
     confirmedWords,
     fillerCount,
     isListening,

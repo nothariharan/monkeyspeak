@@ -175,6 +175,9 @@ export default function VoiceWave({
       }
       const rms = Math.sqrt(sumSq / timeData.length)
       const envelope = Math.min(1, rms * 5.2)
+      if (envelope > 0.06 && audioCtxRef.current?.state === 'suspended') {
+        void audioCtxRef.current.resume()
+      }
       const t = performance.now() / 1000
       const n = barCountRef.current
 

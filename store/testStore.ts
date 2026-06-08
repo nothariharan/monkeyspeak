@@ -41,6 +41,13 @@ export interface Settings {
   lastSpeedWpm?: number
 }
 
+export interface SessionTimeline {
+  raw: { second: number; wpm: number }[]
+  wpm: { second: number; wpm: number }[]
+  momentum: { second: number; value: number }[]
+  errors: { second: number; wpm: number }[]
+}
+
 export interface SpeedResults {
   netWpm: number
   rawWpm: number
@@ -55,6 +62,8 @@ export interface SpeedResults {
   deltaWpm: number | null
   /** Speaking pace consistency score 0–100. */
   consistency: number
+  /** Per-second WPM + momentum series for the post-session graph. */
+  timeline?: SessionTimeline
 }
 
 interface TestStore {

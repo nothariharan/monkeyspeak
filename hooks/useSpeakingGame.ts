@@ -2,11 +2,14 @@
 
 import { useRef, useState, useEffect, useMemo } from 'react'
 import { LiveScorer, type GameEvent, type WordState } from '@/lib/liveAlign'
+import { computeInterimDissolveIndex } from '@/lib/interimDissolve'
 import { netWpmFromChars, rawWpmFromChars } from '@/lib/stats/wpm'
 
 export interface SpeakingGameState {
   wordStates: WordState[]
   currentIndex: number
+  previewIndex: number
+  displayIndex: number
   streak: number
   height: number
   liveWpm: number
@@ -18,6 +21,7 @@ export interface SpeakingGameState {
 interface UseSpeakingGameOptions {
   prompt: string[]
   confirmedWords: string[]
+  previewWords: string[]
   isActive: boolean
   startedAt: number | null
 }
@@ -25,6 +29,7 @@ interface UseSpeakingGameOptions {
 export function useSpeakingGame({
   prompt,
   confirmedWords,
+  previewWords,
   isActive,
   startedAt,
 }: UseSpeakingGameOptions): SpeakingGameState {
@@ -33,6 +38,8 @@ export function useSpeakingGame({
   const lastWordTimeRef = useRef<number | null>(null)
   const [wordStates, setWordStates] = useState<WordState[]>([])
   const [currentIndex, setCurrentIndex] = useState(0)
+  const [previewIndex, setPreviewIndex] = useState(0)
+  const [displayIndex, setDisplayIndex] = useState(0)
   const [streak, setStreak] = useState(0)
   const [height, setHeight] = useState(0)
   const [liveWpm, setLiveWpm] = useState(0)
@@ -48,6 +55,8 @@ export function useSpeakingGame({
       setRawWpms([])
       setWordStates([])
       setCurrentIndex(0)
+      setPreviewIndex(0)
+      setDisplayIndex(0)
       setStreak(0)
       setHeight(0)
       setLiveWpm(0)
@@ -63,6 +72,8 @@ export function useSpeakingGame({
       const snap = scorerRef.current.snapshot()
       setWordStates(snap.wordStates)
       setCurrentIndex(snap.currentIndex)
+      setPreviewIndex(snap.currentIndex)
+      setDisplayIndex(snap.currentIndex)
     }
   }, [isActive, prompt, startedAt])
 
@@ -94,10 +105,25 @@ export function useSpeakingGame({
 
     setWordStates(snap.wordStates)
     setCurrentIndex(snap.currentIndex)
+    setPreviewIndex((prev) => Math.max(prev, snap.currentIndex))
+    setDisplayIndex((prev) => Math.max(prev, snap.currentIndex))
     setStreak(snap.streak)
     setHeight(snap.height)
     setEvents(scorerRef.current.drainEvents())
   }, [confirmedWords, isActive, startedAt])
+
+  useEffect(() => {
+    if (!isActive) return
+
+    if (previewWords.length === 0) {
+      setPreviewIndex((prev) => Math.max(prev, currentIndex))
+      return
+    }
+
+    const nextPreviewIndex = computeInterimDissolveIndex(previewWords, prompt, currentIndex)
+    setPreviewIndex((prev) => Math.max(prev, currentIndex, nextPreviewIndex))
+    setDisplayIndex((prev) => Math.max(prev, currentIndex, nextPreviewIndex))
+  }, [previewWords, prompt, currentIndex, isActive])
 
   // Live WPM ticker
   useEffect(() => {
@@ -126,6 +152,8 @@ export function useSpeakingGame({
   return {
     wordStates,
     currentIndex,
+    previewIndex,
+    displayIndex,
     streak,
     height,
     liveWpm,

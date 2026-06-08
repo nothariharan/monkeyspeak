@@ -11,6 +11,7 @@ import { diffWords, calcClarityScore } from '@/lib/diff'
 import { alignTranscriptToPrompt, countFillers } from '@/lib/alignTranscriptToPrompt'
 import { netWpmFromChars, rawWpmFromChars } from '@/lib/stats/wpm'
 import { computeConsistency } from '@/lib/stats/consistency'
+import { buildSessionTimeline, type TimelineSample } from '@/lib/stats/timeline'
 import { useSpeakingGame } from '@/hooks/useSpeakingGame'
 
 import Header from '@/components/Header'
@@ -37,6 +38,7 @@ export default function Home() {
   const [micHovered, setMicHovered] = useState(false)
   const heroRef = useRef<HTMLDivElement>(null)
   const gameMetricsRef = useRef({ rawWpms: [] as number[] })
+  const timelineRef = useRef<TimelineSample[]>([])
 
   const [testStartedAt, setTestStartedAt] = useState<number | null>(null)
   const testStartedAtRef = useRef<number | null>(null)
@@ -46,6 +48,7 @@ export default function Home() {
   const sttProvider = store.settings.sttProvider ?? 'webspeech'
   const {
     interimText,
+    previewWords,
     confirmedWords,
     isListening,
     error: sttError,
@@ -64,17 +67,15 @@ export default function Home() {
   const speakingGame = useSpeakingGame({
     prompt: store.prompt,
     confirmedWords,
+    previewWords,
     isActive: isSpeedRunning,
     startedAt: testStartedAt,
   })
 
   useEffect(() => {
     if (store.testState !== 'running' || store.mode !== 'speed') return
-    const interim = interimText.trim()
-    const interimWords = interim ? interim.split(/\s+/).length : 0
-    const liveCount = confirmedWords.length + interimWords
-    setDissolvedCount((c) => Math.min(Math.max(c, liveCount), store.prompt.length))
-  }, [confirmedWords.length, interimText, store.testState, store.mode, store.prompt.length])
+    setDissolvedCount(Math.min(speakingGame.displayIndex, store.prompt.length))
+  }, [store.testState, store.mode, store.prompt.length, speakingGame.displayIndex])
 
   useEffect(() => {
     gameMetricsRef.current.rawWpms = speakingGame.rawWpms
@@ -127,6 +128,7 @@ export default function Home() {
 
     const metrics = gameMetricsRef.current
     const consistency = computeConsistency(metrics.rawWpms)
+    const timeline = buildSessionTimeline(timelineRef.current, diff)
 
     setIsEnding(true)
     window.setTimeout(() => {
@@ -140,6 +142,7 @@ export default function Home() {
         transcript: fullTranscript,
         deltaWpm,
         consistency,
+        timeline,
       })
       s.setTestState('ended')
       setIsEnding(false)
@@ -206,6 +209,7 @@ export default function Home() {
       setDissolvedCount(0)
       setIsEnding(false)
       gameMetricsRef.current = { rawWpms: [] }
+      timelineRef.current = []
       startTimer()
     } else {
       const now = Date.now()
@@ -241,6 +245,7 @@ export default function Home() {
     setDissolvedCount(0)
     setIsEnding(false)
     gameMetricsRef.current = { rawWpms: [] }
+    timelineRef.current = []
     setTestStartedAt(null)
     testStartedAtRef.current = null
     resetProvider()
@@ -259,6 +264,7 @@ export default function Home() {
     setDissolvedCount(0)
     setIsEnding(false)
     gameMetricsRef.current = { rawWpms: [] }
+    timelineRef.current = []
     setTestStartedAt(null)
     testStartedAtRef.current = null
     resetProvider()
@@ -277,6 +283,7 @@ export default function Home() {
     setDissolvedCount(0)
     setIsEnding(false)
     gameMetricsRef.current = { rawWpms: [] }
+    timelineRef.current = []
     setTestStartedAt(null)
     testStartedAtRef.current = null
     resetProvider()
@@ -306,6 +313,8 @@ export default function Home() {
         else {
           setDissolvedCount(0)
           setIsEnding(false)
+          gameMetricsRef.current = { rawWpms: [] }
+          timelineRef.current = []
           setTestStartedAt(null)
           testStartedAtRef.current = null
           resetProvider()
@@ -442,9 +451,11 @@ export default function Home() {
                   <SpeakingGame
                     words={store.prompt}
                     timeRemainingMs={timeRemaining}
+                    totalDurationMs={store.duration * 1000}
                     dissolvedCount={dissolvedCount}
                     micStream={micStream}
                     game={speakingGame}
+                    timelineRef={timelineRef}
                     isEnding={isEnding}
                   />
                 )}

@@ -35,7 +35,7 @@ function buildDeepgramListenUrl(reqUrl) {
     filler_words: 'true',
     vad_events: 'true',
     endpointing: '200',
-    utterance_end_ms: '200',
+    utterance_end_ms: '250',
   }
   for (const [k, v] of Object.entries(defaults)) {
     if (!p.has(k)) p.set(k, v)

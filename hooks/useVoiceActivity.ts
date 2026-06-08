@@ -104,6 +104,10 @@ export function useVoiceActivity({
       const currentEnergy = Math.min(1, rms * 5.2)
       const speaking = currentEnergy > SPEAK_THRESHOLD
 
+      if (speaking && audioCtxRef.current?.state === 'suspended') {
+        void audioCtxRef.current.resume()
+      }
+
       frameCountRef.current++
       if (frameCountRef.current % 4 === 0) {
         setEnergy(currentEnergy)

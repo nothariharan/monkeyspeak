@@ -47,6 +47,9 @@ function buildProxyUrl(language: string): string {
   if (!base) throw new Error('NEXT_PUBLIC_DEEPGRAM_PROXY_URL is not set')
   const url = new URL(base)
   url.searchParams.set('lang', language)
+  url.searchParams.set('interim_results', 'true')
+  url.searchParams.set('vad_events', 'true')
+  url.searchParams.set('utterance_end_ms', '250')
   return url.toString()
 }
 
@@ -71,6 +74,7 @@ async function probeProxyBackendReachable(): Promise<{ ok: boolean; status?: num
 
 export function useDeepgramProvider(enabled = true): SpeechProvider {
   const [interimText, setInterimText]       = useState('')
+  const [previewWords, setPreviewWords]     = useState<string[]>([])
   const [confirmedWords, setConfirmedWords] = useState<string[]>([])
   const [fillerCount, setFillerCount]       = useState(0)
   const [isListening, setIsListening]       = useState(false)
@@ -90,6 +94,7 @@ export function useDeepgramProvider(enabled = true): SpeechProvider {
   const onSpeechEndRef   = useRef<((ts: number) => void) | null>(null)
   const debugBytesSentRef = useRef(0)
   const debugResultsRef   = useRef(0)
+  const previewWordsRef   = useRef<string[]>([])
 
   // ── Pre-warm the proxy WebSocket when Deepgram STT is selected ────────────
   useEffect(() => {
@@ -184,10 +189,14 @@ export function useDeepgramProvider(enabled = true): SpeechProvider {
     setMicStream(null)
     setIsListening(false)
     setInterimText('')
+    previewWordsRef.current = []
+    setPreviewWords([])
   }, [])
 
   const reset = useCallback(() => {
     setInterimText('')
+    previewWordsRef.current = []
+    setPreviewWords([])
     setConfirmedWords([])
     setFillerCount(0)
     setError(null)
@@ -220,25 +229,45 @@ export function useDeepgramProvider(enabled = true): SpeechProvider {
 
       if (!r.is_final) {
         setInterimText(transcript)
+        const previewBatch = (wordObjs.length > 0
+          ? wordObjs.map((w) => w.word)
+          : transcript.split(/\s+/).filter(Boolean))
+          .map((word) => word.toLowerCase().replace(/[^a-z0-9']/g, '').trim())
+          .filter(Boolean)
+          .filter((word) => !isFiller(word))
+
+        if (previewBatch.length === 0) {
+          previewWordsRef.current = []
+          setPreviewWords([])
+        } else if (previewBatch.length >= previewWordsRef.current.length) {
+          previewWordsRef.current = previewBatch
+          setPreviewWords(previewBatch)
+        }
         return
       }
 
       setInterimText('')
+      previewWordsRef.current = []
+      setPreviewWords([])
       let newFillers = 0
       const realWords: string[] = []
 
       if (wordObjs.length > 0) {
         for (const w of wordObjs) {
-          if (isFiller(w.word)) {
+          const normalized = w.word.toLowerCase().replace(/[^a-z0-9']/g, '').trim()
+          if (!normalized) continue
+          if (isFiller(normalized)) {
             newFillers++
           } else {
-            realWords.push(w.word)
+            realWords.push(normalized)
           }
         }
       } else {
         for (const w of transcript.split(/\s+/).filter(Boolean)) {
-          if (isFiller(w)) { newFillers++ } else {
-            realWords.push(w)
+          const normalized = w.toLowerCase().replace(/[^a-z0-9']/g, '').trim()
+          if (!normalized) continue
+          if (isFiller(normalized)) { newFillers++ } else {
+            realWords.push(normalized)
           }
         }
       }
@@ -515,5 +544,5 @@ export function useDeepgramProvider(enabled = true): SpeechProvider {
 
   useEffect(() => () => { _teardown() }, [_teardown])
 
-  return { interimText, confirmedWords, fillerCount, isListening, error, micStream, armSession, startSession, stopSession, reset, onSpeechStart, onSpeechEnd }
+  return { interimText, previewWords, confirmedWords, fillerCount, isListening, error, micStream, armSession, startSession, stopSession, reset, onSpeechStart, onSpeechEnd }
 }
