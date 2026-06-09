@@ -117,6 +117,7 @@ export function useSpeakingGame({
 
     if (previewWords.length === 0) {
       setPreviewIndex((prev) => Math.max(prev, currentIndex))
+      setDisplayIndex((prev) => Math.max(prev, currentIndex))
       return
     }
 

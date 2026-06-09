@@ -10,51 +10,63 @@ function getSpeechRecognitionCtor(): SpeechRecognitionConstructor | null {
   return window.SpeechRecognition ?? window.webkitSpeechRecognition ?? null
 }
 
-/**
- * Short-lived recognition start/stop to warm the browser + cloud pipeline (best-effort).
- * Uses a separate instance from the live session.
- */
-export function prewarmWebSpeechRecognition(lang: string): Promise<void> {
-  const Ctor = getSpeechRecognitionCtor()
-  if (!Ctor) return Promise.resolve()
+function normalizeSpokenToken(raw: string): string {
+  return raw.toLowerCase().replace(/[^a-z0-9']/g, '').trim()
+}
 
-  return new Promise((resolve) => {
-    const r = new Ctor()
-    r.continuous = false
-    r.interimResults = false
-    r.lang = lang
-    let settled = false
-    const done = () => {
-      if (settled) return
-      settled = true
-      try {
-        r.onstart = null
-        r.onend = null
-        r.onerror = null
-        r.abort()
-      } catch {
-        // ignore
+function tokenizeInterim(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s']/g, '')
+    .split(/\s+/)
+    .filter(Boolean)
+}
+
+function toRealWords(rawWords: string[]): string[] {
+  const out: string[] = []
+  for (const w of rawWords) {
+    const norm = normalizeSpokenToken(w)
+    if (!norm || isFiller(norm)) continue
+    out.push(norm)
+  }
+  return out
+}
+
+/** Append spoken words without duplicating overlap at the boundary. */
+function appendUniqueWords(prev: string[], incoming: string[]): string[] {
+  if (incoming.length === 0) return prev
+  let overlap = 0
+  for (let k = Math.min(prev.length, incoming.length); k > 0; k--) {
+    let match = true
+    for (let i = 0; i < k; i++) {
+      if (prev[prev.length - k + i] !== incoming[i]) {
+        match = false
+        break
       }
-      resolve()
     }
-    r.onstart = () => { window.setTimeout(done, 120) }
-    r.onend = () => done()
-    r.onerror = () => done()
-    window.setTimeout(done, 2500)
-    try { r.start() } catch { done() }
-  })
+    if (match) {
+      overlap = k
+      break
+    }
+  }
+  if (overlap === incoming.length) return prev
+  return [...prev, ...incoming.slice(overlap)]
+}
+
+/** Concatenate every result segment (final + interim) into one live transcript. */
+function cumulativeTranscript(results: SpeechRecognitionResultList): string {
+  let text = ''
+  for (let i = 0; i < results.length; i++) {
+    text += results[i]?.[0]?.transcript ?? ''
+  }
+  return text.trim()
 }
 
 /**
  * Browser Web Speech API shaped to the SpeechProvider interface.
  *
- * Confirmed words are final-only (monotonic). Interim complete tokens are kept
- * only in `interimEmittedTokensRef` for final-batch dedupe, not merged into
- * confirmed state.
- *  - prewarm on startSession
- *  - continuous restart on onend
- *
- * Filler detection now happens inside this hook so the interface is self-contained.
+ * Does NOT open getUserMedia — SpeechRecognition owns the mic on its own.
+ * A parallel getUserMedia stream prevents recognition on many Windows setups.
  */
 export function useWebSpeech(): SpeechProvider {
   const { settings } = useTestStore()
@@ -67,46 +79,86 @@ export function useWebSpeech(): SpeechProvider {
   const [error, setError] = useState<string | null>(null)
   const [micStream, setMicStream] = useState<MediaStream | null>(null)
 
-  const streamRef = useRef<MediaStream | null>(null)
   const recognitionRef = useRef<SpeechRecognition | null>(null)
   const listeningRef = useRef(false)
-
-  /** Complete interim tokens (not the trailing partial); used to strip finals only. */
-  const interimEmittedTokensRef = useRef<string[]>([])
   const previewWordsRef = useRef<string[]>([])
+  const stableConfirmedCountRef = useRef(0)
+  const singleTokenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingSingleTokenRef = useRef<string | null>(null)
+
+  const clearSingleTokenTimer = useCallback(() => {
+    if (singleTokenTimerRef.current != null) {
+      clearTimeout(singleTokenTimerRef.current)
+      singleTokenTimerRef.current = null
+    }
+    pendingSingleTokenRef.current = null
+  }, [])
 
   const reset = useCallback(() => {
-    interimEmittedTokensRef.current = []
+    clearSingleTokenTimer()
+    stableConfirmedCountRef.current = 0
     setInterimText('')
     previewWordsRef.current = []
     setPreviewWords([])
     setConfirmedWords([])
     setFillerCount(0)
     setError(null)
-  }, [])
+  }, [clearSingleTokenTimer])
 
   const stopSession = useCallback(() => {
+    clearSingleTokenTimer()
     listeningRef.current = false
     if (recognitionRef.current) {
       try { recognitionRef.current.abort() } catch { /* ignore */ }
       recognitionRef.current = null
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop())
-      streamRef.current = null
     }
     setMicStream(null)
     setIsListening(false)
     setInterimText('')
     previewWordsRef.current = []
     setPreviewWords([])
-    interimEmittedTokensRef.current = []
+    stableConfirmedCountRef.current = 0
+  }, [clearSingleTokenTimer])
+
+  const promoteStableTokens = useCallback((tokens: string[]) => {
+    const stable =
+      tokens.length > 1
+        ? toRealWords(tokens.slice(0, -1))
+        : []
+
+    if (stable.length > stableConfirmedCountRef.current) {
+      const newStable = stable.slice(stableConfirmedCountRef.current)
+      stableConfirmedCountRef.current = stable.length
+      if (newStable.length > 0) {
+        setConfirmedWords((prev) => [...prev, ...newStable])
+      }
+    }
   }, [])
+
+  const scheduleSingleTokenPromotion = useCallback((token: string) => {
+    const norm = normalizeSpokenToken(token)
+    if (!norm || isFiller(norm)) {
+      clearSingleTokenTimer()
+      return
+    }
+    if (pendingSingleTokenRef.current === norm && singleTokenTimerRef.current != null) return
+
+    clearSingleTokenTimer()
+    pendingSingleTokenRef.current = norm
+    singleTokenTimerRef.current = setTimeout(() => {
+      singleTokenTimerRef.current = null
+      pendingSingleTokenRef.current = null
+      setConfirmedWords((prev) => {
+        if (prev[prev.length - 1] === norm) return prev
+        return [...prev, norm]
+      })
+    }, 450)
+  }, [clearSingleTokenTimer])
 
   const startSession = useCallback(async (): Promise<SessionStartResult> => {
     const Ctor = getSpeechRecognitionCtor()
     if (!Ctor) {
-      const msg = 'Web Speech API not supported in this browser'
+      const msg = 'Web Speech API not supported in this browser (use Chrome or Edge)'
       setError(msg)
       return { ok: false, error: msg }
     }
@@ -114,21 +166,11 @@ export function useWebSpeech(): SpeechProvider {
     if (listeningRef.current && recognitionRef.current) return { ok: true }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          channelCount: { ideal: 1 },
-          sampleRate: { ideal: 16000 },
-          echoCancellation: true,
-          noiseSuppression: true,
-        },
-        video: false,
-      })
-      streamRef.current = stream
-      setMicStream(stream)
+      clearSingleTokenTimer()
+      stableConfirmedCountRef.current = 0
+      setMicStream(null)
 
       const lang = settings.language ?? 'en-US'
-      prewarmWebSpeechRecognition(lang).catch(() => {})
-
       const recognition = new Ctor()
       recognitionRef.current = recognition
       recognition.continuous = true
@@ -137,34 +179,10 @@ export function useWebSpeech(): SpeechProvider {
       recognition.lang = lang
 
       recognition.onresult = (event: SpeechRecognitionEvent) => {
-        // Collect ALL current non-final results for interim display.
-        // Scan from 0 (not event.resultIndex) because older non-final
-        // results at lower indices may still exist and contain speech.
-        let interim = ''
-        for (let i = 0; i < event.results.length; i++) {
-          const r = event.results[i]
-          if (!r) continue
-          if (!r.isFinal) interim += r[0]?.transcript ?? ''
-        }
-        const interimTrim = interim.trim()
+        const live = cumulativeTranscript(event.results)
+        const tokens = live.length > 0 ? tokenizeInterim(live) : []
 
-        if (interimTrim.length === 0) {
-          interimEmittedTokensRef.current = []
-        } else {
-          const tokens = interimTrim
-            .toLowerCase()
-            .replace(/[^a-z0-9\s]/g, '')
-            .split(/\s+/)
-            .filter(Boolean)
-          if (tokens.length > 1) {
-            const safeTokens = tokens.slice(0, -1)
-            interimEmittedTokensRef.current = safeTokens
-          } else {
-            interimEmittedTokensRef.current = []
-          }
-        }
-
-        const previewBatch = interimEmittedTokensRef.current.filter((word) => !isFiller(word))
+        const previewBatch = toRealWords(tokens)
         if (previewBatch.length === 0) {
           previewWordsRef.current = []
           setPreviewWords([])
@@ -173,17 +191,21 @@ export function useWebSpeech(): SpeechProvider {
           setPreviewWords(previewBatch)
         }
 
+        promoteStableTokens(tokens)
+
+        if (tokens.length === 1) {
+          scheduleSingleTokenPromotion(tokens[0]!)
+        } else {
+          clearSingleTokenTimer()
+        }
+
         const finalBatch: string[] = []
         for (let i = event.resultIndex; i < event.results.length; i++) {
           const r = event.results[i]
-          if (r.isFinal) {
+          if (r?.isFinal) {
+            clearSingleTokenTimer()
             const t = r[0]?.transcript?.trim() ?? ''
-            if (t) {
-              for (const w of t.split(/\s+/)) {
-                const trimmed = w.trim()
-                if (trimmed) finalBatch.push(trimmed)
-              }
-            }
+            if (t) finalBatch.push(...t.split(/\s+/).filter(Boolean))
           }
         }
 
@@ -191,40 +213,34 @@ export function useWebSpeech(): SpeechProvider {
           let newFillers = 0
           const realWords: string[] = []
           for (const w of finalBatch) {
-            const norm = w.toLowerCase().replace(/[^a-z0-9']/g, '').trim()
+            const norm = normalizeSpokenToken(w)
             if (!norm) continue
-            if (isFiller(norm)) {
-              newFillers++
-            } else {
-              realWords.push(norm)
-            }
+            if (isFiller(norm)) newFillers++
+            else realWords.push(norm)
           }
           if (newFillers > 0) setFillerCount((c) => c + newFillers)
           if (realWords.length > 0) {
-            setConfirmedWords((prev) => [...prev, ...realWords])
+            setConfirmedWords((prev) => appendUniqueWords(prev, realWords))
           }
+          stableConfirmedCountRef.current = 0
           previewWordsRef.current = []
           setPreviewWords([])
-          interimEmittedTokensRef.current = []
         }
 
-        // ── Interim display (immediate)
-        if (interimTrim.length === 0) {
-          setInterimText('')
-        } else {
-          setInterimText(interimTrim)
-        }
+        setInterimText(live)
       }
 
       recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
         if (event.error === 'no-speech' || event.error === 'aborted') return
         listeningRef.current = false
-        setError(event.error)
-        if (streamRef.current) {
-          streamRef.current.getTracks().forEach((t) => t.stop())
-          streamRef.current = null
-        }
-        setMicStream(null)
+        clearSingleTokenTimer()
+        setError(
+          event.error === 'not-allowed'
+            ? 'Microphone permission denied — allow mic access for this site'
+            : event.error === 'network'
+              ? 'Speech recognition needs an internet connection'
+              : `Speech recognition error: ${event.error}`
+        )
         recognitionRef.current = null
         setInterimText('')
         previewWordsRef.current = []
@@ -234,7 +250,10 @@ export function useWebSpeech(): SpeechProvider {
 
       recognition.onend = () => {
         if (!listeningRef.current || !recognitionRef.current) return
-        try { recognitionRef.current.start() } catch { /* already started */ }
+        window.setTimeout(() => {
+          if (!listeningRef.current || !recognitionRef.current) return
+          try { recognitionRef.current.start() } catch { /* already started */ }
+        }, 300)
       }
 
       listeningRef.current = true
@@ -243,11 +262,6 @@ export function useWebSpeech(): SpeechProvider {
       } catch {
         listeningRef.current = false
         recognitionRef.current = null
-        if (streamRef.current) {
-          streamRef.current.getTracks().forEach((t) => t.stop())
-          streamRef.current = null
-        }
-        setMicStream(null)
         setIsListening(false)
         const msg = 'Could not start speech recognition'
         setError(msg)
@@ -257,22 +271,16 @@ export function useWebSpeech(): SpeechProvider {
       setIsListening(true)
       return { ok: true }
     } catch (err: unknown) {
-      const isDenied =
-        err instanceof DOMException &&
-        (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')
-      const msg = isDenied ? 'Microphone permission denied' : 'Could not start microphone'
+      const msg = 'Could not start speech recognition'
       setError(msg)
-      setMicStream(null)
-      streamRef.current = null
       recognitionRef.current = null
       listeningRef.current = false
       previewWordsRef.current = []
       setPreviewWords([])
       return { ok: false, error: msg }
     }
-  }, [settings.language])
+  }, [settings.language, clearSingleTokenTimer, promoteStableTokens, scheduleSingleTokenPromotion])
 
-  // Cleanup on unmount
   useEffect(() => () => { stopSession() }, [stopSession])
 
   return {

@@ -22,7 +22,7 @@ import MicButton from '@/components/MicButton'
 import ClarityInput from '@/components/ClarityInput'
 import ResultsPanel from '@/components/ResultsPanel'
 import SettingsPanel from '@/components/SettingsPanel'
-import HeroDoodles from '@/components/decor/HeroDoodles'
+import HeroFloatingCards from '@/components/decor/HeroFloatingCards'
 import HeroMonkey from '@/components/decor/HeroMonkey'
 // MicButton kept for clarity mode; HeroMonkey is the CTA for speed idle
 function splitPrompt(text: string): string[] {
@@ -54,7 +54,6 @@ export default function Home() {
     isListening,
     error: sttError,
     micStream,
-    armSession,
     startSession,
     stopSession,
     reset: resetProvider,
@@ -189,17 +188,9 @@ export default function Home() {
     if (store.mode === 'speed') {
       resetProvider()
 
-      if (armSession) {
-        const armed = await armSession()
-        if (!armed.ok) {
-          setStartError(armed.error)
-          return
-        }
-      }
-
       const didStart = await startSession()
       if (!didStart.ok) {
-        setStartError(didStart.error)
+        setStartError(didStart.error ?? 'Could not start speech recognition')
         return
       }
 
@@ -219,7 +210,7 @@ export default function Home() {
       testStartedAtRef.current = now
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store.mode, store.prompt.length, loadPrompt, armSession, startSession, resetProvider, startTimer])
+  }, [store.mode, store.prompt.length, loadPrompt, startSession, resetProvider, startTimer])
 
   const handleStop = useCallback(() => {
     const s = useTestStore.getState()
@@ -381,7 +372,7 @@ export default function Home() {
 
       <main
         className={`flex-1 flex flex-col items-center px-6 py-8 mx-auto w-full ${
-          store.mode === 'speed' ? 'max-w-[900px]' : 'max-w-3xl'
+          store.mode === 'speed' ? (isIdle ? 'max-w-[1180px]' : 'max-w-[900px]') : 'max-w-3xl'
         } ${isIdle ? 'justify-start' : 'justify-center'}`}
       >
         {!isEnded ? (
@@ -395,8 +386,6 @@ export default function Home() {
                     className="hero-shell hero-stage"
                     data-mic-hovered={micHovered ? 'true' : 'false'}
                   >
-                    <HeroDoodles micHovered={micHovered} />
-
                     <div className="hero-stage-content">
                       <div className="hero-animate hero-title-block">
                         <h1 className="hero-title font-display font-black">
@@ -431,11 +420,14 @@ export default function Home() {
                       )}
                     </div>
 
-                    <HeroMonkey
-                      onStart={handleStart}
-                      micState={store.micState}
-                      onHoverChange={setMicHovered}
-                    />
+                    <div className="hero-cta-zone hero-animate">
+                      <HeroFloatingCards />
+                      <HeroMonkey
+                        onStart={handleStart}
+                        micState={store.micState}
+                        onHoverChange={setMicHovered}
+                      />
+                    </div>
                   </div>
                 )}
 
@@ -450,6 +442,11 @@ export default function Home() {
                     game={speakingGame}
                     timelineRef={timelineRef}
                     isEnding={isEnding}
+                    interimText={interimText}
+                    showLiveTranscript={store.settings.showLiveTranscript}
+                    sttError={sttError}
+                    sttProvider={sttProvider}
+                    heardWordCount={confirmedWords.length}
                   />
                 )}
               </div>

@@ -1,16 +1,12 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { gsap } from 'gsap'
 import { buildPingPongCols } from '@/lib/spriteUtils'
 
 const FRAME_X = ['0%', '25%', '50%', '75%', '100%']
-const BG_Y = '53%'
-
-const IDLE_SEQ  = buildPingPongCols([0, 1, 2, 3, 4])
-const HOVER_SEQ = [1, 2, 3, 4, 3, 2, 1, 0]
-const IDLE_STEP  = 2.4 / IDLE_SEQ.length
-const HOVER_STEP = 1.0 / HOVER_SEQ.length
+const IDLE_SEQ = buildPingPongCols([0, 1, 2, 3, 4])
+const IDLE_STEP = 0.34
 
 interface HeroMonkeyProps {
   onStart: () => void
@@ -20,41 +16,39 @@ interface HeroMonkeyProps {
 
 export default function HeroMonkey({ onStart, micState, onHoverChange }: HeroMonkeyProps) {
   const wrapRef    = useRef<HTMLDivElement>(null)
-  const btnRef     = useRef<HTMLButtonElement>(null)
+  const mascotRef  = useRef<HTMLDivElement>(null)
   const spriteRef  = useRef<HTMLDivElement>(null)
+  const btnRef     = useRef<HTMLButtonElement>(null)
   const ctxRef     = useRef<gsap.Context | null>(null)
   const frameCtxRef = useRef<gsap.Context | null>(null)
   const reducedRef = useRef(false)
-  const [hovered, setHovered] = useState(false)
 
   const isDenied  = micState === 'denied' || micState === 'error'
   const isLoading = micState === 'requesting'
 
-  /* ── paint one sprite frame ── */
   const setFrame = (col: number) => {
     if (spriteRef.current) spriteRef.current.style.backgroundPositionX = FRAME_X[col] ?? '0%'
   }
 
-  /* ── start/restart the frame loop ── */
-  const startLoop = (isHovered: boolean) => {
+  const startSlowMicLoop = () => {
     frameCtxRef.current?.revert()
     frameCtxRef.current = null
 
-    if (reducedRef.current) { setFrame(2); return }
-
-    const seq  = isHovered ? HOVER_SEQ : IDLE_SEQ
-    const step = isHovered ? HOVER_STEP : IDLE_STEP
+    if (reducedRef.current) {
+      setFrame(2)
+      return
+    }
 
     frameCtxRef.current = gsap.context(() => {
-      const tl = gsap.timeline({ repeat: -1 })
-      for (const col of seq) {
+      const tl = gsap.timeline({ repeat: -1, repeatDelay: 1.35 })
+      for (const col of IDLE_SEQ) {
         tl.call(() => setFrame(col))
-        tl.to({}, { duration: step })
+        tl.to({}, { duration: IDLE_STEP })
       }
     })
   }
 
-  /* ── mount: entrance + bob + initial frame loop ── */
+  /* ── mount: entrance + bob ── */
   useEffect(() => {
     const wrap = wrapRef.current
     if (!wrap) return
@@ -75,19 +69,20 @@ export default function HeroMonkey({ onStart, micState, onHoverChange }: HeroMon
       const mm = gsap.matchMedia()
       mm.add('(prefers-reduced-motion: reduce)', () => {
         reducedRef.current = true
-        startLoop(false)
+        startSlowMicLoop()
       })
       mm.add('(prefers-reduced-motion: no-preference)', () => {
         reducedRef.current = false
-        gsap.to(wrap, {
-          y: -9,
-          duration: 2.5,
+        gsap.to(mascotRef.current, {
+          y: -5,
+          rotate: 1.2,
+          duration: 3.2,
           ease: 'sine.inOut',
           yoyo: true,
           repeat: -1,
           delay: 1.05,
         })
-        startLoop(false)
+        startSlowMicLoop()
       })
     }, wrapRef)
 
@@ -98,25 +93,21 @@ export default function HeroMonkey({ onStart, micState, onHoverChange }: HeroMon
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  /* ── restart frame loop on hover change ── */
-  useEffect(() => {
-    startLoop(hovered)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hovered])
-
   /* ── interaction handlers ── */
   const handleEnter = () => {
-    setHovered(true)
     onHoverChange?.(true)
-    if (btnRef.current && !reducedRef.current)
+    if (!reducedRef.current) {
       gsap.to(btnRef.current, { scale: 1.08, duration: 0.18, ease: 'power2.out' })
+      gsap.to(mascotRef.current, { y: -8, rotate: -1.5, duration: 0.35, ease: 'power2.out' })
+    }
   }
 
   const handleLeave = () => {
-    setHovered(false)
     onHoverChange?.(false)
-    if (btnRef.current && !reducedRef.current)
+    if (!reducedRef.current) {
       gsap.to(btnRef.current, { scale: 1, duration: 0.18, ease: 'power2.out' })
+      gsap.to(mascotRef.current, { y: 0, rotate: 0, duration: 0.45, ease: 'power2.out' })
+    }
   }
 
   const handleClick = () => {
@@ -129,8 +120,21 @@ export default function HeroMonkey({ onStart, micState, onHoverChange }: HeroMon
   return (
     <div className="hero-monkey-stage">
       <div ref={wrapRef} className="hero-monkey-wrap">
+        <div
+          ref={mascotRef}
+          className="hero-monkey-mascot"
+          aria-hidden
+        >
+          <div ref={spriteRef} className="hero-monkey-sprite" />
 
-        {!isDenied && !isLoading && <span className="hero-monkey-ring" aria-hidden />}
+          {isLoading && (
+            <div className="hero-monkey-overlay">
+              <svg className="animate-spin" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.5">
+                <path d="M21 12a9 9 0 1 1-6.219-8.56" strokeLinecap="round" />
+              </svg>
+            </div>
+          )}
+        </div>
 
         <button
           ref={btnRef}
@@ -141,35 +145,22 @@ export default function HeroMonkey({ onStart, micState, onHoverChange }: HeroMon
           onFocus={handleEnter}
           onBlur={handleLeave}
           disabled={isLoading || isDenied}
-          aria-label="Click to start speaking"
-          className="hero-monkey-btn"
+          aria-label="Start speaking"
+          className="hero-start-btn"
           data-denied={isDenied ? 'true' : 'false'}
         >
-          <div className="hero-monkey-circle">
-            {/* Sprite — background-position driven by GSAP */}
-            <div ref={spriteRef} className="hero-monkey-sprite" />
-
-            {isLoading && (
-              <div className="hero-monkey-overlay">
-                <svg className="animate-spin" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.5">
-                  <path d="M21 12a9 9 0 1 1-6.219-8.56" strokeLinecap="round" />
-                </svg>
-              </div>
-            )}
-          </div>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+            <path d="M12 19v3" />
+            <path d="M8 22h8" />
+          </svg>
+          <span>{isLoading ? 'starting...' : 'STAAARTT??'}</span>
         </button>
 
-        {!isDenied && !isLoading && (
-          <div className="hero-monkey-callout" aria-hidden>
-            <svg className="hero-monkey-callout-arrow" viewBox="0 0 52 44" fill="none">
-              <path d="M46 6 Q34 3 23 15 Q14 25 16 39" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" fill="none" strokeDasharray="4 4" />
-              <path d="M10 37 L16 41 L20 34" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" fill="none" />
-            </svg>
-            <span className="hero-monkey-callout-label font-display">
-              {hovered ? 'yes, click me!' : 'click to speak'}
-            </span>
-          </div>
-        )}
+        <p className="hero-footer-tagline font-mono">
+          No signup. Just you and your voice. <span aria-hidden>♥</span>
+        </p>
 
         {isDenied && (
           <p className="hero-monkey-error-badge font-mono">

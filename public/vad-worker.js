@@ -155,7 +155,7 @@ self.onmessage = async (ev) => {
         continue
       }
 
-      if (prob > 0.5) {
+      if (prob > 0.35) {
         if (!isSpeechActive) {
           isSpeechActive = true
           silentFrames   = 0

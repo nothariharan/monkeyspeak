@@ -125,7 +125,7 @@ const DEFAULT_SETTINGS: Settings = {
   blindMode: false,
   language: 'en-US',
   sttProvider: 'webspeech',
-  skipVad: false,
+  skipVad: true,
   personalBests: {},
 }
 

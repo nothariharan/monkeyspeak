@@ -82,76 +82,17 @@ export function useDeepgramProvider(enabled = true): SpeechProvider {
   const [micStream, setMicStream]           = useState<MediaStream | null>(null)
 
   const liveRef          = useRef<WebSocket | null>(null)
-  const prewarmRef       = useRef<WebSocket | null>(null)
   const streamRef        = useRef<MediaStream | null>(null)
   const workletRef       = useRef<AudioWorkletNode | null>(null)
   const contextRef       = useRef<AudioContext | null>(null)
   const vadWorkerRef     = useRef<Worker | null>(null)
   const keepAliveRef     = useRef<ReturnType<typeof setInterval> | null>(null)
   const activeRef        = useRef(false)
-  const armedRef         = useRef(false)
   const onSpeechStartRef = useRef<((ts: number) => void) | null>(null)
   const onSpeechEndRef   = useRef<((ts: number) => void) | null>(null)
   const debugBytesSentRef = useRef(0)
   const debugResultsRef   = useRef(0)
   const previewWordsRef   = useRef<string[]>([])
-
-  // ── Pre-warm the proxy WebSocket when Deepgram STT is selected ────────────
-  useEffect(() => {
-    if (!enabled) {
-      if (prewarmRef.current) {
-        try { prewarmRef.current.close() } catch { /* ignore */ }
-        prewarmRef.current = null
-      }
-      return
-    }
-
-    let cancelled = false
-
-    async function prewarm() {
-      const language = useTestStore.getState().settings.language ?? 'en-US'
-      let url: string
-      try {
-        url = buildProxyUrl(language)
-      } catch {
-        return
-      }
-
-      const probe = await probeProxyBackendReachable()
-      if (!probe.ok) {
-        setError(
-          'Deepgram proxy is offline. Start the backend from the project folder: cd backend then node index.js (listen on port 8080), then refresh this page.'
-        )
-        return
-      }
-      if (cancelled) return
-
-      const ws = new WebSocket(url)
-      prewarmRef.current = ws
-
-      ws.onopen = () => {
-        if (cancelled) { ws.close(); return }
-      }
-
-      ws.onerror = () => {
-        if (prewarmRef.current === ws) prewarmRef.current = null
-      }
-
-      ws.onclose = () => {
-        if (prewarmRef.current === ws) prewarmRef.current = null
-      }
-    }
-
-    void prewarm()
-
-    return () => {
-      cancelled = true
-      if (prewarmRef.current) {
-        try { prewarmRef.current.close() } catch { /* ignore */ }
-        prewarmRef.current = null
-      }
-    }
-  }, [enabled])
 
   // ── Teardown ──────────────────────────────────────────────────────────────
   const _teardown = useCallback(() => {
@@ -203,7 +144,6 @@ export function useDeepgramProvider(enabled = true): SpeechProvider {
   }, [])
 
   const stopSession = useCallback(() => {
-    armedRef.current = false
     _teardown()
   }, [_teardown])
 
@@ -284,7 +224,9 @@ export function useDeepgramProvider(enabled = true): SpeechProvider {
   }, [])
 
   // ── Audio worklet + VAD setup ─────────────────────────────────────────────
-  const _setupAudioWorklet = useCallback(async (ws: WebSocket, stream: MediaStream) => {
+  const _setupAudioWorklet = useCallback(async (ws: WebSocket, stream: MediaStream): Promise<boolean> => {
+    const sessionLive = () => activeRef.current
+
     try {
       const AudioCtx =
         window.AudioContext ||
@@ -302,37 +244,56 @@ export function useDeepgramProvider(enabled = true): SpeechProvider {
       const skipVad = useTestStore.getState().settings.skipVad ?? false
 
       const sendPcm = (input: Float32Array) => {
-        if (ws.readyState !== WebSocket.OPEN) return
+        if (!sessionLive() || ws.readyState !== WebSocket.OPEN) return
         const pcm16 = float32ToLinear16Pcm16k(input, ctx.sampleRate)
         debugBytesSentRef.current += pcm16.byteLength
         ws.send(pcm16.buffer)
       }
 
-      if (skipVad) {
-        sttDebug('audio path: direct (skip VAD)')
+      const bindDirectAudioPath = () => {
+        sttDebug('audio path: direct (unfiltered)')
         worklet.port.onmessage = (ev: MessageEvent<Float32Array>) => {
-          if (!ev.data?.length || !activeRef.current) return
+          if (!ev.data?.length || !sessionLive()) return
           sendPcm(ev.data)
         }
+      }
+
+      if (skipVad) {
+        sttDebug('audio path: direct (skip VAD)')
+        bindDirectAudioPath()
       } else {
         try {
           const vadWorker = new Worker('/vad-worker.js')
           vadWorkerRef.current = vadWorker
 
-          // Set up message handlers BEFORE sending init to prevent
-          // race condition where the worker responds before handlers are registered
+          let vadReady = false
+          let vadPcmSent = 0
+          let vadAudioReceived = 0
+          let vadFallbackApplied = false
+
+          const applyDirectAudioPath = () => {
+            if (vadFallbackApplied) return
+            vadFallbackApplied = true
+            console.warn('[VAD] No voiced audio detected — falling back to unfiltered audio')
+            try { vadWorker.terminate() } catch { /* ignore */ }
+            vadWorkerRef.current = null
+            bindDirectAudioPath()
+          }
+
           vadWorker.onerror = (err) => {
             console.error('[VAD] Worker load/runtime error:', err, '— falling back to unfiltered audio')
-            worklet.port.onmessage = (ev2: MessageEvent<Float32Array>) => {
-              if (!ev2.data?.length || !activeRef.current) return
-              sendPcm(ev2.data)
-            }
+            applyDirectAudioPath()
           }
 
           vadWorker.onmessage = (ev: MessageEvent) => {
             const msg = ev.data as { type: string; buffer?: ArrayBuffer; timestamp?: number; message?: string }
 
+            if (msg.type === 'ready') {
+              vadReady = true
+              return
+            }
             if (msg.type === 'audio') {
+              vadAudioReceived++
               sendPcm(new Float32Array(msg.buffer!))
             } else if (msg.type === 'speech_start') {
               sttDebug('VAD speech_start')
@@ -342,49 +303,39 @@ export function useDeepgramProvider(enabled = true): SpeechProvider {
               onSpeechEndRef.current?.(msg.timestamp!)
             } else if (msg.type === 'error') {
               console.warn('[VAD] Worker error:', msg.message, '— falling back to unfiltered audio')
-              worklet.port.onmessage = (ev2: MessageEvent<Float32Array>) => {
-                if (!ev2.data?.length || !activeRef.current) return
-                sendPcm(ev2.data)
-              }
+              applyDirectAudioPath()
             }
           }
 
-          // Send init after handlers are set up
           vadWorker.postMessage({ type: 'init' })
 
-          // Safety timeout: if VAD hasn't produced audio within 3s (model
-          // loading failed silently), fall back to unfiltered audio.
-          let vadResponded = false
-          const origOnMessage = vadWorker.onmessage
-          vadWorker.onmessage = (ev: MessageEvent) => {
-            vadResponded = true
-            vadWorker.onmessage = origOnMessage
-            origOnMessage?.call(vadWorker, ev)
-          }
-          setTimeout(() => {
-            if (!vadResponded && activeRef.current) {
-              console.warn('[VAD] Init timeout (3s) — falling back to unfiltered audio')
-              try { vadWorker.terminate() } catch { /* ignore */ }
-              vadWorkerRef.current = null
-              worklet.port.onmessage = (ev2: MessageEvent<Float32Array>) => {
-                if (!ev2.data?.length || !activeRef.current) return
-                sendPcm(ev2.data)
-              }
+          window.setTimeout(() => {
+            if (!vadReady && !vadFallbackApplied && sessionLive()) {
+              console.warn('[VAD] Model init timeout (3s) — falling back to unfiltered audio')
+              applyDirectAudioPath()
             }
           }, 3000)
 
-          // Set up the audio pipeline: worklet → VAD → WebSocket
           worklet.port.onmessage = (ev: MessageEvent<Float32Array>) => {
-            if (!ev.data?.length || !activeRef.current) return
+            if (!ev.data?.length || !sessionLive()) return
+            if (vadFallbackApplied) {
+              sendPcm(ev.data)
+              return
+            }
+            vadPcmSent++
+            if (vadPcmSent === 32) {
+              window.setTimeout(() => {
+                if (!vadFallbackApplied && vadAudioReceived === 0 && sessionLive()) {
+                  applyDirectAudioPath()
+                }
+              }, 2000)
+            }
             const copy = ev.data.slice()
             vadWorker.postMessage({ type: 'pcm', buffer: copy.buffer }, [copy.buffer])
           }
         } catch (workerErr) {
           console.error('[VAD] Failed to create Worker:', workerErr, '— falling back to unfiltered audio')
-          worklet.port.onmessage = (ev2: MessageEvent<Float32Array>) => {
-            if (!ev2.data?.length || !activeRef.current) return
-            sendPcm(ev2.data)
-          }
+          bindDirectAudioPath()
         }
       }
 
@@ -401,10 +352,12 @@ export function useDeepgramProvider(enabled = true): SpeechProvider {
         }
       }, 3_000)
 
-      if (activeRef.current) setIsListening(true)
+      if (sessionLive()) setIsListening(true)
+      return true
     } catch {
       setError('Could not start audio capture')
       _teardown()
+      return false
     }
   }, [_teardown])
 
@@ -427,26 +380,6 @@ export function useDeepgramProvider(enabled = true): SpeechProvider {
     streamRef.current = stream
     setMicStream(stream)
 
-    const prewarmed = prewarmRef.current?.readyState === WebSocket.OPEN ? prewarmRef.current : null
-
-    if (prewarmed) {
-      prewarmRef.current = null
-      liveRef.current = prewarmed
-      prewarmed.onmessage = _handleDgMessage
-      prewarmed.onerror = () => { setError('Deepgram proxy error'); _teardown() }
-      prewarmed.onclose = () => {
-        if (activeRef.current) {
-          setError('Connection lost — press Enter to retry')
-          _teardown()
-        } else if (armedRef.current) {
-          activeRef.current = false; armedRef.current = false; setIsListening(false)
-        }
-      }
-      void _setupAudioWorklet(prewarmed, stream)
-      return { ok: true }
-    }
-
-    // Fresh connection
     const language = useTestStore.getState().settings.language ?? 'en-US'
     let url: string
     try { url = buildProxyUrl(language) } catch (e) {
@@ -458,7 +391,7 @@ export function useDeepgramProvider(enabled = true): SpeechProvider {
     const probe = await probeProxyBackendReachable()
     if (!probe.ok) {
       const msg =
-        'Deepgram proxy is offline. Start the backend from the project folder: cd backend then node index.js (listen on port 8080), then try again.'
+        'Deepgram proxy is offline. Run `npm run dev:backend` in a second terminal (port 8080), or switch STT to browser in settings.'
       setError(msg)
       stream.getTracks().forEach((t) => t.stop())
       streamRef.current = null
@@ -490,8 +423,15 @@ export function useDeepgramProvider(enabled = true): SpeechProvider {
       ws.onopen = () => {
         clearWatchdog()
         sttDebug('WebSocket open', url.replace(/\?.*/, '?…'))
-        void _setupAudioWorklet(ws, stream)
-        settle({ ok: true })
+        activeRef.current = true
+        void _setupAudioWorklet(ws, stream).then((ok) => {
+          if (!ok) {
+            settle({ ok: false, error: 'Could not start audio capture' })
+            return
+          }
+          setIsListening(true)
+          settle({ ok: true })
+        })
       }
 
       ws.onmessage = _handleDgMessage
@@ -509,35 +449,23 @@ export function useDeepgramProvider(enabled = true): SpeechProvider {
         if (activeRef.current) {
           setError('Connection lost — press Enter to retry')
           _teardown()
-        } else if (armedRef.current) {
-          activeRef.current = false; armedRef.current = false; setIsListening(false)
         }
-        settle({ ok: false, error: 'Deepgram proxy connection closed' })
+        if (!settled) {
+          settle({ ok: false, error: 'Deepgram proxy connection closed' })
+        }
       }
     })
   }, [_teardown, _setupAudioWorklet, _handleDgMessage])
 
-  const armSession = useCallback(async (): Promise<SessionStartResult> => {
-    if (armedRef.current || activeRef.current) return { ok: true }
-    armedRef.current = true
-    const result = await _openConnection()
-    if (!result.ok) armedRef.current = false
-    return result
-  }, [_openConnection])
-
   const startSession = useCallback(async (): Promise<SessionStartResult> => {
-    if (activeRef.current) return { ok: true }
-    if (armedRef.current && liveRef.current) {
-      activeRef.current = true
-      if (liveRef.current.readyState === WebSocket.OPEN) setIsListening(true)
+    if (activeRef.current && liveRef.current?.readyState === WebSocket.OPEN) {
+      setIsListening(true)
       return { ok: true }
     }
-    const result = await _openConnection()
-    if (!result.ok) return result
-    activeRef.current = true
-    if (liveRef.current?.readyState === WebSocket.OPEN) setIsListening(true)
-    return { ok: true }
+    return _openConnection()
   }, [_openConnection])
+
+  const armSession = startSession
 
   const onSpeechStart = useCallback((handler: (ts: number) => void) => { onSpeechStartRef.current = handler }, [])
   const onSpeechEnd   = useCallback((handler: (ts: number) => void) => { onSpeechEndRef.current = handler }, [])
