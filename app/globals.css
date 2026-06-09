@@ -33,6 +33,7 @@
   --shadow-accent: 0 4px 14px color-mix(in srgb, var(--accent) 30%, transparent);
   --test-font-size: 1.75rem;
   --test-line-height: 2.75rem;
+  --test-visible-lines: 4;
 }
 
 [data-font='fira']        { --font-mono: 'Fira Code', monospace; }
@@ -1000,15 +1001,15 @@ body {
 .dissolve-text-viewport {
   width: 100%;
   max-width: 1040px;
-  max-height: calc(3 * var(--test-line-height));
+  height: calc(var(--test-visible-lines) * var(--test-line-height));
   overflow: hidden;
 }
 
 .dissolve-text {
   text-align: center;
   font-family: var(--font-mono);
-  font-size: clamp(1.8rem, 3.5vw, 3rem);
-  line-height: clamp(2.8rem, 4.5vw, 4rem);
+  font-size: var(--test-font-size);
+  line-height: var(--test-line-height);
 }
 
 .dissolve-word {

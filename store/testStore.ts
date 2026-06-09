@@ -30,7 +30,6 @@ export interface Settings {
   font: FontChoice
   fontSize: FontSize
   fillerFlash: boolean
-  showLiveTranscript: boolean
   smoothCaret: boolean
   blindMode: boolean
   language: 'en-US' | 'en-GB' | 'en-AU'
@@ -120,7 +119,6 @@ const DEFAULT_SETTINGS: Settings = {
   font: 'jetbrains',
   fontSize: 'medium',
   fillerFlash: true,
-  showLiveTranscript: true,
   smoothCaret: true,
   blindMode: false,
   language: 'en-US',

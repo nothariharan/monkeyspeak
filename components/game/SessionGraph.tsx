@@ -57,9 +57,15 @@ export default function SessionGraph({ timeline, durationSec }: SessionGraphProp
     ...timeline.wpm.map((d) => d.wpm)
   )
 
+  const maxMomentum = Math.max(
+    100,
+    ...timeline.momentum.map((d) => d.value),
+    1
+  )
+
   const rawPoints = buildPoints(timeline.raw, maxSec, maxWpm, 'wpm')
   const wpmPoints = buildPoints(timeline.wpm, maxSec, maxWpm, 'wpm')
-  const momentumPoints = buildPoints(timeline.momentum, maxSec, 100, 'value')
+  const momentumPoints = buildPoints(timeline.momentum, maxSec, maxMomentum, 'value')
 
   const rawPath = pointsToPath(rawPoints)
   const wpmPath = pointsToPath(wpmPoints)

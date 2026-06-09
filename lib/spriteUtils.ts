@@ -104,7 +104,7 @@ export function getWpmTier(wpm: number): WpmTier {
 
 
 
-/** Map 0–100 speaking momentum to monkey pose tier (reference sheet). */
+/** Map speaking momentum to monkey pose tier (100+ → shades; reference sheet). */
 
 export function getMomentumTier(momentum: number): WpmTier {
 

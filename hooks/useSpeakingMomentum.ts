@@ -8,9 +8,9 @@ const MIN_GAP_SEC = 0.1
 const MAX_GAP_SEC = 4
 const VOICE_THRESHOLD = 0.06
 
-/** Map words-per-second to a 0–100 momentum score. */
+/** Map words-per-second to momentum (100 ≈ 4.5 wps baseline, no upper cap). */
 function rateToMomentum(wordsPerSec: number): number {
-  const rate = Math.max(0, Math.min(4.5, wordsPerSec))
+  const rate = Math.max(0, wordsPerSec)
   return Math.round((rate / 4.5) * 100)
 }
 
@@ -67,14 +67,11 @@ export function useSpeakingMomentum({
 
     const latestWpm = rawWpms[rawWpms.length - 1]
     if (latestWpm != null && latestWpm > 0) {
-      const fromWpm = Math.min(100, Math.round((latestWpm / 180) * 100))
+      const fromWpm = Math.round((latestWpm / 180) * 100)
       target = Math.round(target * 0.5 + fromWpm * 0.5)
     }
 
-    momentumRef.current = Math.min(
-      100,
-      momentumRef.current * 0.3 + target * 0.7
-    )
+    momentumRef.current = momentumRef.current * 0.3 + target * 0.7
 
     lastAdvanceAtRef.current = now
     lastDissolvedRef.current = dissolvedCount
@@ -95,11 +92,8 @@ export function useSpeakingMomentum({
         !voiceActive && (lastAt === null || now - lastAt > IDLE_MS)
 
       if (voiceActive) {
-        const voiceTarget = Math.min(100, currentEnergy * 85)
-        momentumRef.current = Math.min(
-          100,
-          momentumRef.current * 0.88 + voiceTarget * 0.12
-        )
+        const voiceTarget = currentEnergy * 85
+        momentumRef.current = momentumRef.current * 0.88 + voiceTarget * 0.12
       }
 
       if (idle) {

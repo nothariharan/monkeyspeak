@@ -442,11 +442,6 @@ export default function Home() {
                     game={speakingGame}
                     timelineRef={timelineRef}
                     isEnding={isEnding}
-                    interimText={interimText}
-                    showLiveTranscript={store.settings.showLiveTranscript}
-                    sttError={sttError}
-                    sttProvider={sttProvider}
-                    heardWordCount={confirmedWords.length}
                   />
                 )}
               </div>

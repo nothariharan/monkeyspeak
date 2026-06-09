@@ -34,10 +34,8 @@ export default function MomentumFire({ momentum }: MomentumFireProps) {
     <div
       ref={containerRef}
       className="momentum-fire"
-      role="meter"
-      aria-valuenow={momentum}
-      aria-valuemin={0}
-      aria-valuemax={100}
+      role="status"
+      aria-live="polite"
       aria-label={`Speaking momentum ${momentum}`}
     >
       <div className="momentum-fire-core">

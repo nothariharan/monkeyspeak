@@ -5,6 +5,7 @@ import { gsap } from 'gsap'
 import {
   buildPingPongCols,
   drawSpriteFrame,
+  getMomentumTier,
   getMomentumTierFrames,
   getSpeakMonFrameAt,
   loadSprite,
@@ -20,27 +21,10 @@ interface MonkeyDisplayProps {
 const DISPLAY_W = 380
 const DISPLAY_H = 532
 const CYCLE_SEC = 1.9
-const TIER_HOLD_MS = 700
-const HIGH_TIER_HOLD_MS = 950
 
-function resolveTier(
-  momentum: number,
-  isActive: boolean,
-  current: WpmTier
-): WpmTier {
-  if (!isActive || momentum < 10) return 'sleeping'
-
-  if (current === 'mic') {
-    return momentum >= 65 ? 'mic' : 'beatboxing'
-  }
-
-  if (momentum >= 82) return 'mic'
-
-  if (current === 'beatboxing') {
-    return momentum >= 12 ? 'beatboxing' : 'sleeping'
-  }
-
-  return momentum >= 18 ? 'beatboxing' : 'sleeping'
+function tierForMomentum(momentum: number, isActive: boolean): WpmTier {
+  if (!isActive || momentum <= 0) return 'sleeping'
+  return getMomentumTier(momentum)
 }
 
 export default function MonkeyDisplay({ momentum, isActive = true }: MonkeyDisplayProps) {
@@ -48,7 +32,6 @@ export default function MonkeyDisplay({ momentum, isActive = true }: MonkeyDispl
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const imgRef = useRef<HTMLImageElement | null>(null)
   const lastTierRef = useRef<WpmTier>('sleeping')
-  const lastTierChangeAtRef = useRef(0)
   const animCtxRef = useRef<gsap.Context | null>(null)
   const reducedMotionRef = useRef(false)
 
@@ -91,24 +74,10 @@ export default function MonkeyDisplay({ momentum, isActive = true }: MonkeyDispl
   }
 
   const applyTier = (value: number) => {
-    const currentTier = lastTierRef.current
-    const desiredTier = resolveTier(value, isActive, currentTier)
-    const now = performance.now()
-    const holdMs = desiredTier === 'mic' ? HIGH_TIER_HOLD_MS : TIER_HOLD_MS
-
-    if (desiredTier !== currentTier && now - lastTierChangeAtRef.current < holdMs) {
-      if (animCtxRef.current) return
-    }
-
-    const tier = desiredTier !== currentTier && now - lastTierChangeAtRef.current >= holdMs
-      ? desiredTier
-      : currentTier
-
-    if (tier === currentTier && animCtxRef.current) return
+    const tier = tierForMomentum(value, isActive)
+    if (tier === lastTierRef.current && animCtxRef.current) return
 
     lastTierRef.current = tier
-    lastTierChangeAtRef.current = now
-
     startTierAnimation(tier)
   }
 
@@ -120,15 +89,11 @@ export default function MonkeyDisplay({ momentum, isActive = true }: MonkeyDispl
     })
     mm.add('(prefers-reduced-motion: no-preference)', () => {
       reducedMotionRef.current = false
-      if (imgRef.current) {
-        lastTierRef.current = 'sleeping'
-        lastTierChangeAtRef.current = performance.now()
-        applyTier(momentum)
-      }
+      if (imgRef.current) applyTier(momentum)
     })
     return () => mm.revert()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [momentum])
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -141,7 +106,6 @@ export default function MonkeyDisplay({ momentum, isActive = true }: MonkeyDispl
         canvas.width = DISPLAY_W
         canvas.height = DISPLAY_H
         lastTierRef.current = 'sleeping'
-        lastTierChangeAtRef.current = performance.now()
         applyTier(momentum)
       }
     })

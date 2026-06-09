@@ -238,7 +238,6 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
             <p className="stat-label">behaviour</p>
             {[
               { id: 'toggle-filler-flash',    label: 'filler flash',    key: 'fillerFlash' as const },
-              { id: 'toggle-live-transcript', label: 'live transcript', key: 'showLiveTranscript' as const },
               { id: 'toggle-smooth-caret',    label: 'smooth caret',    key: 'smoothCaret' as const },
               { id: 'toggle-blind-mode',      label: 'blind mode',      key: 'blindMode' as const },
               { id: 'toggle-skip-vad',        label: 'send all audio (skip VAD)', key: 'skipVad' as const },
