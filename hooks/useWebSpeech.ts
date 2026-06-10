@@ -15,7 +15,7 @@ import type { SpeechProvider, SessionStartResult } from './useSpeechProvider'
 
 const MAX_NETWORK_RETRIES = 3
 const STALL_MS = 8000
-const AUDIO_ACTIVE_DECAY_MS = 600
+const AUDIO_ACTIVE_DECAY_MS = 1200
 const ONSTART_TIMEOUT_MS = 3000
 
 function normalizeSpokenToken(raw: string): string {

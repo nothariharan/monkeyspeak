@@ -63,7 +63,16 @@ export default function Home() {
   const speechActive =
     Boolean(audioActive) ||
     previewWords.length > 0 ||
-    interimText.trim().length > 0
+    interimText.trim().length > 0 ||
+    (isListening && confirmedWords.length > 0)
+
+  const waveActivity = (() => {
+    if (audioActive) return 0.9
+    if (previewWords.length > 0 || interimText.trim().length > 0) return 0.72
+    if (isListening && confirmedWords.length > 0) return 0.55
+    if (isListening) return 0.32
+    return 0
+  })()
 
   useEffect(() => { confirmedWordsRef.current = confirmedWords }, [confirmedWords])
   useEffect(() => { interimTextRef.current = interimText }, [interimText])
@@ -461,6 +470,7 @@ export default function Home() {
                       totalDurationMs={store.duration * 1000}
                       dissolvedCount={dissolvedCount}
                       micStream={micStream}
+                      waveActivity={waveActivity}
                       speechActive={speechActive}
                       game={speakingGame}
                       timelineRef={timelineRef}

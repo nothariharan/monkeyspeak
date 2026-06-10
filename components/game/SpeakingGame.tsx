@@ -24,6 +24,7 @@ interface SpeakingGameProps {
   totalDurationMs: number
   dissolvedCount: number
   micStream: MediaStream | null
+  waveActivity?: number
   speechActive?: boolean
   game: SpeakingGameState
   timelineRef: MutableRefObject<TimelineSample[]>
@@ -36,6 +37,7 @@ export default function SpeakingGame({
   totalDurationMs,
   dissolvedCount,
   micStream,
+  waveActivity = 0,
   speechActive = false,
   game,
   timelineRef,
@@ -43,8 +45,8 @@ export default function SpeakingGame({
 }: SpeakingGameProps) {
   const active = !isEnding
   const voice = useVoiceActivity({ micStream, isActive: active, isEnding })
-  const energy = micStream ? voice.energy : (speechActive ? 0.38 : 0)
-  const isSpeaking = micStream ? voice.isSpeaking : speechActive
+  const energy = micStream ? Math.max(voice.energy, waveActivity * 0.5) : waveActivity
+  const isSpeaking = micStream ? voice.isSpeaking || waveActivity > 0.12 : waveActivity > 0.08 || speechActive
   const momentum = useSpeakingMomentum({
     dissolvedCount,
     rawWpms: game.rawWpms,
@@ -91,7 +93,11 @@ export default function SpeakingGame({
             </div>
 
             <div className="game-wave-zone game-wave-zone--bottom">
-              <VoiceWave stream={micStream} isActive={active} speechActive={speechActive} />
+              <VoiceWave
+                stream={micStream}
+                isActive={active}
+                activityLevel={micStream ? Math.max(voice.energy, waveActivity) : waveActivity}
+              />
             </div>
           </div>
         </div>
