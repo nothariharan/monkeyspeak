@@ -2,16 +2,13 @@
 
 import { useEffect, useRef } from 'react'
 import { gsap } from 'gsap'
+import { buildPingPongCols } from '@/lib/spriteUtils'
 import {
-  buildPingPongCols,
-  drawSpriteFrame,
-  getMomentumTier,
-  getMomentumTierFrames,
-  getSpeakMonFrameAt,
-  loadSprite,
-  type SpeakRow,
-  type WpmTier,
-} from '@/lib/spriteUtils'
+  drawFrameImage,
+  getMomentumSpriteTier,
+  loadAllMomentumSprites,
+  type MomentumSpriteTier,
+} from '@/lib/momentumSprites'
 
 interface MonkeyDisplayProps {
   momentum: number
@@ -20,54 +17,53 @@ interface MonkeyDisplayProps {
 
 const DISPLAY_W = 380
 const DISPLAY_H = 532
-const CYCLE_SEC = 1.9
+const CYCLE_SEC = 1.65
 
-function tierForMomentum(momentum: number, isActive: boolean): WpmTier {
-  if (!isActive || momentum <= 0) return 'sleeping'
-  return getMomentumTier(momentum)
+function tierForMomentum(momentum: number, isActive: boolean): MomentumSpriteTier {
+  return getMomentumSpriteTier(momentum, isActive)
 }
 
 export default function MonkeyDisplay({ momentum, isActive = true }: MonkeyDisplayProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const imgRef = useRef<HTMLImageElement | null>(null)
-  const lastTierRef = useRef<WpmTier>('sleeping')
+  const framesRef = useRef<Partial<Record<MomentumSpriteTier, HTMLImageElement[]>>>({})
+  const lastTierRef = useRef<MomentumSpriteTier>('sleep')
   const animCtxRef = useRef<gsap.Context | null>(null)
   const reducedMotionRef = useRef(false)
 
-  const paintCol = (row: SpeakRow, col: number) => {
+  const paintFrame = (tier: MomentumSpriteTier, frameIndex: number) => {
     const canvas = canvasRef.current
     const ctx = canvas?.getContext('2d')
-    const img = imgRef.current
-    if (!canvas || !ctx || !img) return
-    const frame = getSpeakMonFrameAt(img, row, col)
-    drawSpriteFrame(ctx, img, frame, DISPLAY_W, DISPLAY_H)
+    const frames = framesRef.current[tier]
+    if (!canvas || !ctx || !frames?.length) return
+    const img = frames[frameIndex % frames.length]
+    if (!img) return
+    drawFrameImage(ctx, img, DISPLAY_W, DISPLAY_H)
   }
 
-  const startTierAnimation = (tier: WpmTier) => {
+  const startTierAnimation = (tier: MomentumSpriteTier) => {
     animCtxRef.current?.revert()
     animCtxRef.current = null
 
     const canvas = canvasRef.current
-    const img = imgRef.current
-    if (!canvas || !img) return
+    const frames = framesRef.current[tier]
+    if (!canvas || !frames?.length) return
 
-    const { row, cols } = getMomentumTierFrames(tier)
     const reduced = reducedMotionRef.current
+    const indices = frames.map((_, i) => i)
 
-    if (reduced || cols.length <= 1) {
-      const col = cols[Math.floor(cols.length / 2)] ?? cols[0]!
-      paintCol(row, col)
+    if (reduced || indices.length <= 1) {
+      paintFrame(tier, Math.floor(indices.length / 2))
       return
     }
 
-    const sequence = buildPingPongCols(cols)
-    const stepDuration = CYCLE_SEC / Math.max(1, 2 * (cols.length - 1))
+    const sequence = buildPingPongCols(indices)
+    const stepDuration = CYCLE_SEC / Math.max(1, sequence.length)
 
     animCtxRef.current = gsap.context(() => {
       const tl = gsap.timeline({ repeat: -1 })
-      for (const col of sequence) {
-        tl.call(() => paintCol(row, col))
+      for (const frameIndex of sequence) {
+        tl.call(() => paintFrame(tier, frameIndex))
         tl.to({}, { duration: stepDuration })
       }
     }, canvasRef)
@@ -85,11 +81,11 @@ export default function MonkeyDisplay({ momentum, isActive = true }: MonkeyDispl
     const mm = gsap.matchMedia()
     mm.add('(prefers-reduced-motion: reduce)', () => {
       reducedMotionRef.current = true
-      if (imgRef.current) applyTier(momentum)
+      if (Object.keys(framesRef.current).length > 0) applyTier(momentum)
     })
     mm.add('(prefers-reduced-motion: no-preference)', () => {
       reducedMotionRef.current = false
-      if (imgRef.current) applyTier(momentum)
+      if (Object.keys(framesRef.current).length > 0) applyTier(momentum)
     })
     return () => mm.revert()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -98,14 +94,14 @@ export default function MonkeyDisplay({ momentum, isActive = true }: MonkeyDispl
   useEffect(() => {
     let cancelled = false
 
-    loadSprite('/speak_mon.png').then((img) => {
+    loadAllMomentumSprites().then((sprites) => {
       if (cancelled) return
-      imgRef.current = img
+      framesRef.current = sprites
       const canvas = canvasRef.current
       if (canvas) {
         canvas.width = DISPLAY_W
         canvas.height = DISPLAY_H
-        lastTierRef.current = 'sleeping'
+        lastTierRef.current = 'sleep'
         applyTier(momentum)
       }
     })
@@ -119,7 +115,7 @@ export default function MonkeyDisplay({ momentum, isActive = true }: MonkeyDispl
   }, [])
 
   useEffect(() => {
-    if (!imgRef.current) return
+    if (!framesRef.current.sleep?.length) return
     applyTier(momentum)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [momentum, isActive])

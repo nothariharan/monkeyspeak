@@ -1,0 +1,6 @@
+name = "monkeyspeak-dg-proxy"
+main = "workers/deepgram-proxy.js"
+compatibility_date = "2024-01-01"
+
+[vars]
+# Set secret via: npx wrangler secret put DEEPGRAM_API_KEY

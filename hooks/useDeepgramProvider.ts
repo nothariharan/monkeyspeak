@@ -3,6 +3,12 @@
 import { useRef, useCallback, useState, useEffect } from 'react'
 import { float32ToLinear16Pcm16k } from '@/lib/pcmDownsample'
 import { isFiller } from '@/lib/fillers'
+import {
+  buildDeepgramBridgeUrl,
+  buildDeepgramProxyUrl,
+  probeProxyBackendReachable,
+} from '@/lib/deepgramConnection'
+import { getBrowserSpeechProfile } from '@/lib/browserSpeech'
 import { useTestStore } from '@/store/testStore'
 import type { SpeechProvider, SessionStartResult } from './useSpeechProvider'
 
@@ -25,6 +31,17 @@ interface DgResultsEvent {
 interface DgSpeechStartedEvent { type: 'SpeechStarted'; timestamp?: number }
 interface DgUtteranceEndEvent  { type: 'UtteranceEnd' }
 
+interface LiveAudioSink {
+  sendPcm: (buffer: ArrayBufferLike) => void
+  sendJson: (payload: object) => void
+  isOpen: () => boolean
+}
+
+type ListenTarget =
+  | { mode: 'proxy'; url: string }
+  | { mode: 'bridge'; url: string }
+  | { mode: 'none'; error: string }
+
 const DEBUG_STT = process.env.NEXT_PUBLIC_DEBUG_STT === 'true'
 
 function sttDebug(...args: unknown[]) {
@@ -41,38 +58,7 @@ function displayTranscript(
   return words.map((w) => (w.punctuated_word ?? w.word).trim()).filter(Boolean).join(' ')
 }
 
-// ── Proxy URL builder ─────────────────────────────────────────────────────────
-function buildProxyUrl(language: string): string {
-  const base = process.env.NEXT_PUBLIC_DEEPGRAM_PROXY_URL
-  if (!base) throw new Error('NEXT_PUBLIC_DEEPGRAM_PROXY_URL is not set')
-  const url = new URL(base)
-  url.searchParams.set('lang', language)
-  url.searchParams.set('interim_results', 'true')
-  url.searchParams.set('vad_events', 'true')
-  url.searchParams.set('utterance_end_ms', '250')
-  return url.toString()
-}
-
-/** `ws://host:port/...` → `http://host:port/` for GET / health check (backend must be up). */
-function proxyHttpOrigin(): string {
-  const base = process.env.NEXT_PUBLIC_DEEPGRAM_PROXY_URL
-  if (!base) throw new Error('NEXT_PUBLIC_DEEPGRAM_PROXY_URL is not set')
-  const u = new URL(base)
-  const proto = u.protocol === 'wss:' ? 'https:' : 'http:'
-  return `${proto}//${u.host}/`
-}
-
-async function probeProxyBackendReachable(): Promise<{ ok: boolean; status?: number; err?: string }> {
-  try {
-    const origin = proxyHttpOrigin()
-    const r = await fetch(origin, { method: 'GET', mode: 'cors', cache: 'no-store' })
-    return { ok: r.ok, status: r.status }
-  } catch (e) {
-    return { ok: false, err: String(e) }
-  }
-}
-
-export function useDeepgramProvider(enabled = true): SpeechProvider {
+export function useDeepgramProvider(_enabled = true): SpeechProvider {
   const [interimText, setInterimText]       = useState('')
   const [previewWords, setPreviewWords]     = useState<string[]>([])
   const [confirmedWords, setConfirmedWords] = useState<string[]>([])
@@ -82,6 +68,8 @@ export function useDeepgramProvider(enabled = true): SpeechProvider {
   const [micStream, setMicStream]           = useState<MediaStream | null>(null)
 
   const liveRef          = useRef<WebSocket | null>(null)
+  const bridgeAbortRef   = useRef<AbortController | null>(null)
+  const bridgeWriterRef  = useRef<WritableStreamDefaultWriter<Uint8Array> | null>(null)
   const streamRef        = useRef<MediaStream | null>(null)
   const workletRef       = useRef<AudioWorkletNode | null>(null)
   const contextRef       = useRef<AudioContext | null>(null)
@@ -123,6 +111,14 @@ export function useDeepgramProvider(enabled = true): SpeechProvider {
       } catch { /* ignore */ }
       liveRef.current = null
     }
+    if (bridgeAbortRef.current) {
+      bridgeAbortRef.current.abort()
+      bridgeAbortRef.current = null
+    }
+    if (bridgeWriterRef.current) {
+      void bridgeWriterRef.current.close().catch(() => {})
+      bridgeWriterRef.current = null
+    }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop())
       streamRef.current = null
@@ -154,6 +150,8 @@ export function useDeepgramProvider(enabled = true): SpeechProvider {
 
     let msg: { type: string }
     try { msg = JSON.parse(ev.data) } catch { return }
+
+    if (msg.type === 'BridgeReady') return
 
     if (msg.type === 'Results') {
       const r = msg as DgResultsEvent
@@ -224,7 +222,7 @@ export function useDeepgramProvider(enabled = true): SpeechProvider {
   }, [])
 
   // ── Audio worklet + VAD setup ─────────────────────────────────────────────
-  const _setupAudioWorklet = useCallback(async (ws: WebSocket, stream: MediaStream): Promise<boolean> => {
+  const _setupAudioWorklet = useCallback(async (sink: LiveAudioSink, stream: MediaStream): Promise<boolean> => {
     const sessionLive = () => activeRef.current
 
     try {
@@ -244,10 +242,10 @@ export function useDeepgramProvider(enabled = true): SpeechProvider {
       const skipVad = useTestStore.getState().settings.skipVad ?? false
 
       const sendPcm = (input: Float32Array) => {
-        if (!sessionLive() || ws.readyState !== WebSocket.OPEN) return
+        if (!sessionLive() || !sink.isOpen()) return
         const pcm16 = float32ToLinear16Pcm16k(input, ctx.sampleRate)
         debugBytesSentRef.current += pcm16.byteLength
-        ws.send(pcm16.buffer)
+        sink.sendPcm(pcm16.buffer)
       }
 
       const bindDirectAudioPath = () => {
@@ -347,8 +345,8 @@ export function useDeepgramProvider(enabled = true): SpeechProvider {
 
       // KeepAlive: prevent Deepgram from closing the connection during silence
       keepAliveRef.current = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'KeepAlive' }))
+        if (sink.isOpen()) {
+          sink.sendJson({ type: 'KeepAlive' })
         }
       }, 3_000)
 
@@ -361,7 +359,229 @@ export function useDeepgramProvider(enabled = true): SpeechProvider {
     }
   }, [_teardown])
 
-  // ── Open (or reuse prewarmed) proxy connection ───────────────────────────
+  const _connectBridge = useCallback(
+    (bridgeUrl: string, stream: MediaStream): Promise<SessionStartResult> =>
+      new Promise<SessionStartResult>((resolve) => {
+        let settled = false
+        const settle = (result: SessionStartResult) => {
+          if (!settled) {
+            settled = true
+            resolve(result)
+          }
+        }
+
+        const abort = new AbortController()
+        bridgeAbortRef.current = abort
+
+        const { readable, writable } = new TransformStream<Uint8Array>()
+        const writer = writable.getWriter()
+        bridgeWriterRef.current = writer
+
+        const sink: LiveAudioSink = {
+          sendPcm: (buffer) => {
+            void writer.write(new Uint8Array(buffer)).catch(() => {})
+          },
+          sendJson: (payload) => {
+            void writer.write(new TextEncoder().encode(JSON.stringify(payload))).catch(() => {})
+          },
+          isOpen: () => !abort.signal.aborted,
+        }
+
+        const clearWatchdog = window.setTimeout(() => {
+          const msg = 'Deepgram connection timed out — check mic access and try again'
+          setError(msg)
+          _teardown()
+          settle({ ok: false, error: msg })
+        }, 25_000)
+        let watchdogCleared = false
+        const stopWatchdog = () => {
+          if (watchdogCleared) return
+          watchdogCleared = true
+          window.clearTimeout(clearWatchdog)
+        }
+
+        const readNdjson = async (body: ReadableStream<Uint8Array>) => {
+          const reader = body.getReader()
+          const decoder = new TextDecoder()
+          let pending = ''
+
+          while (activeRef.current && !abort.signal.aborted) {
+            const { done, value } = await reader.read()
+            if (done) break
+            pending += decoder.decode(value, { stream: true })
+            const lines = pending.split('\n')
+            pending = lines.pop() ?? ''
+            for (const line of lines) {
+              if (!line.trim()) continue
+              try {
+                const msg = JSON.parse(line) as { type?: string }
+                if (msg.type === 'BridgeReady') stopWatchdog()
+              } catch {
+                /* ignore */
+              }
+              _handleDgMessage({ data: line } as MessageEvent)
+            }
+          }
+        }
+
+        void (async () => {
+          try {
+            // Prime the upload stream so Vercel starts the handler before audio arrives.
+            await writer.write(new Uint8Array([0]))
+
+            activeRef.current = true
+            const audioSetup = _setupAudioWorklet(sink, stream)
+
+            let response: Response
+            try {
+              response = await fetch(bridgeUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/octet-stream' },
+                body: readable,
+                signal: abort.signal,
+                duplex: 'half',
+              } as RequestInit)
+            } catch (fetchErr: unknown) {
+              const msg =
+                fetchErr instanceof Error && fetchErr.message.includes('duplex')
+                  ? 'Browser cannot stream audio to the server — try Chrome or allow cross-site connections'
+                  : 'Deepgram bridge connection failed — check mic permission and reload'
+              setError(msg)
+              _teardown()
+              settle({ ok: false, error: msg })
+              return
+            }
+
+            window.clearTimeout(clearWatchdog)
+            stopWatchdog()
+
+            if (!response.ok || !response.body) {
+              const msg = `Deepgram bridge failed (${response.status})`
+              setError(msg)
+              _teardown()
+              settle({ ok: false, error: msg })
+              return
+            }
+
+            sttDebug('Deepgram bridge open', bridgeUrl.replace(/\?.*/, '?…'))
+
+            const audioOk = await audioSetup
+            if (!audioOk) {
+              settle({ ok: false, error: 'Could not start audio capture' })
+              return
+            }
+
+            setIsListening(true)
+            settle({ ok: true })
+            await readNdjson(response.body)
+          } catch (err: unknown) {
+            stopWatchdog()
+            if (abort.signal.aborted) return
+            const msg = err instanceof Error ? err.message : 'Deepgram bridge connection failed'
+            setError(msg)
+            _teardown()
+            if (!settled) settle({ ok: false, error: msg })
+          } finally {
+            if (activeRef.current) {
+              setError('Connection lost — press Enter to retry')
+              _teardown()
+            }
+          }
+        })()
+      }),
+    [_teardown, _setupAudioWorklet, _handleDgMessage]
+  )
+
+  const _connectWebSocket = useCallback(
+    (ws: WebSocket, stream: MediaStream, label: string): Promise<SessionStartResult> =>
+      new Promise<SessionStartResult>((resolve) => {
+        liveRef.current = ws
+        let settled = false
+        const settle = (result: SessionStartResult) => {
+          if (!settled) {
+            settled = true
+            resolve(result)
+          }
+        }
+
+        const clearWatchdog = (() => {
+          const tid = window.setTimeout(() => {
+            const msg = `${label} connection timed out`
+            setError(msg)
+            _teardown()
+            settle({ ok: false, error: msg })
+          }, 8_000)
+          return () => clearTimeout(tid)
+        })()
+
+        ws.onopen = () => {
+          clearWatchdog()
+          sttDebug('WebSocket open', label)
+          activeRef.current = true
+          const sink: LiveAudioSink = {
+            sendPcm: (buffer) => {
+              if (ws.readyState === WebSocket.OPEN) ws.send(buffer)
+            },
+            sendJson: (payload) => {
+              if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload))
+            },
+            isOpen: () => ws.readyState === WebSocket.OPEN,
+          }
+          void _setupAudioWorklet(sink, stream).then((ok) => {
+            if (!ok) {
+              settle({ ok: false, error: 'Could not start audio capture' })
+              return
+            }
+            setIsListening(true)
+            settle({ ok: true })
+          })
+        }
+
+        ws.onmessage = _handleDgMessage
+
+        ws.onerror = () => {
+          clearWatchdog()
+          const msg = `${label} connection failed`
+          setError(msg)
+          _teardown()
+          settle({ ok: false, error: msg })
+        }
+
+        ws.onclose = () => {
+          clearWatchdog()
+          if (activeRef.current) {
+            setError('Connection lost — press Enter to retry')
+            _teardown()
+          }
+          if (!settled) {
+            settle({ ok: false, error: `${label} connection closed` })
+          }
+        }
+      }),
+    [_teardown, _setupAudioWorklet, _handleDgMessage]
+  )
+
+  const _resolveListenTarget = useCallback(async (language: string): Promise<ListenTarget> => {
+    const profile = await getBrowserSpeechProfile()
+    const proxyUrl = buildDeepgramProxyUrl(language)
+    if (proxyUrl) {
+      const probe = await probeProxyBackendReachable()
+      if (probe.ok) return { mode: 'proxy', url: proxyUrl }
+      sttDebug('external proxy offline', probe.err ?? probe.status)
+    }
+
+    if (profile.isBrave || profile.isEdge) {
+      return {
+        mode: 'none',
+        error:
+          'Deepgram proxy is not reachable — set NEXT_PUBLIC_DEEPGRAM_PROXY_URL to your Render backend, or switch to browser speech mode',
+      }
+    }
+
+    return { mode: 'bridge', url: buildDeepgramBridgeUrl(language) }
+  }, [])
+
+  // ── Open proxy or direct (ephemeral key) Deepgram connection ───────────
   const _openConnection = useCallback(async (): Promise<SessionStartResult> => {
     setError(null)
 
@@ -381,84 +601,24 @@ export function useDeepgramProvider(enabled = true): SpeechProvider {
     setMicStream(stream)
 
     const language = useTestStore.getState().settings.language ?? 'en-US'
-    let url: string
-    try { url = buildProxyUrl(language) } catch (e) {
-      const msg = String(e)
-      setError(msg)
-      return { ok: false, error: msg }
-    }
-
-    const probe = await probeProxyBackendReachable()
-    if (!probe.ok) {
-      const msg =
-        'Deepgram proxy is offline. Run `npm run dev:backend` in a second terminal (port 8080), or switch STT to browser in settings.'
-      setError(msg)
+    const target = await _resolveListenTarget(language)
+    if (target.mode === 'none') {
+      setError(target.error)
       stream.getTracks().forEach((t) => t.stop())
       streamRef.current = null
       setMicStream(null)
-      return { ok: false, error: msg }
+      return { ok: false, error: target.error }
     }
 
-    return new Promise<SessionStartResult>((resolve) => {
-      const ws = new WebSocket(url)
-      liveRef.current = ws
-      let settled = false
-      const settle = (result: SessionStartResult) => {
-        if (!settled) {
-          settled = true
-          resolve(result)
-        }
-      }
+    if (target.mode === 'bridge') {
+      return _connectBridge(target.url, stream)
+    }
 
-      const clearWatchdog = (() => {
-        const tid = window.setTimeout(() => {
-          const msg = 'Proxy connection timed out'
-          setError(msg)
-          _teardown()
-          settle({ ok: false, error: msg })
-        }, 8_000)
-        return () => clearTimeout(tid)
-      })()
-
-      ws.onopen = () => {
-        clearWatchdog()
-        sttDebug('WebSocket open', url.replace(/\?.*/, '?…'))
-        activeRef.current = true
-        void _setupAudioWorklet(ws, stream).then((ok) => {
-          if (!ok) {
-            settle({ ok: false, error: 'Could not start audio capture' })
-            return
-          }
-          setIsListening(true)
-          settle({ ok: true })
-        })
-      }
-
-      ws.onmessage = _handleDgMessage
-
-      ws.onerror = () => {
-        clearWatchdog()
-        const msg = 'Deepgram proxy connection failed'
-        setError(msg)
-        _teardown()
-        settle({ ok: false, error: msg })
-      }
-
-      ws.onclose = () => {
-        clearWatchdog()
-        if (activeRef.current) {
-          setError('Connection lost — press Enter to retry')
-          _teardown()
-        }
-        if (!settled) {
-          settle({ ok: false, error: 'Deepgram proxy connection closed' })
-        }
-      }
-    })
-  }, [_teardown, _setupAudioWorklet, _handleDgMessage])
+    return _connectWebSocket(new WebSocket(target.url), stream, 'Deepgram proxy')
+  }, [_resolveListenTarget, _connectBridge, _connectWebSocket])
 
   const startSession = useCallback(async (): Promise<SessionStartResult> => {
-    if (activeRef.current && liveRef.current?.readyState === WebSocket.OPEN) {
+    if (activeRef.current && (liveRef.current?.readyState === WebSocket.OPEN || bridgeAbortRef.current)) {
       setIsListening(true)
       return { ok: true }
     }

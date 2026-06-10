@@ -39,6 +39,8 @@ export interface SpeechProviderActions {
    */
   armSession?: () => Promise<SessionStartResult>
   startSession: () => Promise<SessionStartResult>
+  /** Switch to Deepgram when browser Web Speech is stuck (Brave / Edge). */
+  retryWithDeepgram?: () => Promise<SessionStartResult>
   stopSession: () => void
   /** Clears interimText, confirmedWords, fillerCount, and resets internal refs. */
   reset: () => void

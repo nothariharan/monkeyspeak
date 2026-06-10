@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { gsap } from 'gsap'
 import { useTestStore } from '@/store/testStore'
+import { shouldPreferDeepgramStt } from '@/lib/browserSpeech'
 import type { Duration, PromptType } from '@/store/testStore'
 import type { ProviderType } from '@/hooks/useSpeechProvider'
 
@@ -78,9 +79,15 @@ export default function ConfigBar() {
     setDuration, setPromptType, setCustomPromptText,
   } = useTestStore()
 
+  const [recommendDeepgram, setRecommendDeepgram] = useState(false)
+
   const isRunning = testState === 'running'
   const currentProvider = settings.sttProvider ?? 'webspeech'
   const promptOptions = mode === 'speed' ? SPEED_PROMPTS : CLARITY_PROMPTS
+
+  useEffect(() => {
+    void shouldPreferDeepgramStt().then(setRecommendDeepgram)
+  }, [])
 
   useEffect(() => {
     if (!barRef.current) return
@@ -137,6 +144,12 @@ export default function ConfigBar() {
           </SegmentGroup>
         )}
       </div>
+
+      {mode === 'speed' && recommendDeepgram && currentProvider === 'webspeech' && !isRunning && (
+        <p className="text-center text-xs text-[var(--text-stats)] max-w-md">
+          Brave and Edge work best with Deepgram mode. Browser speech may be blocked by Shields or slow to start.
+        </p>
+      )}
 
       {promptType === 'custom' && (
         <div className="w-full max-w-2xl">

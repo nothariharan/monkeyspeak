@@ -21,6 +21,8 @@
 
 # Cursor IDE (local only)
 .cursor/
+.firecrawl/
+.wakatime-project
 
 # debug
 debug-*.log

@@ -4,19 +4,20 @@ import { useRef, useCallback, useState, useEffect } from 'react'
 import { useTestStore } from '@/store/testStore'
 import { isFiller } from '@/lib/fillers'
 import {
+  buildOnstartFailureMessage,
   buildSpeechErrorMessage,
+  allowsSlowStartRetry,
   getSpeechRecognitionCtor,
   prepareBrowserSpeech,
   sleep,
   waitForRecognitionStart,
+  type BrowserSpeechProfile,
 } from '@/lib/browserSpeech'
 import type { SpeechProvider, SessionStartResult } from './useSpeechProvider'
 
 const MAX_NETWORK_RETRIES = 3
 const STALL_MS = 8000
 const AUDIO_ACTIVE_DECAY_MS = 1200
-const ONSTART_TIMEOUT_MS = 3000
-const BRAVE_ONSTART_TIMEOUT_MS = 8000
 
 function normalizeSpokenToken(raw: string): string {
   return raw.toLowerCase().replace(/[^a-z0-9']/g, '').trim()
@@ -98,7 +99,12 @@ export function useWebSpeech(): SpeechProvider {
   const lastResultAtRef = useRef(0)
   const sessionStartedAtRef = useRef(0)
   const startedRef = useRef(false)
-  const braveRef = useRef(false)
+  const profileRef = useRef<BrowserSpeechProfile>({
+    isBrave: false,
+    isEdge: false,
+    preferDeepgram: false,
+    onstartTimeoutMs: 3000,
+  })
   const watchdogRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const audioActiveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const respawnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -247,7 +253,7 @@ export function useWebSpeech(): SpeechProvider {
 
     const lang = settings.language ?? 'en-US'
     const prep = await prepareBrowserSpeech(lang)
-    braveRef.current = prep.isBrave
+    profileRef.current = prep.profile
     if (prep.permissionError) {
       setError(prep.permissionError)
       return { ok: false, error: prep.permissionError }
@@ -365,7 +371,7 @@ export function useWebSpeech(): SpeechProvider {
           return
         }
 
-        failSession(buildSpeechErrorMessage(event.error, braveRef.current))
+        failSession(buildSpeechErrorMessage(event.error, profileRef.current))
       }
 
       recognition.onend = () => {
@@ -394,11 +400,11 @@ export function useWebSpeech(): SpeechProvider {
       return { ok: false, error: msg }
     }
 
-    const startTimeout = braveRef.current ? BRAVE_ONSTART_TIMEOUT_MS : ONSTART_TIMEOUT_MS
+    const startTimeout = profileRef.current.onstartTimeoutMs
 
     const waitUntilReady = async (): Promise<boolean> => {
       if (await waitForRecognitionStart(() => startedRef.current, startTimeout)) return true
-      if (!braveRef.current) return false
+      if (!allowsSlowStartRetry(profileRef.current)) return false
 
       startedRef.current = false
       if (recognitionRef.current) {
@@ -412,9 +418,7 @@ export function useWebSpeech(): SpeechProvider {
 
     const ready = await waitUntilReady()
     if (!ready) {
-      const msg = braveRef.current
-        ? 'Speech recognition did not start — allow mic access and try lowering Brave Shields for this site'
-        : 'Speech recognition did not start — check mic permissions and try again'
+      const msg = buildOnstartFailureMessage(profileRef.current)
       failSession(msg)
       return { ok: false, error: msg }
     }

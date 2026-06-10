@@ -113,7 +113,7 @@ function buildDeepgramListenUrl(browserReqUrl) {
     endpointing: '10',
     no_delay: 'true',
     filler_words: 'true',
-    utterance_end_ms: '250',
+    utterance_end_ms: '1000',
   };
   for (const [k, v] of Object.entries(defaults)) {
     if (!p.has(k)) p.set(k, v);

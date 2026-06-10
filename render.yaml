@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: monkeyspeak-dg-proxy
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: DEEPGRAM_API_KEY
+        sync: false
+      - key: DEEPGRAM_PROJECT_ID
+        sync: false

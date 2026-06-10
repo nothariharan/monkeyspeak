@@ -55,7 +55,9 @@ export default function Home() {
     error: sttError,
     micStream,
     audioActive,
+    activeSource,
     startSession,
+    retryWithDeepgram,
     stopSession,
     reset: resetProvider,
   } = useActiveSpeechProvider(sttProvider)
@@ -173,11 +175,38 @@ export default function Home() {
     useTimer(store.duration, handleTimerEnd)
 
   useEffect(() => {
-    if (sttError) store.setMicState('error')
-    else if (isListening) store.setMicState('active')
+    if (isListening) store.setMicState('active')
+    else if (sttError?.toLowerCase().includes('permission denied')) store.setMicState('denied')
     else if (useTestStore.getState().micState !== 'requesting') store.setMicState('idle')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sttError, isListening])
+
+  // Runtime failsafe: mic active but no transcript → retry Deepgram bridge
+  useEffect(() => {
+    if (store.testState !== 'running' || store.mode !== 'speed') return
+    if (!retryWithDeepgram) return
+
+    const timer = window.setTimeout(() => {
+      if (speakingGame.displayIndex > 0 || confirmedWords.length > 0) return
+      if (!isListening && waveActivity < 0.25) return
+      void retryWithDeepgram().then((result) => {
+        if (!result.ok) {
+          setStartError(result.error ?? 'Deepgram speech recognition failed — try browser mode or check your connection')
+        }
+      })
+    }, 5000)
+
+    return () => clearTimeout(timer)
+  }, [
+    store.testState,
+    store.mode,
+    sttProvider,
+    speakingGame.displayIndex,
+    confirmedWords.length,
+    isListening,
+    waveActivity,
+    retryWithDeepgram,
+  ])
 
   const loadPrompt = useCallback(() => {
     const s = useTestStore.getState()
@@ -206,8 +235,10 @@ export default function Home() {
 
       const didStart = await startSession()
       if (!didStart.ok) {
-        store.setMicState('error')
-        setStartError(didStart.error ?? 'Could not start speech recognition')
+        const denied = didStart.error?.toLowerCase().includes('permission denied')
+        store.setMicState(denied ? 'denied' : 'idle')
+        const providerLabel = activeSource === 'deepgram' ? 'Deepgram' : 'Browser speech'
+        setStartError(didStart.error ?? `${providerLabel} could not start — check mic access and try again`)
         return
       }
 

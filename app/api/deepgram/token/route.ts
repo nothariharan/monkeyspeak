@@ -4,14 +4,18 @@ import { NextResponse } from 'next/server'
 /** Avoid stale compiled handler + CDN-ish caching. */
 export const dynamic = 'force-dynamic'
 
-function devIssuedViaHeader(issuedVia: 'jwt' | 'none'): HeadersInit {
+const EPHEMERAL_TTL_SECONDS = 120
+
+type IssuedVia = 'ephemeral' | 'jwt' | 'none'
+
+function devIssuedViaHeader(issuedVia: IssuedVia): HeadersInit {
   if (process.env.NODE_ENV !== 'development') return {}
   return { 'X-Debug-Token-Issued-Via': issuedVia }
 }
 
 function devTokenPayload(
   base: { token: string; ttlSeconds: number },
-  via: 'jwt'
+  via: Exclude<IssuedVia, 'none'>
 ): { token: string; ttlSeconds: number; _debugIssuedVia?: string } {
   if (process.env.NODE_ENV !== 'development') return base
   return { ...base, _debugIssuedVia: via }
@@ -27,17 +31,65 @@ function formatGrantError(err: unknown): string {
 }
 
 /**
- * Issues a short-lived Deepgram JWT for the browser SDK via auth.grantToken().
- * Never returns the permanent API key — only ephemeral JWTs.
+ * Short-lived project key (~40 chars) for browser WebSocket subprotocol auth.
+ * JWTs from grantToken() are too long for Sec-WebSocket-Protocol and fail in browsers.
+ */
+async function issueEphemeralListenKey(
+  apiKey: string,
+  projectId: string
+): Promise<{ token: string; ttlSeconds: number } | null> {
+  try {
+    const response = await fetch(`https://api.deepgram.com/v1/projects/${projectId}/keys`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Token ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        comment: 'monkeyspeak-browser',
+        scopes: ['usage:write'],
+        time_to_live_in_seconds: EPHEMERAL_TTL_SECONDS,
+      }),
+    })
+
+    if (!response.ok) {
+      console.warn(`[deepgram/token] ephemeral key creation failed: ${response.status}`)
+      return null
+    }
+
+    const data = (await response.json()) as { key?: string }
+    if (!data.key) return null
+
+    return { token: data.key, ttlSeconds: EPHEMERAL_TTL_SECONDS }
+  } catch (err) {
+    console.warn(`[deepgram/token] ephemeral key creation threw (${formatGrantError(err)})`)
+    return null
+  }
+}
+
+/**
+ * Issues a short-lived Deepgram credential for browser live listen.
+ * Prefers ephemeral API keys (browser-safe); falls back to grantToken JWT for SDK paths.
  */
 export async function POST() {
   const apiKey = process.env.DEEPGRAM_API_KEY
+  const projectId = process.env.DEEPGRAM_PROJECT_ID
 
   if (!apiKey) {
     return NextResponse.json({ error: 'DEEPGRAM_API_KEY not configured' }, {
       status: 500,
       headers: devIssuedViaHeader('none'),
     })
+  }
+
+  if (projectId) {
+    const ephemeral = await issueEphemeralListenKey(apiKey, projectId)
+    if (ephemeral) {
+      return NextResponse.json(
+        devTokenPayload(ephemeral, 'ephemeral'),
+        { headers: devIssuedViaHeader('ephemeral') }
+      )
+    }
   }
 
   try {
@@ -47,7 +99,11 @@ export async function POST() {
     if (error || !result?.access_token) {
       console.warn(`[deepgram/token] grantToken unavailable (${formatGrantError(error)})`)
       return NextResponse.json(
-        { error: 'Unable to issue Deepgram token. Try again later.' },
+        {
+          error: projectId
+            ? 'Unable to issue Deepgram token. Try again later.'
+            : 'DEEPGRAM_PROJECT_ID not configured — cannot issue browser-safe listen keys.',
+        },
         { status: 503, headers: devIssuedViaHeader('none') }
       )
     }
