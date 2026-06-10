@@ -6,6 +6,7 @@ import { isFiller } from '@/lib/fillers'
 import {
   buildDeepgramBridgeUrl,
   buildDeepgramProxyUrl,
+  parseDeepgramWireMessage,
   probeProxyBackendReachable,
 } from '@/lib/deepgramConnection'
 import { getBrowserSpeechProfile } from '@/lib/browserSpeech'
@@ -144,12 +145,11 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
   }, [_teardown])
 
   // ── Deepgram JSON event handler (same wire format regardless of proxy) ────
-  const _handleDgMessage = useCallback((ev: MessageEvent) => {
+  const _handleDgJson = useCallback((json: string) => {
     if (!activeRef.current) return
-    if (typeof ev.data !== 'string') return
 
     let msg: { type: string }
-    try { msg = JSON.parse(ev.data) } catch { return }
+    try { msg = JSON.parse(json) } catch { return }
 
     if (msg.type === 'BridgeReady') return
 
@@ -221,6 +221,15 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
     }
   }, [])
 
+  const _handleDgWire = useCallback(
+    (data: unknown) => {
+      void parseDeepgramWireMessage(data).then((json) => {
+        if (json) _handleDgJson(json)
+      })
+    },
+    [_handleDgJson]
+  )
+
   // ── Audio worklet + VAD setup ─────────────────────────────────────────────
   const _setupAudioWorklet = useCallback(async (sink: LiveAudioSink, stream: MediaStream): Promise<boolean> => {
     const sessionLive = () => activeRef.current
@@ -269,18 +278,18 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
           let vadAudioReceived = 0
           let vadFallbackApplied = false
 
-          const applyDirectAudioPath = () => {
+          const applyDirectAudioPath = (reason: string) => {
             if (vadFallbackApplied) return
             vadFallbackApplied = true
-            console.warn('[VAD] No voiced audio detected — falling back to unfiltered audio')
+            console.warn(`[VAD] ${reason} — falling back to unfiltered audio`)
             try { vadWorker.terminate() } catch { /* ignore */ }
             vadWorkerRef.current = null
             bindDirectAudioPath()
           }
 
           vadWorker.onerror = (err) => {
-            console.error('[VAD] Worker load/runtime error:', err, '— falling back to unfiltered audio')
-            applyDirectAudioPath()
+            console.error('[VAD] Worker load/runtime error:', err)
+            applyDirectAudioPath('Worker failed to load')
           }
 
           vadWorker.onmessage = (ev: MessageEvent) => {
@@ -300,8 +309,8 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
               sttDebug('VAD speech_end')
               onSpeechEndRef.current?.(msg.timestamp!)
             } else if (msg.type === 'error') {
-              console.warn('[VAD] Worker error:', msg.message, '— falling back to unfiltered audio')
-              applyDirectAudioPath()
+              console.warn('[VAD] Worker error:', msg.message)
+              applyDirectAudioPath(msg.message ?? 'Worker error')
             }
           }
 
@@ -309,8 +318,7 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
 
           window.setTimeout(() => {
             if (!vadReady && !vadFallbackApplied && sessionLive()) {
-              console.warn('[VAD] Model init timeout (3s) — falling back to unfiltered audio')
-              applyDirectAudioPath()
+              applyDirectAudioPath('Model init timeout (3s)')
             }
           }, 3000)
 
@@ -324,7 +332,7 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
             if (vadPcmSent === 32) {
               window.setTimeout(() => {
                 if (!vadFallbackApplied && vadAudioReceived === 0 && sessionLive()) {
-                  applyDirectAudioPath()
+                  applyDirectAudioPath('No voiced audio detected')
                 }
               }, 2000)
             }
@@ -419,7 +427,7 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
               } catch {
                 /* ignore */
               }
-              _handleDgMessage({ data: line } as MessageEvent)
+              _handleDgJson(line)
             }
           }
         }
@@ -489,7 +497,7 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
           }
         })()
       }),
-    [_teardown, _setupAudioWorklet, _handleDgMessage]
+    [_teardown, _setupAudioWorklet, _handleDgJson]
   )
 
   const _connectWebSocket = useCallback(
@@ -537,7 +545,7 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
           })
         }
 
-        ws.onmessage = _handleDgMessage
+        ws.onmessage = (ev) => _handleDgWire(ev.data)
 
         ws.onerror = () => {
           clearWatchdog()
@@ -558,7 +566,7 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
           }
         }
       }),
-    [_teardown, _setupAudioWorklet, _handleDgMessage]
+    [_teardown, _setupAudioWorklet, _handleDgWire]
   )
 
   const _resolveListenTarget = useCallback(async (language: string): Promise<ListenTarget> => {

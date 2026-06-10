@@ -1,5 +1,13 @@
 /** Browser ↔ Deepgram connection helpers (proxy or direct JWT on Vercel). */
 
+/** Deepgram live JSON may arrive as a text frame or a UTF-8 binary frame via WS proxies. */
+export async function parseDeepgramWireMessage(data: unknown): Promise<string | null> {
+  if (typeof data === 'string') return data
+  if (data instanceof Blob) return data.text()
+  if (data instanceof ArrayBuffer) return new TextDecoder().decode(data)
+  return null
+}
+
 export function buildDeepgramListenUrl(language: string): string {
   const url = new URL('wss://api.deepgram.com/v1/listen')
   url.searchParams.set('model', 'nova-3')

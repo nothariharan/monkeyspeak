@@ -171,9 +171,12 @@ server.on('upgrade', (req, socket, head) => {
       }
     });
 
-    // Forward transcripts from Deepgram to browser
+    // Forward transcripts from Deepgram to browser as UTF-8 text frames so
+    // browser clients can JSON.parse without handling binary Blob payloads.
     dgWs.on('message', (data) => {
-      if (browserWs.readyState === WebSocket.OPEN) browserWs.send(data);
+      if (browserWs.readyState !== WebSocket.OPEN) return;
+      const text = typeof data === 'string' ? data : data.toString('utf8');
+      browserWs.send(text);
     });
 
     function cleanup() {
