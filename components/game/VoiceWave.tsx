@@ -6,6 +6,8 @@ import { gsap } from 'gsap'
 interface VoiceWaveProps {
   stream: MediaStream | null
   isActive: boolean
+  /** Synthetic activity when browser STT has no MediaStream. */
+  speechActive?: boolean
   barCount?: number
 }
 
@@ -73,6 +75,7 @@ function drawRoundedBar(
 export default function VoiceWave({
   stream,
   isActive,
+  speechActive = false,
   barCount: barCountProp,
 }: VoiceWaveProps) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -85,12 +88,17 @@ export default function VoiceWave({
   const heightsRef = useRef<number[]>([])
   const colorsRef = useRef<Rgb[]>([])
   const isActiveRef = useRef(isActive)
+  const speechActiveRef = useRef(speechActive)
   const accentRef = useRef<Rgb>([59, 130, 246])
   const barCountRef = useRef(barCountProp ?? 40)
 
   useEffect(() => {
     isActiveRef.current = isActive
   }, [isActive])
+
+  useEffect(() => {
+    speechActiveRef.current = speechActive
+  }, [speechActive])
 
   useEffect(() => {
     accentRef.current = parseAccentRgb()
@@ -162,6 +170,17 @@ export default function VoiceWave({
       colorsRef.current = Array.from({ length: n }, (_, i) => colorsRef.current[i] ?? IDLE_COLOR)
     }
 
+    const getSyntheticTargets = () => {
+      const t = performance.now() / 1000
+      const n = barCountRef.current
+      const envelope = 0.42
+      return Array.from({ length: n }, (_, index) => {
+        const wobble = 0.65 + 0.35 * Math.sin(t * 8 + index * 0.42)
+        const ripple = 0.85 + 0.15 * Math.sin(t * 3.5 + index * 0.18)
+        return envelope * wobble * ripple * MAX_BAR_HEIGHT
+      })
+    }
+
     const getTargetsFromAudio = () => {
       const analyser = analyserRef.current
       const timeData = timeDataRef.current
@@ -206,6 +225,11 @@ export default function VoiceWave({
       const centerY = height / 2
       const n = barCountRef.current
       const audioTargets = isActiveRef.current ? getTargetsFromAudio() : null
+      const syntheticTargets =
+        isActiveRef.current && !audioTargets && speechActiveRef.current
+          ? getSyntheticTargets()
+          : null
+      const waveTargets = audioTargets ?? syntheticTargets
       const totalWidth = n * BAR_WIDTH + (n - 1) * BAR_GAP
       const startX = (width - totalWidth) / 2
 
@@ -213,11 +237,11 @@ export default function VoiceWave({
 
       for (let i = 0; i < n; i++) {
         const idleHeight = Math.sin(performance.now() / 800 + i * 0.5) * 5 + 9
-        const target = isActiveRef.current && audioTargets ? audioTargets[i]! : idleHeight
+        const target = isActiveRef.current && waveTargets ? waveTargets[i]! : idleHeight
         const smooth = lerp(heightsRef.current[i] ?? 8, target, 0.2)
         const barH = Math.max(6, Math.min(MAX_BAR_HEIGHT, smooth))
         const targetColor =
-          isActiveRef.current && audioTargets && barH > 8
+          isActiveRef.current && waveTargets && barH > 8
             ? getColor(barH)
             : IDLE_COLOR
 

@@ -28,6 +28,8 @@ export interface SpeechProviderState {
   error: string | null
   /** Raw MediaStream, forwarded to WaveformVisualiser. */
   micStream: MediaStream | null
+  /** True when the browser STT path detects live audio (no MediaStream required). */
+  audioActive?: boolean
 }
 
 export interface SpeechProviderActions {

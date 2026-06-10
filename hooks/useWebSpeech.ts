@@ -3,12 +3,20 @@
 import { useRef, useCallback, useState, useEffect } from 'react'
 import { useTestStore } from '@/store/testStore'
 import { isFiller } from '@/lib/fillers'
+import {
+  buildSpeechErrorMessage,
+  getSpeechRecognitionCtor,
+  isBraveBrowser,
+  prewarmWebSpeechRecognition,
+  requestMicPermission,
+  waitForRecognitionStart,
+} from '@/lib/browserSpeech'
 import type { SpeechProvider, SessionStartResult } from './useSpeechProvider'
 
-function getSpeechRecognitionCtor(): SpeechRecognitionConstructor | null {
-  if (typeof window === 'undefined') return null
-  return window.SpeechRecognition ?? window.webkitSpeechRecognition ?? null
-}
+const MAX_NETWORK_RETRIES = 3
+const STALL_MS = 8000
+const AUDIO_ACTIVE_DECAY_MS = 600
+const ONSTART_TIMEOUT_MS = 3000
 
 function normalizeSpokenToken(raw: string): string {
   return raw.toLowerCase().replace(/[^a-z0-9']/g, '').trim()
@@ -65,8 +73,8 @@ function cumulativeTranscript(results: SpeechRecognitionResultList): string {
 /**
  * Browser Web Speech API shaped to the SpeechProvider interface.
  *
- * Does NOT open getUserMedia — SpeechRecognition owns the mic on its own.
- * A parallel getUserMedia stream prevents recognition on many Windows setups.
+ * Mic permission is requested via getUserMedia then tracks are stopped immediately.
+ * SpeechRecognition owns the live mic — no parallel MediaStream is kept.
  */
 export function useWebSpeech(): SpeechProvider {
   const { settings } = useTestStore()
@@ -78,6 +86,7 @@ export function useWebSpeech(): SpeechProvider {
   const [isListening, setIsListening] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [micStream, setMicStream] = useState<MediaStream | null>(null)
+  const [audioActive, setAudioActive] = useState(false)
 
   const recognitionRef = useRef<SpeechRecognition | null>(null)
   const listeningRef = useRef(false)
@@ -85,6 +94,14 @@ export function useWebSpeech(): SpeechProvider {
   const stableConfirmedCountRef = useRef(0)
   const singleTokenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingSingleTokenRef = useRef<string | null>(null)
+  const networkRetryRef = useRef(0)
+  const lastResultAtRef = useRef(0)
+  const sessionStartedAtRef = useRef(0)
+  const startedRef = useRef(false)
+  const braveRef = useRef(false)
+  const watchdogRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const audioActiveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const respawnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const clearSingleTokenTimer = useCallback(() => {
     if (singleTokenTimerRef.current != null) {
@@ -94,19 +111,59 @@ export function useWebSpeech(): SpeechProvider {
     pendingSingleTokenRef.current = null
   }, [])
 
+  const clearWatchdog = useCallback(() => {
+    if (watchdogRef.current != null) {
+      clearInterval(watchdogRef.current)
+      watchdogRef.current = null
+    }
+  }, [])
+
+  const clearRespawnTimer = useCallback(() => {
+    if (respawnTimerRef.current != null) {
+      clearTimeout(respawnTimerRef.current)
+      respawnTimerRef.current = null
+    }
+  }, [])
+
+  const pulseAudioActive = useCallback(() => {
+    setAudioActive(true)
+    if (audioActiveTimerRef.current != null) {
+      clearTimeout(audioActiveTimerRef.current)
+    }
+    audioActiveTimerRef.current = setTimeout(() => {
+      audioActiveTimerRef.current = null
+      setAudioActive(false)
+    }, AUDIO_ACTIVE_DECAY_MS)
+  }, [])
+
   const reset = useCallback(() => {
     clearSingleTokenTimer()
+    clearWatchdog()
+    clearRespawnTimer()
+    if (audioActiveTimerRef.current != null) {
+      clearTimeout(audioActiveTimerRef.current)
+      audioActiveTimerRef.current = null
+    }
     stableConfirmedCountRef.current = 0
+    networkRetryRef.current = 0
+    startedRef.current = false
     setInterimText('')
     previewWordsRef.current = []
     setPreviewWords([])
     setConfirmedWords([])
     setFillerCount(0)
     setError(null)
-  }, [clearSingleTokenTimer])
+    setAudioActive(false)
+  }, [clearSingleTokenTimer, clearWatchdog, clearRespawnTimer])
 
   const stopSession = useCallback(() => {
     clearSingleTokenTimer()
+    clearWatchdog()
+    clearRespawnTimer()
+    if (audioActiveTimerRef.current != null) {
+      clearTimeout(audioActiveTimerRef.current)
+      audioActiveTimerRef.current = null
+    }
     listeningRef.current = false
     if (recognitionRef.current) {
       try { recognitionRef.current.abort() } catch { /* ignore */ }
@@ -114,11 +171,14 @@ export function useWebSpeech(): SpeechProvider {
     }
     setMicStream(null)
     setIsListening(false)
+    setAudioActive(false)
     setInterimText('')
     previewWordsRef.current = []
     setPreviewWords([])
     stableConfirmedCountRef.current = 0
-  }, [clearSingleTokenTimer])
+    networkRetryRef.current = 0
+    startedRef.current = false
+  }, [clearSingleTokenTimer, clearWatchdog, clearRespawnTimer])
 
   const promoteStableTokens = useCallback((tokens: string[]) => {
     const stable =
@@ -155,6 +215,24 @@ export function useWebSpeech(): SpeechProvider {
     }, 450)
   }, [clearSingleTokenTimer])
 
+  const failSession = useCallback((msg: string) => {
+    listeningRef.current = false
+    clearSingleTokenTimer()
+    clearWatchdog()
+    clearRespawnTimer()
+    if (recognitionRef.current) {
+      try { recognitionRef.current.abort() } catch { /* ignore */ }
+      recognitionRef.current = null
+    }
+    setError(msg)
+    setInterimText('')
+    previewWordsRef.current = []
+    setPreviewWords([])
+    setIsListening(false)
+    setAudioActive(false)
+    startedRef.current = false
+  }, [clearSingleTokenTimer, clearWatchdog, clearRespawnTimer])
+
   const startSession = useCallback(async (): Promise<SessionStartResult> => {
     const Ctor = getSpeechRecognitionCtor()
     if (!Ctor) {
@@ -163,22 +241,68 @@ export function useWebSpeech(): SpeechProvider {
       return { ok: false, error: msg }
     }
 
-    if (listeningRef.current && recognitionRef.current) return { ok: true }
+    if (listeningRef.current && recognitionRef.current && startedRef.current) {
+      return { ok: true }
+    }
 
-    try {
-      clearSingleTokenTimer()
-      stableConfirmedCountRef.current = 0
-      setMicStream(null)
+    braveRef.current = await isBraveBrowser()
 
-      const lang = settings.language ?? 'en-US'
-      const recognition = new Ctor()
+    const perm = await requestMicPermission()
+    if (!perm.ok) {
+      setError(perm.error)
+      return { ok: false, error: perm.error }
+    }
+
+    const lang = settings.language ?? 'en-US'
+    await prewarmWebSpeechRecognition(lang).catch(() => {})
+
+    clearSingleTokenTimer()
+    stableConfirmedCountRef.current = 0
+    setMicStream(null)
+    setError(null)
+    setIsListening(false)
+    startedRef.current = false
+    networkRetryRef.current = 0
+    lastResultAtRef.current = Date.now()
+    sessionStartedAtRef.current = Date.now()
+    listeningRef.current = true
+
+    const spawnRecognition = (): boolean => {
+      if (!listeningRef.current) return false
+
+      const SpeechCtor = getSpeechRecognitionCtor()
+      if (!SpeechCtor) return false
+
+      if (recognitionRef.current) {
+        try { recognitionRef.current.abort() } catch { /* ignore */ }
+        recognitionRef.current = null
+      }
+
+      const recognition = new SpeechCtor()
       recognitionRef.current = recognition
       recognition.continuous = true
       recognition.interimResults = true
       recognition.maxAlternatives = 1
       recognition.lang = lang
 
+      recognition.onstart = () => {
+        startedRef.current = true
+        setIsListening(true)
+        setError(null)
+      }
+
+      recognition.onaudiostart = () => {
+        pulseAudioActive()
+      }
+
+      recognition.onspeechstart = () => {
+        pulseAudioActive()
+      }
+
       recognition.onresult = (event: SpeechRecognitionEvent) => {
+        lastResultAtRef.current = Date.now()
+        pulseAudioActive()
+
         const live = cumulativeTranscript(event.results)
         const tokens = live.length > 0 ? tokenizeInterim(live) : []
 
@@ -232,54 +356,79 @@ export function useWebSpeech(): SpeechProvider {
 
       recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
         if (event.error === 'no-speech' || event.error === 'aborted') return
-        listeningRef.current = false
-        clearSingleTokenTimer()
-        setError(
-          event.error === 'not-allowed'
-            ? 'Microphone permission denied — allow mic access for this site'
-            : event.error === 'network'
-              ? 'Speech recognition needs an internet connection'
-              : `Speech recognition error: ${event.error}`
-        )
-        recognitionRef.current = null
-        setInterimText('')
-        previewWordsRef.current = []
-        setPreviewWords([])
-        setIsListening(false)
+
+        if (event.error === 'network' && networkRetryRef.current < MAX_NETWORK_RETRIES) {
+          networkRetryRef.current++
+          recognitionRef.current = null
+          clearRespawnTimer()
+          respawnTimerRef.current = setTimeout(() => {
+            respawnTimerRef.current = null
+            spawnRecognition()
+          }, 400 * networkRetryRef.current)
+          return
+        }
+
+        failSession(buildSpeechErrorMessage(event.error, braveRef.current))
       }
 
       recognition.onend = () => {
-        if (!listeningRef.current || !recognitionRef.current) return
-        window.setTimeout(() => {
-          if (!listeningRef.current || !recognitionRef.current) return
-          try { recognitionRef.current.start() } catch { /* already started */ }
-        }, 300)
+        if (!listeningRef.current) return
+        recognitionRef.current = null
+        clearRespawnTimer()
+        respawnTimerRef.current = setTimeout(() => {
+          respawnTimerRef.current = null
+          if (listeningRef.current) spawnRecognition()
+        }, 120)
       }
 
-      listeningRef.current = true
       try {
         recognition.start()
+        return true
       } catch {
-        listeningRef.current = false
         recognitionRef.current = null
-        setIsListening(false)
-        const msg = 'Could not start speech recognition'
-        setError(msg)
-        return { ok: false, error: msg }
+        return false
       }
+    }
 
-      setIsListening(true)
-      return { ok: true }
-    } catch (err: unknown) {
+    if (!spawnRecognition()) {
+      listeningRef.current = false
       const msg = 'Could not start speech recognition'
       setError(msg)
-      recognitionRef.current = null
-      listeningRef.current = false
-      previewWordsRef.current = []
-      setPreviewWords([])
       return { ok: false, error: msg }
     }
-  }, [settings.language, clearSingleTokenTimer, promoteStableTokens, scheduleSingleTokenPromotion])
+
+    const ready = await waitForRecognitionStart(() => startedRef.current, ONSTART_TIMEOUT_MS)
+    if (!ready) {
+      failSession('Speech recognition did not start — check mic permissions and try again')
+      return { ok: false, error: 'Speech recognition did not start — check mic permissions and try again' }
+    }
+
+    clearWatchdog()
+    watchdogRef.current = setInterval(() => {
+      if (!listeningRef.current) return
+      const sinceResult = Date.now() - lastResultAtRef.current
+      const sinceSession = Date.now() - sessionStartedAtRef.current
+      if (sinceSession > STALL_MS && sinceResult > STALL_MS) {
+        lastResultAtRef.current = Date.now()
+        if (recognitionRef.current) {
+          try { recognitionRef.current.abort() } catch { /* ignore */ }
+        }
+        recognitionRef.current = null
+        spawnRecognition()
+      }
+    }, 2000)
+
+    return { ok: true }
+  }, [
+    settings.language,
+    clearSingleTokenTimer,
+    promoteStableTokens,
+    scheduleSingleTokenPromotion,
+    pulseAudioActive,
+    failSession,
+    clearWatchdog,
+    clearRespawnTimer,
+  ])
 
   useEffect(() => () => { stopSession() }, [stopSession])
 
@@ -291,6 +440,7 @@ export function useWebSpeech(): SpeechProvider {
     isListening,
     error,
     micStream,
+    audioActive,
     startSession,
     stopSession,
     reset,

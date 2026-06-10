@@ -54,10 +54,16 @@ export default function Home() {
     isListening,
     error: sttError,
     micStream,
+    audioActive,
     startSession,
     stopSession,
     reset: resetProvider,
   } = useActiveSpeechProvider(sttProvider)
+
+  const speechActive =
+    Boolean(audioActive) ||
+    previewWords.length > 0 ||
+    interimText.trim().length > 0
 
   useEffect(() => { confirmedWordsRef.current = confirmedWords }, [confirmedWords])
   useEffect(() => { interimTextRef.current = interimText }, [interimText])
@@ -160,7 +166,7 @@ export default function Home() {
   useEffect(() => {
     if (sttError) store.setMicState('error')
     else if (isListening) store.setMicState('active')
-    else store.setMicState('idle')
+    else if (useTestStore.getState().micState !== 'requesting') store.setMicState('idle')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sttError, isListening])
 
@@ -187,9 +193,11 @@ export default function Home() {
 
     if (store.mode === 'speed') {
       resetProvider()
+      store.setMicState('requesting')
 
       const didStart = await startSession()
       if (!didStart.ok) {
+        store.setMicState('error')
         setStartError(didStart.error ?? 'Could not start speech recognition')
         return
       }
@@ -433,16 +441,32 @@ export default function Home() {
 
                 {/* Running — live test card */}
                 {(isRunning || isEnding) && (
-                  <SpeakingGame
-                    words={store.prompt}
-                    timeRemainingMs={timeRemaining}
-                    totalDurationMs={store.duration * 1000}
-                    dissolvedCount={dissolvedCount}
-                    micStream={micStream}
-                    game={speakingGame}
-                    timelineRef={timelineRef}
-                    isEnding={isEnding}
-                  />
+                  <>
+                    {sttError && (
+                      <div
+                        role="alert"
+                        className="clean-card-sm px-4 py-3 flex items-center justify-between gap-4 w-full mb-4"
+                        style={{
+                          background: 'color-mix(in srgb, var(--error) 12%, var(--surface))',
+                          color: 'var(--error)',
+                          fontSize: '0.85rem',
+                        }}
+                      >
+                        <span className="font-mono">{sttError}</span>
+                      </div>
+                    )}
+                    <SpeakingGame
+                      words={store.prompt}
+                      timeRemainingMs={timeRemaining}
+                      totalDurationMs={store.duration * 1000}
+                      dissolvedCount={dissolvedCount}
+                      micStream={micStream}
+                      speechActive={speechActive}
+                      game={speakingGame}
+                      timelineRef={timelineRef}
+                      isEnding={isEnding}
+                    />
+                  </>
                 )}
               </div>
             ) : (
