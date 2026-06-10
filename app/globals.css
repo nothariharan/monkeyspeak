@@ -594,8 +594,30 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: color-mix(in srgb, var(--surface) 66%, transparent);
+  pointer-events: none;
+}
+
+.hero-monkey-loading-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.25rem;
+  height: 3.25rem;
   border-radius: 999px;
+  background: #fff;
+  border: 2px solid #111;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+}
+
+.hero-monkey-banana {
+  display: inline-block;
+  font-size: 1.45rem;
+  line-height: 1;
+  animation: hero-banana-spin 0.85s linear infinite;
+}
+
+@keyframes hero-banana-spin {
+  to { transform: rotate(360deg); }
 }
 
 .hero-start-btn {
@@ -1099,9 +1121,9 @@ body {
 
 .monkey-display {
   position: relative;
-  width: min(280px, 38vw);
-  height: min(392px, 52vw);
-  max-height: 44vh;
+  width: min(320px, 42vw);
+  height: min(448px, 56vw);
+  max-height: 48vh;
   margin: 0 auto;
 }
 
@@ -1177,9 +1199,9 @@ body {
   }
 
   .monkey-display {
-    width: min(240px, 58vw);
-    height: min(336px, 72vw);
-    max-height: 40vh;
+    width: min(272px, 62vw);
+    height: min(380px, 78vw);
+    max-height: 44vh;
   }
 }
 

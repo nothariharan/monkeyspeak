@@ -62,7 +62,7 @@ export default function HeroMonkey({ onStart, micState, onHoverChange }: HeroMon
         duration: 0.8,
         ease: 'power3.out',
         delay: 0.2,
-        clearProps: 'opacity,scale',   /* remove inline opacity/scale after tween */
+        clearProps: 'opacity,transform',
       })
 
       /* bob — only when user hasn't requested reduced motion */
@@ -128,10 +128,10 @@ export default function HeroMonkey({ onStart, micState, onHoverChange }: HeroMon
           <div ref={spriteRef} className="hero-monkey-sprite" />
 
           {isLoading && (
-            <div className="hero-monkey-overlay">
-              <svg className="animate-spin" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.5">
-                <path d="M21 12a9 9 0 1 1-6.219-8.56" strokeLinecap="round" />
-              </svg>
+            <div className="hero-monkey-overlay" aria-hidden>
+              <div className="hero-monkey-loading-badge">
+                <span className="hero-monkey-banana">🍌</span>
+              </div>
             </div>
           )}
         </div>

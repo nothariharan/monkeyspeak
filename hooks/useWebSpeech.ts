@@ -6,9 +6,8 @@ import { isFiller } from '@/lib/fillers'
 import {
   buildSpeechErrorMessage,
   getSpeechRecognitionCtor,
-  isBraveBrowser,
-  prewarmWebSpeechRecognition,
-  requestMicPermission,
+  prepareBrowserSpeech,
+  sleep,
   waitForRecognitionStart,
 } from '@/lib/browserSpeech'
 import type { SpeechProvider, SessionStartResult } from './useSpeechProvider'
@@ -17,6 +16,7 @@ const MAX_NETWORK_RETRIES = 3
 const STALL_MS = 8000
 const AUDIO_ACTIVE_DECAY_MS = 1200
 const ONSTART_TIMEOUT_MS = 3000
+const BRAVE_ONSTART_TIMEOUT_MS = 8000
 
 function normalizeSpokenToken(raw: string): string {
   return raw.toLowerCase().replace(/[^a-z0-9']/g, '').trim()
@@ -245,16 +245,13 @@ export function useWebSpeech(): SpeechProvider {
       return { ok: true }
     }
 
-    braveRef.current = await isBraveBrowser()
-
-    const perm = await requestMicPermission()
-    if (!perm.ok) {
-      setError(perm.error)
-      return { ok: false, error: perm.error }
-    }
-
     const lang = settings.language ?? 'en-US'
-    await prewarmWebSpeechRecognition(lang).catch(() => {})
+    const prep = await prepareBrowserSpeech(lang)
+    braveRef.current = prep.isBrave
+    if (prep.permissionError) {
+      setError(prep.permissionError)
+      return { ok: false, error: prep.permissionError }
+    }
 
     clearSingleTokenTimer()
     stableConfirmedCountRef.current = 0
@@ -397,10 +394,29 @@ export function useWebSpeech(): SpeechProvider {
       return { ok: false, error: msg }
     }
 
-    const ready = await waitForRecognitionStart(() => startedRef.current, ONSTART_TIMEOUT_MS)
+    const startTimeout = braveRef.current ? BRAVE_ONSTART_TIMEOUT_MS : ONSTART_TIMEOUT_MS
+
+    const waitUntilReady = async (): Promise<boolean> => {
+      if (await waitForRecognitionStart(() => startedRef.current, startTimeout)) return true
+      if (!braveRef.current) return false
+
+      startedRef.current = false
+      if (recognitionRef.current) {
+        try { recognitionRef.current.abort() } catch { /* ignore */ }
+      }
+      recognitionRef.current = null
+      await sleep(500)
+      if (!spawnRecognition()) return false
+      return waitForRecognitionStart(() => startedRef.current, startTimeout)
+    }
+
+    const ready = await waitUntilReady()
     if (!ready) {
-      failSession('Speech recognition did not start — check mic permissions and try again')
-      return { ok: false, error: 'Speech recognition did not start — check mic permissions and try again' }
+      const msg = braveRef.current
+        ? 'Speech recognition did not start — allow mic access and try lowering Brave Shields for this site'
+        : 'Speech recognition did not start — check mic permissions and try again'
+      failSession(msg)
+      return { ok: false, error: msg }
     }
 
     clearWatchdog()

@@ -21,6 +21,10 @@ export async function isBraveBrowser(): Promise<boolean> {
   return /Brave/i.test(navigator.userAgent)
 }
 
+export function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
 /**
  * Request mic permission without keeping a live capture stream.
  * SpeechRecognition owns the mic; a parallel stream breaks recognition on Windows.
@@ -87,6 +91,29 @@ export function prewarmWebSpeechRecognition(lang: string): Promise<void> {
     window.setTimeout(done, 2500)
     try { r.start() } catch { done() }
   })
+}
+
+/**
+ * Prepare mic + optional prewarm before the live recognition session.
+ * Brave skips getUserMedia preflight and prewarm — both break SpeechRecognition there.
+ */
+export async function prepareBrowserSpeech(lang: string): Promise<{
+  isBrave: boolean
+  permissionError?: string
+}> {
+  const isBrave = await isBraveBrowser()
+
+  if (isBrave) {
+    return { isBrave: true }
+  }
+
+  const perm = await requestMicPermission()
+  if (!perm.ok) {
+    return { isBrave: false, permissionError: perm.error }
+  }
+
+  await prewarmWebSpeechRecognition(lang).catch(() => {})
+  return { isBrave: false }
 }
 
 export function buildSpeechErrorMessage(error: string, isBrave: boolean): string {
