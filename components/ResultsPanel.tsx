@@ -4,6 +4,8 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { gsap } from 'gsap'
 import { generateShareCard } from '@/lib/shareCard'
 import SessionGraph from '@/components/game/SessionGraph'
+import { resolveResultsTimeline } from '@/lib/stats/timeline'
+import { useTestStore } from '@/store/testStore'
 import type { DiffWord, SpeedResults } from '@/store/testStore'
 
 interface ResultsPanelProps {
@@ -49,29 +51,24 @@ function MetricCard({
   label,
   value,
   delta,
-  iconBg,
+  tone,
   icon,
 }: {
   label: string
   value: string | number
   delta?: string | null
-  iconBg: string
+  tone: 'accent' | 'success' | 'muted' | 'warn'
   icon: React.ReactNode
 }) {
   return (
-    <div className="stat-card result-card flex flex-col gap-2">
-      <div className="flex items-center gap-2">
-        <div
-          className="flex items-center justify-center shrink-0"
-          style={{ width: 32, height: 32, background: iconBg, border: '2px solid var(--border)' }}
-        >
+    <div className="results-metric stat-card">
+      <div className="results-metric-head">
+        <div className={`results-metric-icon results-metric-icon--${tone}`}>
           {icon}
         </div>
         <span className="stat-label">{label}</span>
       </div>
-      <span className="font-display text-2xl font-black" style={{ color: 'var(--text-active)' }}>
-        {value}
-      </span>
+      <span className="results-metric-value">{value}</span>
       {delta && (
         <span className="font-mono text-xs font-semibold" style={{ color: 'var(--success)' }}>
           {delta}
@@ -95,6 +92,7 @@ export default function ResultsPanel({
   onNext,
   onPractice,
 }: ResultsPanelProps) {
+  const settings = useTestStore((s) => s.settings)
   const [displayWpm, setDisplayWpm] = useState(0)
   const [showDetail, setShowDetail] = useState(false)
   const [showStats, setShowStats] = useState(false)
@@ -114,6 +112,25 @@ export default function ResultsPanel({
   const spokenWordCount = results?.transcript
     ? results.transcript.trim().split(/\s+/).filter(Boolean).length
     : results?.diff.filter((w) => w.tag !== 'missed').length ?? 0
+
+  const graphTimeline = results
+    ? resolveResultsTimeline(
+        results.timeline,
+        results.netWpm,
+        results.rawWpm,
+        duration,
+        results.elapsedSec
+      )
+    : null
+
+  // re-sync theme when results open. zustand hydrate can race the first paint.
+  useEffect(() => {
+    if (mode !== 'speed' || !results) return
+    import('@/lib/themes').then(({ THEMES, applyTheme }) => {
+      const theme = THEMES[settings.theme] ?? THEMES.latte
+      applyTheme(theme, settings.accentHex)
+    })
+  }, [mode, results, settings.theme, settings.accentHex])
 
   useEffect(() => {
     setShowStats(false)
@@ -233,71 +250,77 @@ export default function ResultsPanel({
       aria-label="Test results"
     >
       {mode === 'speed' && results ? (
-        <div className="w-full max-w-[720px] py-8 md:py-10 flex flex-col gap-6">
-          {/* Session summary */}
+        <div className="results-shell">
+          {/* quick recap row */}
           <div
             ref={revealRef}
-            className="session-reveal clean-card p-6 md:p-8 flex flex-col items-center gap-4 text-center"
-            style={{ background: 'color-mix(in srgb, var(--accent) 8%, var(--surface))' }}
+            className="session-reveal results-summary paper-panel p-5 md:p-6 flex flex-col items-center gap-3 text-center"
           >
             <p className="stat-label">session complete</p>
-            <div className="flex flex-wrap items-center justify-center gap-6 font-mono text-sm" style={{ color: 'var(--text-stats)' }}>
+            <div className="flex flex-wrap items-center justify-center gap-5 font-mono text-sm" style={{ color: 'var(--text-stats)' }}>
               <span>avg wpm <strong style={{ color: 'var(--text-active)' }}>{results.netWpm}</strong></span>
               <span>accuracy <strong style={{ color: 'var(--text-active)' }}>{results.accuracy}%</strong></span>
               <span>consistency <strong style={{ color: 'var(--text-active)' }}>{results.consistency}%</strong></span>
             </div>
           </div>
 
-          {/* Hero score block */}
+          {/* wpm + live pace graph side by side */}
           <div
-            className={`clean-card stat-card p-6 md:p-8 flex flex-col gap-3 ${showStats ? '' : 'opacity-0'}`}
-            style={{
-              background: isPersonalBest
-                ? 'color-mix(in srgb, var(--success) 18%, var(--surface))'
-                : 'var(--surface)',
-            }}
+            className={`results-hero paper-panel stat-card ${isPersonalBest ? 'results-hero--pb' : ''} ${showStats ? '' : 'opacity-0'}`}
           >
-            <div className="flex items-end gap-3 flex-wrap">
-              <span
-                className="font-display font-black"
-                style={{ fontSize: 'clamp(3.5rem, 10vw, 5rem)', color: 'var(--accent)', lineHeight: 0.9 }}
-                aria-label={`${results.netWpm} words per minute`}
-              >
-                {displayWpm}
-              </span>
-              <span className="font-display text-lg font-bold mb-2 uppercase" style={{ color: 'var(--text-stats)' }}>
-                WPM
-              </span>
-            </div>
-
-            {renderDelta()}
-
-            {isPersonalBest && (
-              <div className="flex items-center gap-2 mt-1">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="var(--accent)" aria-hidden>
-                  <path d="M5 16L3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5zm2 3h10v-2H7v2z" />
-                </svg>
-                <span className="font-display text-sm font-bold uppercase tracking-wider" style={{ color: 'var(--accent)' }}>
-                  New Personal Best!
+            <div className="results-hero-score">
+              <div className="flex items-end gap-2">
+                <span
+                  className="results-hero-wpm"
+                  aria-label={`${results.netWpm} words per minute`}
+                >
+                  {displayWpm}
+                </span>
+                <span className="font-display text-sm font-bold mb-1 uppercase" style={{ color: 'var(--text-stats)' }}>
+                  wpm
                 </span>
               </div>
-            )}
-            {!isPersonalBest && personalBestWpm != null && personalBestWpm > 0 && (
-              <span className="font-mono text-xs" style={{ color: 'var(--text-muted)' }}>
-                best {personalBestWpm} wpm
-              </span>
+
+              {renderDelta()}
+
+              {isPersonalBest && (
+                <div className="flex items-center gap-2 mt-1">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="var(--success)" aria-hidden>
+                    <path d="M5 16L3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5zm2 3h10v-2H7v2z" />
+                  </svg>
+                  <span className="font-display text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--success)' }}>
+                    new personal best
+                  </span>
+                </div>
+              )}
+              {!isPersonalBest && personalBestWpm != null && personalBestWpm > 0 && (
+                <span className="font-mono text-xs" style={{ color: 'var(--text-muted)' }}>
+                  best {personalBestWpm} wpm
+                </span>
+              )}
+            </div>
+
+            {graphTimeline && (
+              <div className="results-hero-graph">
+                <SessionGraph
+                  timeline={graphTimeline}
+                  durationSec={duration}
+                  compact
+                  showMomentum={false}
+                />
+              </div>
             )}
           </div>
 
-          {/* Metric cards */}
-          <div className={`grid grid-cols-2 sm:grid-cols-3 gap-3 ${showStats ? '' : 'opacity-0'}`}>
+          {/* secondary stats. all theme vars, no random purple hex */}
+          <div className={`results-metrics ${showStats ? '' : 'opacity-0'}`}>
             <MetricCard
               label="accuracy"
               value={`${results.accuracy}%`}
               delta={results.accuracy >= 90 ? `↑ ${results.accuracy}%` : null}
-              iconBg="color-mix(in srgb, var(--success) 20%, var(--surface))"
+              tone="success"
               icon={
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2.5">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2.5">
                   <circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="6" /><circle cx="12" cy="12" r="2" />
                 </svg>
               }
@@ -305,9 +328,9 @@ export default function ResultsPanel({
             <MetricCard
               label="consistency"
               value={`${results.consistency}%`}
-              iconBg="color-mix(in srgb, #8b5cf6 20%, var(--surface))"
+              tone="accent"
               icon={
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" strokeWidth="2.5">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.5">
                   <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
                 </svg>
               }
@@ -315,9 +338,9 @@ export default function ResultsPanel({
             <MetricCard
               label="raw wpm"
               value={results.rawWpm}
-              iconBg="color-mix(in srgb, var(--accent) 20%, var(--surface))"
+              tone="accent"
               icon={
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.5">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.5">
                   <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
                 </svg>
               }
@@ -325,31 +348,27 @@ export default function ResultsPanel({
             <MetricCard
               label="words spoken"
               value={spokenWordCount}
-              iconBg="color-mix(in srgb, #8b5cf6 20%, var(--surface))"
+              tone="muted"
               icon={
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" strokeWidth="2.5">
-                  <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--text-stats)" strokeWidth="2.5">
+                  <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
                 </svg>
               }
             />
             <MetricCard
               label="fillers"
               value={results.fillerCount}
-              iconBg="color-mix(in srgb, #eab308 25%, var(--surface))"
+              tone="warn"
               icon={
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ca8a04" strokeWidth="2.5">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--orange)" strokeWidth="2.5">
                   <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
                 </svg>
               }
             />
           </div>
 
-          {results.timeline && results.timeline.wpm.length > 1 && (
-            <SessionGraph timeline={results.timeline} durationSec={duration} />
-          )}
-
-          {/* Breakdown */}
-          <div className="clean-card-sm stat-card flex flex-col gap-3 p-5">
+          {/* word breakdown bar */}
+          <div className="note-panel stat-card flex flex-col gap-3 p-5">
             <p className="stat-label">breakdown</p>
             <div className="accuracy-track">
               <div className="accuracy-fill" style={{ width: 0 }} />
@@ -370,7 +389,7 @@ export default function ResultsPanel({
             <button
               type="button"
               onClick={() => setShowDetail((v) => !v)}
-              className="self-start font-mono text-xs font-bold uppercase tracking-widest cursor-pointer flex items-center gap-1.5"
+              className="self-start font-mono text-xs font-bold tracking-wide cursor-pointer flex items-center gap-1.5"
               style={{ color: 'var(--text-stats)', background: 'none', border: 'none', padding: 0 }}
               aria-expanded={showDetail}
             >
@@ -415,19 +434,19 @@ export default function ResultsPanel({
           {/* Actions */}
           <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center gap-3">
-              <button type="button" id="btn-retry" onClick={onRetry} className="clean-btn clean-btn-filled flex-1 sm:flex-none">
-                Try Again
+              <button type="button" id="btn-retry" onClick={onRetry} className="desk-btn desk-btn-primary flex-1 sm:flex-none">
+                try again
               </button>
-              <button type="button" id="btn-next" onClick={onNext} className="clean-btn clean-btn-outline flex-1 sm:flex-none">
-                New Test
+              <button type="button" id="btn-next" onClick={onNext} className="desk-btn desk-btn-quiet flex-1 sm:flex-none">
+                new test
               </button>
               {onPractice && diffCounts.missed + diffCounts.substituted > 0 && (
-                <button type="button" id="btn-practice" onClick={onPractice} className="clean-btn clean-btn-outline">
-                  Practice Missed
+                <button type="button" id="btn-practice" onClick={onPractice} className="desk-btn desk-btn-quiet">
+                  practice missed
                 </button>
               )}
-              <button type="button" id="btn-share" onClick={handleShare} className="clean-btn clean-btn-outline">
-                Share
+              <button type="button" id="btn-share" onClick={handleShare} className="desk-btn desk-btn-quiet">
+                share
               </button>
             </div>
             <p className="font-mono text-xs" style={{ color: 'var(--text-stats)' }}>
@@ -462,7 +481,7 @@ export default function ResultsPanel({
           </div>
 
           <div className="min-w-0 flex flex-col gap-8">
-            <div className="clean-card stat-card p-6 flex items-baseline gap-4 flex-wrap">
+            <div className="paper-panel stat-card p-6 flex items-baseline gap-4 flex-wrap">
               <span
                 className="font-display font-black"
                 style={{ fontSize: '3.5rem', color: 'var(--accent)', lineHeight: 1 }}
@@ -483,14 +502,14 @@ export default function ResultsPanel({
             </p>
 
             <div className="flex flex-wrap items-center gap-3">
-              <button type="button" id="btn-retry" onClick={onRetry} className="clean-btn clean-btn-filled">
-                Try Again
+              <button type="button" id="btn-retry" onClick={onRetry} className="desk-btn desk-btn-primary">
+                try again
               </button>
-              <button type="button" id="btn-next" onClick={onNext} className="clean-btn clean-btn-outline">
-                New Test
+              <button type="button" id="btn-next" onClick={onNext} className="desk-btn desk-btn-quiet">
+                new test
               </button>
-              <button type="button" id="btn-share" onClick={handleShare} className="clean-btn clean-btn-outline">
-                Share
+              <button type="button" id="btn-share" onClick={handleShare} className="desk-btn desk-btn-quiet">
+                share
               </button>
             </div>
             <p className="font-mono text-xs" style={{ color: 'var(--text-stats)' }}>

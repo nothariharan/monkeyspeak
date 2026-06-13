@@ -4,8 +4,8 @@ const express = require('express');
 const cors = require('cors');
 const WebSocket = require('ws');
 
-// Load env from repo root first (.env.local is where Next keeps DEEPGRAM_API_KEY),
-// then backend-local .env — same keys are not overwritten (dotenv default).
+// env load order matters: repo root .env.local first (same file next.js uses),
+// then fallbacks. dotenv won't stomp keys that are already set.
 require('dotenv').config({ path: path.join(__dirname, '..', '.env.local') });
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 require('dotenv').config({ path: path.join(__dirname, '.env') });
@@ -19,7 +19,7 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Issue a short-lived Deepgram temporary API token
+// short-lived deepgram key for clients that can't hold the real api key
 app.get('/api/deepgram/token', async (req, res) => {
   const apiKey = process.env.DEEPGRAM_API_KEY;
   const projectId = process.env.DEEPGRAM_PROJECT_ID;
@@ -30,7 +30,7 @@ app.get('/api/deepgram/token', async (req, res) => {
 
   if (!projectId) {
     return res.status(503).json({
-      error: 'DEEPGRAM_PROJECT_ID not configured — cannot issue ephemeral token',
+      error: 'DEEPGRAM_PROJECT_ID not configured. cannot issue ephemeral token',
     });
   }
 
@@ -76,23 +76,20 @@ app.get('/api/deepgram/token', async (req, res) => {
   }
 });
 
-// Health check endpoint for GCP
+// render / coolify health checks hit this
 app.get('/', (req, res) => {
   res.send('MonkeySpeak Backend is running');
 });
 
-// ── WebSocket proxy ───────────────────────────────────────────────────────────
-// Browser connects here; backend forwards to Deepgram using server-side auth.
-// The browser never needs to send credentials — Node.js sets Authorization as
-// a proper HTTP header which the browser WebSocket API forbids.
+// websocket proxy
+// browser connects here because it literally cannot set Authorization on a ws.
+// we attach the deepgram token server-side and pipe audio both ways.
 
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ noServer: true });
 
-/**
- * Merge browser query params into a Deepgram /v1/listen URL.
- * Maps `lang` → `language` (browser cannot use custom headers; we only pass lang).
- */
+// turn the browser query string into a deepgram /v1/listen url.
+// maps lang -> language since the client only gets query params, not headers.
 function buildDeepgramListenUrl(browserReqUrl) {
   const incoming = new URL(browserReqUrl, 'http://127.0.0.1');
   const p = incoming.searchParams;
@@ -113,19 +110,19 @@ function buildDeepgramListenUrl(browserReqUrl) {
     endpointing: '10',
     no_delay: 'true',
     filler_words: 'true',
+    // deepgram rejects live ws below 1000ms with a 400. learned that the hard way.
     utterance_end_ms: '1000',
   };
   for (const [k, v] of Object.entries(defaults)) {
     if (!p.has(k)) p.set(k, v);
   }
-  // Forward any additional client-supplied Deepgram params (utterance_end_ms, etc.)
-  // All unrecognised params are passed through as-is to allow experimentation.
+  // anything else on the query string passes through for experiments
 
   return `wss://api.deepgram.com/v1/listen?${p.toString()}`;
 }
 
 server.on('upgrade', (req, socket, head) => {
-  // Accept /v1/listen (SDK-built path) and /api/deepgram/proxy (plain browser WS)
+  // sdk builds /v1/listen, plain browser ws uses /api/deepgram/proxy
   const isListen = req.url.startsWith('/v1/listen') || req.url.startsWith('/api/deepgram/proxy');
   if (!isListen) {
     socket.destroy();
@@ -148,7 +145,8 @@ server.on('upgrade', (req, socket, head) => {
       headers: { Authorization: `Token ${apiKey}` },
     });
 
-    // Buffer any audio packets sent before the Deepgram connection is fully open
+    // mic might start sending pcm before deepgram finishes handshaking.
+    // buffer those frames instead of dropping them on the floor.
     const bufferedMessages = [];
     let isDgOpen = false;
 
@@ -162,7 +160,6 @@ server.on('upgrade', (req, socket, head) => {
 
     dgWs.on('open', () => {
       isDgOpen = true;
-      // Flush any buffered audio frames
       while (bufferedMessages.length > 0) {
         const msg = bufferedMessages.shift();
         if (dgWs.readyState === WebSocket.OPEN) {
@@ -171,8 +168,8 @@ server.on('upgrade', (req, socket, head) => {
       }
     });
 
-    // Forward transcripts from Deepgram to browser as UTF-8 text frames so
-    // browser clients can JSON.parse without handling binary Blob payloads.
+    // deepgram sometimes sends json as binary frames. normalize to utf-8 text
+    // so the browser client can JSON.parse without blob gymnastics.
     dgWs.on('message', (data) => {
       if (browserWs.readyState !== WebSocket.OPEN) return;
       const text = typeof data === 'string' ? data : data.toString('utf8');

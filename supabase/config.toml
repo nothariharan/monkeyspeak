@@ -1,0 +1,5 @@
+# supabase project ref
+project_id = "zpaykwaqhiwpmpjvtqrj"
+
+[db]
+major_version = 15

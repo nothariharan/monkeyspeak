@@ -1,88 +1,36 @@
-<p align="center">
-  <img src="public/banner.png" alt="MonkeySpeak — Voice Speed & Clarity Benchmark" width="100%" />
-</p>
+# monkeyspeak
 
-<p align="center">
-  <img src="public/logo.png" alt="MonkeySpeak logo" width="64" height="64" />
-</p>
+what's launching: a tiny speaking benchmark. read prompts out loud, get a wpm score, chase one more personal best 🙊
+(totally original idea hehehe)
 
-<h1 align="center">MonkeySpeak</h1>
+check out [CONTRIBUTING.md](CONTRIBUTING.md) for the longer contributor guide - this readme is the fast version.
 
-<p align="center">
-  <strong>How fast can you speak?</strong><br />
-  Read it. Say it. Beat your score.
-</p>
+![monkeyspeak banner](./public/banner.png)
 
-<p align="center">
-  The spoken equivalent of <a href="https://monkeytype.com">MonkeyType</a> — a minimalist voice benchmark for speed and clarity.
-</p>
+monkeyspeak is basically monkeytype but you use your voice. pick a prompt, hit start talking, and the app tracks how fast you spoke, what it actually heard, and whether too many ums snuck in while you were cooking.
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Next.js-14-black?logo=next.js" alt="Next.js 14" />
-  <img src="https://img.shields.io/badge/TypeScript-5-blue?logo=typescript&logoColor=white" alt="TypeScript" />
-  <img src="https://img.shields.io/badge/Tailwind-3-38bdf8?logo=tailwindcss&logoColor=white" alt="Tailwind CSS" />
-  <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License" />
-</p>
+works out of the box with browser speech recognition. no api key, no signup, just mic access and mild embarrassment when you misread the prompt.
 
----
+## screenshots so you know what you cloned
 
-## What is MonkeySpeak?
+![idle screen](./docs/screenshots/idle.png)
+![live test](./docs/screenshots/live-test.png)
+![results screen](./docs/screenshots/results.png)
 
-MonkeySpeak measures **how fast** and **how clearly** you speak. Pick a prompt, hit the mic, and read aloud — live WPM tracking, word-level accuracy, filler detection, and personal bests keep you coming back.
+## what it does (non-exhaustive)
 
-Two modes:
+- speed mode: 15s / 30s / 60s / 120s timed runs
+- clarity mode: paste a transcript, get a word diff against the prompt -> to test against other stt
+- live wpm while you talk
+- filler cleanup for um, uh, like, and other verbal speed bumps
+- words dissolve off the screen as the app hears them correctly
+- personal bests saved locally per duration and prompt type
+- global leaderboard — pick a name + emoji after a run, no signup, shared via Supabase
+- themes, accent colors, fonts, blind mode, transcript toggles, the usual knobs
 
-| Mode | What it measures | How it works |
-|------|------------------|--------------|
-| **Speed** | Words per minute + accuracy | Timed mic test with live speech-to-text |
-| **Clarity** | Transcription accuracy | Paste output from any dictation tool for word-level diff scoring |
+## get it running
 
-Works out of the box with the **browser Web Speech API** — no API key required. Optional [Deepgram](https://deepgram.com) integration for higher-quality transcription.
-
-<p align="center">
-  <img src="public/speak_mon.png" alt="MonkeySpeak mascot" width="120" />
-</p>
-
----
-
-## Features
-
-### Speed mode
-- Timed speaking tests — **15s, 30s, 60s, or 120s**
-- Live **net WPM** with filler word stripping (`um`, `uh`, `like`, …)
-- Prompt types: sentences, numbers, or custom paste
-- Words **dissolve** on screen as you speak them correctly
-- Momentum-driven UI — monkey companion reacts to your speaking energy
-- Personal bests stored locally per duration and prompt type
-
-### Clarity mode
-- Word-level **Levenshtein diff** against the original prompt
-- Prompt types: sentences, technical, tongue twisters, or custom
-- Letter grades: **S / A / B / C / needs work**
-- Practice missed words — auto-generates a new prompt from errors
-
-### Results & progress
-- Animated WPM count-up with delta vs. last run
-- Accuracy breakdown bar + expandable word-by-word diff
-- Shareable results card (PNG export)
-- Consistency score across session windows
-
-### Customization
-- **Themes** — Latte, Frappe, Macchiato, Mocha (Catppuccin-inspired)
-- **Accent colors**, **fonts** (JetBrains Mono, Fira Code, Inconsolata), **font sizes**
-- **Languages** — en-US, en-GB, en-AU
-- Toggles: filler flash, live transcript, smooth caret, blind mode, skip VAD
-
----
-
-## Quick start
-
-### Prerequisites
-
-- **Node.js 20+**
-- A microphone (for Speed mode)
-
-### Install & run (browser STT — no API key)
+you need node 20+ and a microphone. that's it for the default path.
 
 ```bash
 git clone https://github.com/nothariharan/monkeyspeak.git
@@ -91,188 +39,151 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000), allow microphone access, and start speaking.
+point your browser at http://localhost:3000, allow the mic, and try not to read like you are defusing a bomb.
 
-### With Deepgram (optional, higher quality)
+sip some water. you're about to yapppppity yapppp
 
-1. Copy the example env file and add your key:
+### browser speech (start here)
+
+this is the easy path. try this first.
+
+```bash
+npm run dev
+```
+
+chrome is usually the smoothest. brave and edge work too but browser speech can get weird depending on the engine.
+disclaimer: brave is little notorious coz of brave shields etc so be careful there
+
+
+### deepgram? 
+
+fair. deepgram gives you better live transcription and matches the production-style setup.
+
+copy the env template:
 
 ```bash
 cp .env.example .env.local
 ```
 
-2. Set in `.env.local`:
+fill in `.env.local`:
 
 ```env
 DEEPGRAM_API_KEY=your_deepgram_api_key_here
-NEXT_PUBLIC_DEEPGRAM_PROXY_URL=ws://localhost:8080/api/deepgram/proxy
 DEEPGRAM_PROJECT_ID=your_deepgram_project_id_here
+NEXT_PUBLIC_DEEPGRAM_PROXY_URL=ws://localhost:8080/api/deepgram/proxy
 ```
 
-3. Run both servers:
+boot both in two terminals:
 
 ```bash
-# Terminal 1 — Next.js frontend
+# terminal 1
 npm run dev
 
-# Terminal 2 — Deepgram WebSocket proxy
+# terminal 2
 npm run dev:backend
 ```
 
-4. In the app settings, switch STT provider to **Deepgram**.
+open settings in the app, flip stt provider to deepgram, and you should be good.
 
-### Production
+the deepgram api key stays on the server. the browser talks to your proxy, not straight to deepgram with the permanent key taped to the client.
+
+### global leaderboard (optional)
+
+scores are shared across everyone via Supabase Postgres. no accounts — just a nickname and emoji after a speed run.
+
+1. create a [Supabase](https://supabase.com) project
+2. run the migration in [supabase/migrations/001_leaderboard_entries.sql](supabase/migrations/001_leaderboard_entries.sql) (SQL editor or `supabase db push`)
+3. add to `.env.local`:
+
+```env
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
+```
+
+without those vars the app still runs; the board just shows a friendly error until you wire it up.
+
+## to get it up and speaking / running ( u see what i did here ? )
+
+```bash
+npm run dev              # next dev server
+npm run dev:backend      # deepgram websocket proxy on port 8080
+npm run dev:turbo        # next with turbopack
+npm run dev:clean        # clear .next cache then dev
+npm run build            # production build
+npm start                # prod server + integrated proxy (server.js)
+npm run lint             # eslint. do this before a pr
+```
+
+## keyboard shortcuts
+
+- `Enter` - start a test, or next prompt after a run
+- `Tab` - reset, stop, or retry depending on where you are
+- `Escape` - bail on a running test early
+- `Ctrl + ,` - open settings
+- `Ctrl + 1` / `Ctrl + 2` - speed mode / clarity mode
+
+## where stuff lives
+
+```text
+monkeyspeak/
+  app/              pages and api routes
+  components/       ui, controls, results
+  components/game/  speaking test world, hud, graph, monkey
+  hooks/            timer, speech providers, vad
+  lib/              prompts, scoring, diff, themes, share cards
+  store/            zustand state + persisted settings
+  public/           sprites, onnx model, audio workers
+  backend/          standalone deepgram websocket proxy
+  server.js         prod next + proxy in one node process
+  docs/             dev notes and screenshots
+  patches/          patch-package fixes
+```
+
+touching the live speaking experience? start in [app/page.tsx](app/page.tsx), [components/game/SpeakingGame.tsx](components/game/SpeakingGame.tsx), and [hooks/](hooks).
+
+touching scoring? [lib/alignTranscriptToPrompt.ts](lib/alignTranscriptToPrompt.ts), [lib/fillers.ts](lib/fillers.ts), [lib/stats/](lib/stats), [lib/diff.ts](lib/diff.ts).
+
+## env vars (when you care)
+
+| variable | notes |
+| --- | --- |
+| `DEEPGRAM_API_KEY` | server side only. do not expose in client code |
+| `DEEPGRAM_PROJECT_ID` | used for short-lived token creation |
+| `NEXT_PUBLIC_DEEPGRAM_PROXY_URL` | browser websocket url. local example: `ws://localhost:8080/api/deepgram/proxy` |
+| `SUPABASE_URL` | Supabase project url for the global leaderboard (server only) |
+| `SUPABASE_SERVICE_ROLE_KEY` | service role key for leaderboard api routes. never expose to the client |
+| `PORT` | optional. defaults to 3000 for the app, 8080 for backend |
+| `NEXT_PUBLIC_DEBUG_STT` | set to `true` for browser speech logs |
+| `DEBUG_DG_PROXY` | set to `1` for noisy proxy logs |
+
+full copy-paste template lives in [.env.example](.env.example).
+
+## production
 
 ```bash
 npm run build
 npm start
 ```
 
-Uses `server.js` — Next.js and the Deepgram WebSocket proxy on the same port (default **3000**).
+`npm start` runs [server.js](server.js), which serves next and the deepgram proxy from the same node process. handy for single-service deploys.
 
----
+on Vercel, add `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in project settings so the global leaderboard works in production. the Render deepgram proxy does not need Supabase env vars.
 
-## Architecture
+want the frontend and proxy split up? see [backend/README.md](backend/README.md) for render setup notes.
 
-```mermaid
-flowchart TB
-    subgraph browser [Browser]
-        UI[Next.js UI]
-        WebSpeech[Web Speech API]
-        VAD[Silero VAD Worker]
-    end
+## before you open a pr
 
-    subgraph server [Server]
-        Next[Next.js Server]
-        Proxy[WebSocket Proxy]
-        TokenRoute["POST /api/deepgram/token"]
-    end
+skim [CONTRIBUTING.md](CONTRIBUTING.md), then:
 
-    subgraph deepgram [Deepgram Cloud]
-        DG["api.deepgram.com"]
-    end
-
-    UI -->|"default STT"| WebSpeech
-    UI -->|"audio via WebSocket"| Proxy
-    VAD -->|"voice activity"| UI
-    Proxy -->|"Authorization header"| DG
-    Next --> TokenRoute
-    TokenRoute -.->|"short-lived JWT"| UI
+```bash
+npm run lint
+npm run build
 ```
 
-The Deepgram API key **never reaches the browser**. Audio streams through a server-side WebSocket proxy that attaches the `Authorization` header upstream.
+also do one real speaking run in the browser. speech bugs love looking fine in typescript and then falling apart the second a microphone joins the party.
 
----
+## license
 
-## Keyboard shortcuts
+mit. see [LICENSE](LICENSE).
 
-| Key | Action |
-|-----|--------|
-| `Enter` | Start test (idle) / Next prompt (ended) |
-| `Tab` | Reset (idle) / Stop (running) / Retry (ended) |
-| `Escape` | Stop test early |
-| `Ctrl + ,` | Open settings |
-| `Ctrl + 1` | Switch to Speed mode |
-| `Ctrl + 2` | Switch to Clarity mode |
-
----
-
-## Environment variables
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `DEEPGRAM_API_KEY` | For Deepgram | Server-side Deepgram auth (never exposed to client) |
-| `NEXT_PUBLIC_DEEPGRAM_PROXY_URL` | For Deepgram | WebSocket proxy URL, e.g. `ws://localhost:8080/api/deepgram/proxy` |
-| `DEEPGRAM_PROJECT_ID` | For backend token endpoint | Ephemeral key creation via Deepgram API |
-| `PORT` | No | Server port (default `3000` or `8080` for backend) |
-| `NEXT_PUBLIC_DEBUG_STT` | No | Set to `true` for STT debug logs in browser console |
-| `DEBUG_DG_PROXY` | No | Set to `1` for verbose proxy logging on backend |
-
-See [`.env.example`](.env.example) for a copy-paste template.
-
----
-
-## Tech stack
-
-| Layer | Technology |
-|-------|------------|
-| Framework | Next.js 14 (App Router) |
-| Language | TypeScript |
-| UI | React 18, Tailwind CSS |
-| State | Zustand (settings persisted to `localStorage`) |
-| Animation | GSAP, Framer Motion |
-| Speech | Web Speech API, Deepgram SDK |
-| VAD | Silero ONNX via Web Worker |
-| Alignment | fast-levenshtein, double-metaphone, custom Smith-Waterman |
-| Backend | Express + ws (standalone proxy) or integrated `server.js` |
-
----
-
-## Project structure
-
-```
-monkeyspeak/
-├── app/                    # Next.js App Router (page, layout, API routes)
-├── components/             # UI components + game shell
-│   └── game/               # SpeakingGame, MonkeyDisplay, GameHUD, …
-├── hooks/                  # STT providers, timer, voice activity, momentum
-├── lib/                    # Prompts, diff, fillers, themes, share card
-├── store/                  # Zustand global state
-├── public/                 # Static assets, VAD model, audio worklets
-├── backend/                # Standalone Express + Deepgram WS proxy
-├── server.js               # Production Next.js + integrated proxy
-└── patches/                # Deepgram SDK patch (JWT bearer subprotocol)
-```
-
----
-
-## Scripts
-
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Start Next.js dev server |
-| `npm run dev:backend` | Start standalone Deepgram proxy (port 8080) |
-| `npm run dev:turbo` | Dev server with Turbopack |
-| `npm run dev:clean` | Clear `.next` cache then dev |
-| `npm run build` | Production build |
-| `npm start` | Production server with integrated proxy |
-| `npm run lint` | ESLint |
-
----
-
-## Security
-
-- **No API keys in client code** — Deepgram credentials are server-side only
-- **WebSocket proxy** — browser cannot set WS auth headers; server adds them upstream
-- **Token endpoint** — issues short-lived JWTs only; never returns the permanent API key
-- **`.env.local` is gitignored** — copy from `.env.example` and never commit secrets
-
-If you deploy the backend publicly, restrict CORS and add rate limiting to the proxy endpoints.
-
----
-
-## Contributing
-
-Contributions are welcome! Feel free to open an issue or submit a pull request.
-
-1. Fork the repo
-2. Create a feature branch (`git checkout -b feature/my-feature`)
-3. Commit your changes
-4. Push and open a PR
-
----
-
-## License
-
-MIT — see [LICENSE](LICENSE) for details.
-
----
-
-<p align="center">
-  <img src="public/main_mon.png" alt="" width="80" />
-  <img src="public/side_mon.png" alt="" width="80" />
-</p>
-
-<p align="center">
-  Built with 🍌 and a microphone.
-</p>
+![main monkey](./public/main_mon.png) ![side monkey](./public/side_mon.png)

@@ -1,29 +1,56 @@
-# MonkeySpeak Deepgram WebSocket proxy
+# MonkeySpeak Deepgram proxy
 
-Small Express + `ws` server that proxies browser WebSocket connections to Deepgram live listen. Required for **Brave** and **Edge**, which block direct cross-origin WebSocket to `api.deepgram.com`.
+This folder is the standalone WebSocket proxy for Deepgram live transcription.
+
+Why it exists: browsers cannot reliably attach the auth headers Deepgram needs for a direct live WebSocket connection. Brave and Edge are especially picky here, so the browser talks to this proxy and the proxy talks to Deepgram with the server-side API key.
+
+## Local dev
+
+From the repo root:
+
+```bash
+npm run dev:backend
+```
+
+Then put this in `.env.local` for the frontend:
+
+```env
+NEXT_PUBLIC_DEEPGRAM_PROXY_URL=ws://localhost:8080/api/deepgram/proxy
+```
+
+Run the frontend in another terminal:
+
+```bash
+npm run dev
+```
+
+Open the app, go to settings, and choose `Deepgram` as the STT provider.
+
+## Required env
+
+| Variable | Notes |
+| --- | --- |
+| `DEEPGRAM_API_KEY` | Permanent server-side Deepgram API key. Keep it out of client code. |
+| `DEEPGRAM_PROJECT_ID` | Used by the token endpoint for short-lived key creation. |
+| `PORT` | Optional locally. Defaults to `8080`; Render sets this for you. |
+| `DEBUG_DG_PROXY` | Optional. Set to `1` when you want noisy proxy logs. |
 
 ## Deploy on Render
 
-1. Create a **Web Service** from this repo.
+1. Create a Render **Web Service** from this repo.
 2. Set **Root Directory** to `backend`.
-3. **Build command:** `npm install`
-4. **Start command:** `npm start`
-5. Add environment variables (Dashboard → Environment):
-   - `DEEPGRAM_API_KEY` — your Deepgram API key
-   - `DEEPGRAM_PROJECT_ID` — project UUID (for token endpoint)
-   - `PORT` — Render sets this automatically; default is `8080` locally
+3. Use `npm install` as the build command.
+4. Use `npm start` as the start command.
+5. Add `DEEPGRAM_API_KEY` and `DEEPGRAM_PROJECT_ID` in the Render environment tab.
+6. Deploy, then copy the public service URL.
 
-6. After deploy, copy the public URL (e.g. `https://monkeyspeak-dg-proxy.onrender.com`).
+The frontend needs the WebSocket URL, not the plain site URL:
 
-## Connect the frontend (Vercel)
-
-In Vercel project settings → Environment Variables (Production + Preview):
-
-```
+```env
 NEXT_PUBLIC_DEEPGRAM_PROXY_URL=wss://YOUR-SERVICE.onrender.com/api/deepgram/proxy
 ```
 
-Redeploy the Next.js app so the client bundle picks up the new URL.
+Add that to Vercel or wherever the Next.js app is deployed, then redeploy the frontend so the client bundle picks it up.
 
 ## Health check
 
@@ -31,20 +58,4 @@ Redeploy the Next.js app so the client bundle picks up the new URL.
 curl https://YOUR-SERVICE.onrender.com/
 ```
 
-Should return a plain text OK response.
-
-## Local dev
-
-From repo root:
-
-```bash
-npm run dev:backend
-```
-
-Then in `.env.local`:
-
-```
-NEXT_PUBLIC_DEEPGRAM_PROXY_URL=ws://localhost:8080/api/deepgram/proxy
-```
-
-Run `npm run dev` in another terminal.
+You should get a small OK response. If that works but live speech does not, turn on `DEBUG_DG_PROXY=1` and check the proxy logs while starting a test.

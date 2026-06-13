@@ -23,6 +23,17 @@ export interface PersonalBestEntry {
   date: string
 }
 
+export interface LeaderboardEntry {
+  id: string
+  name: string
+  wpm: number
+  accuracy: number
+  duration: Duration
+  promptType: PromptType
+  date: string
+  emoji?: string
+}
+
 export interface Settings {
   theme: import('@/lib/themes').ThemeName
   accentHex: string
@@ -36,6 +47,8 @@ export interface Settings {
   sttProvider: ProviderType
   skipVad: boolean
   personalBests: Record<string, PersonalBestEntry>
+  leaderboardName?: string
+  leaderboardEmoji?: string
   /** netWpm of the most recent speed run, used to show a delta on the results screen. */
   lastSpeedWpm?: number
 }
@@ -104,6 +117,8 @@ interface TestStore {
   updateSettings: (patch: Partial<Settings>) => void
   setMicState: (s: TestStore['micState']) => void
   setSttProvider: (p: ProviderType) => void
+  setLeaderboardName: (name: string) => void
+  setLeaderboardEmoji: (emoji: string) => void
   /** Returns true if this was a new personal best. */
   checkAndUpdatePersonalBest: (key: string, wpm: number) => boolean
   resetTest: () => void
@@ -176,6 +191,22 @@ export const useTestStore = create<TestStore>()(
       setMicState: (micState) => set({ micState }),
 
       setSttProvider: (p) => set((s) => ({ settings: { ...s.settings, sttProvider: p } })),
+
+      setLeaderboardName: (name) =>
+        set((s) => ({
+          settings: {
+            ...s.settings,
+            leaderboardName: name.trim(),
+          },
+        })),
+
+      setLeaderboardEmoji: (emoji) =>
+        set((s) => ({
+          settings: {
+            ...s.settings,
+            leaderboardEmoji: emoji,
+          },
+        })),
 
       checkAndUpdatePersonalBest: (key, wpm) => {
         const bests = get().settings.personalBests ?? {}

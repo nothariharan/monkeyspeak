@@ -1,6 +1,5 @@
 import type { DiffWord, SessionTimeline } from '@/store/testStore'
-
-/** Raw per-second sample captured during a live session. */
+/** per-second samples captured while you yap during a speed run */
 export interface TimelineSample {
   second: number
   cumulativeChars: number
@@ -9,7 +8,7 @@ export interface TimelineSample {
   currentIndex: number
 }
 
-/** Derive MonkeyType-style chart series from captured timeline samples. */
+/** turn live samples into chart series for the results graph */
 export function buildSessionTimeline(
   samples: TimelineSample[],
   diff: DiffWord[]
@@ -48,4 +47,43 @@ export function buildSessionTimeline(
   }
 
   return { raw, wpm, momentum, errors }
+}
+
+/** if the live sampler barely ran, fake a flat-ish line so the results graph still renders */
+export function resolveResultsTimeline(
+  timeline: SessionTimeline | undefined,
+  netWpm: number,
+  rawWpm: number,
+  durationSec: number,
+  elapsedSec: number
+): SessionTimeline {
+  if (timeline && timeline.wpm.length > 1) return timeline
+
+  const sec = Math.max(1, Math.round(elapsedSec || durationSec))
+  const steps = Math.max(2, Math.min(sec, 10))
+  const wpm: { second: number; wpm: number }[] = []
+  const net = Math.max(netWpm, 1)
+
+  for (let i = 0; i <= steps; i++) {
+    const second = Math.round((sec / steps) * i)
+    const t = i / steps
+    wpm.push({ second, wpm: Math.round(netWpm * t) })
+  }
+
+  const raw = wpm.map((p) => ({
+    second: p.second,
+    wpm: Math.round((rawWpm / net) * p.wpm),
+  }))
+
+  const momentum = wpm.map((p) => ({
+    second: p.second,
+    value: Math.round(35 + 55 * (p.wpm / net)),
+  }))
+
+  return {
+    raw,
+    wpm,
+    momentum,
+    errors: timeline?.errors ?? [],
+  }
 }

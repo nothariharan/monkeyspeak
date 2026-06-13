@@ -35,7 +35,7 @@ function SegmentGroup({
   return (
     <div className="flex flex-col items-center gap-2">
       <span className="stat-label">{label}</span>
-      <div className="clean-segment flex flex-wrap justify-center">{children}</div>
+      <div className="choice-strip flex flex-wrap justify-center">{children}</div>
     </div>
   )
 }
@@ -147,7 +147,7 @@ export default function ConfigBar() {
 
       {mode === 'speed' && recommendDeepgram && currentProvider === 'webspeech' && !isRunning && (
         <p className="text-center text-xs text-[var(--text-stats)] max-w-md">
-          Brave and Edge work best with Deepgram mode. Browser speech may be blocked by Shields or slow to start.
+          if browser speech feels stuck, try deepgram mode or switch to chrome for the quick test.
         </p>
       )}
 
@@ -157,7 +157,7 @@ export default function ConfigBar() {
             id="custom-text-input"
             className="clarity-input mt-2"
             rows={3}
-            placeholder="paste your custom text here…"
+            placeholder="paste your custom text here..."
             value={customPromptText}
             onChange={(e) => setCustomPromptText(e.target.value)}
             aria-label="Custom prompt text"

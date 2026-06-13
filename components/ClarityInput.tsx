@@ -31,13 +31,13 @@ export default function ClarityInput({
   return (
     <div className="flex flex-col items-center gap-6 w-full max-w-2xl mx-auto">
       <p
-        className="font-display text-sm font-bold uppercase tracking-widest text-center"
+        className="font-display text-sm font-bold tracking-wide text-center"
         style={{ color: 'var(--text-stats)' }}
       >
         Speak this prompt using your voice tool
       </p>
 
-      <div className="clean-card w-full p-5 text-left" aria-label="Prompt text">
+      <div className="paper-panel w-full p-5 text-left" aria-label="Prompt text">
         <p
           style={{
             fontSize: 'var(--test-font-size)',
@@ -64,7 +64,7 @@ export default function ClarityInput({
         />
       ) : (
         <div
-          className="clean-card w-full p-5 text-left"
+          className="paper-panel w-full p-5 text-left"
           style={{
             fontSize: 'var(--test-font-size)',
             lineHeight: 'var(--test-line-height)',
@@ -89,7 +89,7 @@ export default function ClarityInput({
           <button
             id="btn-clarity-start"
             onClick={onStart}
-            className="clean-btn clean-btn-filled"
+            className="desk-btn desk-btn-primary"
             aria-label="Start clarity test"
           >
             Start
@@ -99,7 +99,7 @@ export default function ClarityInput({
           <button
             id="btn-clarity-stop"
             onClick={onStop}
-            className="clean-btn clean-btn-outline"
+            className="desk-btn desk-btn-quiet"
             style={{ borderColor: 'var(--error)', color: 'var(--error)' }}
             aria-label="Stop clarity test"
           >

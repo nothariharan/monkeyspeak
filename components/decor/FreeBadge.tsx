@@ -2,7 +2,7 @@
 
 export default function FreeBadge() {
   return (
-    <span className="clean-badge clean-badge-yellow" aria-label="100 percent free">
+    <span className="tiny-label tiny-label-yellow" aria-label="100 percent free">
       100% FREE
     </span>
   )

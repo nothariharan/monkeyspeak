@@ -5,10 +5,8 @@ import type { DiffWord } from '@/store/testStore'
 import type { EnrichedWord } from '@/hooks/useSpeechProvider'
 
 /**
- * Align a full spoken transcript against the complete prompt array using
- * Smith-Waterman local sequence alignment.
- *
- * Called once at test end — no incremental / live alignment.
+ * end-of-run scoring: align what you said against the full prompt.
+ * smith-waterman because people skip words, repeat stuff, and generally yap messy.
  */
 export function alignTranscriptToPrompt(
   transcript: string,
@@ -20,6 +18,7 @@ export function alignTranscriptToPrompt(
     .split(/\s+/)
     .filter(Boolean)
 
+  // strip fillers before alignment. ums shouldn't count as spoken words.
   const spokenTokens: EnrichedWord[] = rawTokens
     .filter((w) => !isFiller(w))
     .map((w) => ({ word: w }))
@@ -42,6 +41,7 @@ export function alignTranscriptToPrompt(
     }
   }
 
+  // score >= 2 = close enough. below that we call it a substitution.
   return prompt.map((promptWord, i) => {
     const hit = coverage.get(i)
     if (!hit) return { word: promptWord, tag: 'missed' as const }

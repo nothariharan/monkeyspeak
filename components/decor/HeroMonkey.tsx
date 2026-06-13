@@ -47,14 +47,12 @@ export default function HeroMonkey({ onStart, micState, onHoverChange }: HeroMon
       }
     })
   }
-
-  /* ── mount: entrance + bob ── */
+  /* mount: entrance + small idle bob */
   useEffect(() => {
     const wrap = wrapRef.current
     if (!wrap) return
 
     ctxRef.current = gsap.context(() => {
-      /* entrance */
       gsap.from(wrap, {
         y: 38,
         opacity: 0,
@@ -64,8 +62,6 @@ export default function HeroMonkey({ onStart, micState, onHoverChange }: HeroMon
         delay: 0.2,
         clearProps: 'opacity,transform',
       })
-
-      /* bob — only when user hasn't requested reduced motion */
       const mm = gsap.matchMedia()
       mm.add('(prefers-reduced-motion: reduce)', () => {
         reducedRef.current = true
@@ -93,8 +89,38 @@ export default function HeroMonkey({ onStart, micState, onHoverChange }: HeroMon
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  /* ── interaction handlers ── */
+  useEffect(() => {
+    if (isLoading) {
+      frameCtxRef.current?.revert()
+      frameCtxRef.current = null
+      gsap.killTweensOf(mascotRef.current)
+      return
+    }
+
+    if (!mascotRef.current) return
+
+    gsap.killTweensOf(mascotRef.current)
+    gsap.set(mascotRef.current, { rotate: 0, y: 0 })
+
+    if (reducedRef.current) {
+      startSlowMicLoop()
+      return
+    }
+
+    gsap.to(mascotRef.current, {
+      y: -5,
+      rotate: 1.2,
+      duration: 3.2,
+      ease: 'sine.inOut',
+      yoyo: true,
+      repeat: -1,
+    })
+    startSlowMicLoop()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading])
+
   const handleEnter = () => {
+    if (isLoading) return
     onHoverChange?.(true)
     if (!reducedRef.current) {
       gsap.to(btnRef.current, { scale: 1.08, duration: 0.18, ease: 'power2.out' })
@@ -122,18 +148,10 @@ export default function HeroMonkey({ onStart, micState, onHoverChange }: HeroMon
       <div ref={wrapRef} className="hero-monkey-wrap">
         <div
           ref={mascotRef}
-          className="hero-monkey-mascot"
+          className={`hero-monkey-mascot${isLoading ? ' hero-monkey-mascot--loading' : ''}`}
           aria-hidden
         >
           <div ref={spriteRef} className="hero-monkey-sprite" />
-
-          {isLoading && (
-            <div className="hero-monkey-overlay" aria-hidden>
-              <div className="hero-monkey-loading-badge">
-                <span className="hero-monkey-banana">🍌</span>
-              </div>
-            </div>
-          )}
         </div>
 
         <button
@@ -155,16 +173,16 @@ export default function HeroMonkey({ onStart, micState, onHoverChange }: HeroMon
             <path d="M12 19v3" />
             <path d="M8 22h8" />
           </svg>
-          <span>{isLoading ? 'starting...' : 'STAAARTT??'}</span>
+          <span>{isLoading ? 'starting...' : 'start talking'}</span>
         </button>
 
         <p className="hero-footer-tagline font-mono">
-          No signup. Just you and your voice. <span aria-hidden>♥</span>
+          no signup, no account, just a quick mic test <span aria-hidden>❤️</span>
         </p>
 
         {isDenied && (
           <p className="hero-monkey-error-badge font-mono">
-            mic blocked — check browser permissions
+            mic blocked - allow this site in your browser permissions
           </p>
         )}
       </div>

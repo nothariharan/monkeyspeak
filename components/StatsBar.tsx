@@ -33,7 +33,7 @@ function StatCard({
   iconBg: string
 }) {
   return (
-    <div className="clean-card-sm flex items-center gap-3 px-4 py-3 min-w-[140px] stat-card">
+    <div className="note-panel flex items-center gap-3 px-4 py-3 min-w-[140px] stat-card">
       <div
         className="flex items-center justify-center shrink-0"
         style={{

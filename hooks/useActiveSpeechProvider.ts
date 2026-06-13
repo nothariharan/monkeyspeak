@@ -12,8 +12,9 @@ export type ActiveSpeechProvider = SpeechProvider & {
 }
 
 /**
- * Both hooks are always mounted — this satisfies Rules of Hooks.
- * Browser mode runs Web Speech only; Deepgram mode tries Deepgram first, then Web Speech.
+ * both speech hooks stay mounted (rules of hooks).
+ * browser mode = web speech only.
+ * deepgram mode = try deepgram first, fall back to web speech if it dies.
  */
 export function useActiveSpeechProvider(provider: ProviderType): ActiveSpeechProvider {
   const webSpeech = useWebSpeech()
@@ -47,6 +48,7 @@ export function useActiveSpeechProvider(provider: ProviderType): ActiveSpeechPro
       const result = await startDeepgramSession()
       if (result.ok) return result
 
+      // deepgram flaked. stop it cleanly and try browser speech before giving up.
       deepgram.stopSession()
       setActiveSource('webspeech')
       const fallback = await webSpeech.startSession()
@@ -62,6 +64,7 @@ export function useActiveSpeechProvider(provider: ProviderType): ActiveSpeechPro
   }, [provider, deepgram, webSpeech, startDeepgramSession])
 
   const retryWithDeepgram = useCallback(async (): Promise<SessionStartResult> => {
+    // runtime failsafe: mic is hot but no words after a few seconds
     if (usingDeepgramRef.current && activeSource === 'deepgram') return { ok: true }
     deepgram.stopSession()
     webSpeech.stopSession()

@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@deepgram/sdk": "3.13.0",
+    "@supabase/supabase-js": "^2.108.1",
     "double-metaphone": "^2.0.1",
     "fast-levenshtein": "^3.0.0",
     "framer-motion": "^11.3.19",

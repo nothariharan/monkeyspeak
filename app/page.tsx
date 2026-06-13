@@ -18,13 +18,22 @@ import Header from '@/components/Header'
 import ConfigBar from '@/components/ConfigBar'
 import StatsBar from '@/components/StatsBar'
 import SpeakingGame from '@/components/game/SpeakingGame'
-import MicButton from '@/components/MicButton'
 import ClarityInput from '@/components/ClarityInput'
 import ResultsPanel from '@/components/ResultsPanel'
 import SettingsPanel from '@/components/SettingsPanel'
-import HeroFloatingCards from '@/components/decor/HeroFloatingCards'
+import HeroLeaderboard from '@/components/decor/HeroLeaderboard'
 import HeroMonkey from '@/components/decor/HeroMonkey'
-// MicButton kept for clarity mode; HeroMonkey is the CTA for speed idle
+import HeroTopScore from '@/components/decor/HeroTopScore'
+import LeaderboardSavePrompt from '@/components/decor/LeaderboardSavePrompt'
+import type { Duration, PromptType } from '@/store/testStore'
+
+type PendingLeaderboardScore = {
+  wpm: number
+  accuracy: number
+  duration: Duration
+  promptType: PromptType
+}
+
 function splitPrompt(text: string): string[] {
   return text.split(/\s+/).filter(Boolean)
 }
@@ -37,6 +46,7 @@ export default function Home() {
   const [dissolvedCount, setDissolvedCount] = useState(0)
   const [isEnding, setIsEnding] = useState(false)
   const [micHovered, setMicHovered] = useState(false)
+  const [pendingLeaderboardScore, setPendingLeaderboardScore] = useState<PendingLeaderboardScore | null>(null)
   const heroRef = useRef<HTMLDivElement>(null)
   const gameMetricsRef = useRef({ rawWpms: [] as number[] })
   const timelineRef = useRef<TimelineSample[]>([])
@@ -99,21 +109,29 @@ export default function Home() {
   }, [speakingGame.rawWpms])
 
   useEffect(() => {
-    const { settings } = store
-    const html = document.documentElement
-    import('@/lib/themes').then(({ THEMES, applyTheme }) => {
-      const theme = THEMES[settings.theme] ?? THEMES.latte
-      applyTheme(theme, settings.accentHex)
-    })
-    html.dataset.font = settings.font
-    html.dataset.fontsize = settings.fontSize
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const applyFromStore = () => {
+      const { settings } = useTestStore.getState()
+      const html = document.documentElement
+      import('@/lib/themes').then(({ THEMES, applyTheme }) => {
+        const theme = THEMES[settings.theme] ?? THEMES.latte
+        applyTheme(theme, settings.accentHex)
+      })
+      html.dataset.font = settings.font
+      html.dataset.fontsize = settings.fontSize
+    }
+
+    applyFromStore()
+    // localStorage hydrate can land after first paint. run again when it finishes.
+    const unsub = useTestStore.persist.onFinishHydration(applyFromStore)
+    return unsub
   }, [])
 
   const finalizeSpeed = useCallback((elapsedSec: number) => {
     stopSession()
 
     const s = useTestStore.getState()
+    const resultDuration = s.duration
+    const resultPromptType = s.promptType
     const fullTranscriptParts = [...confirmedWordsRef.current]
     const interim = interimTextRef.current.trim()
     if (interim) {
@@ -162,6 +180,12 @@ export default function Home() {
         timeline,
       })
       s.setTestState('ended')
+      setPendingLeaderboardScore({
+        wpm: netWpm,
+        accuracy,
+        duration: resultDuration,
+        promptType: resultPromptType,
+      })
       setIsEnding(false)
     }, 1200)
   }, [stopSession])
@@ -181,7 +205,7 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sttError, isListening])
 
-  // Runtime failsafe: mic active but no transcript → retry Deepgram bridge
+  // runtime failsafe
   useEffect(() => {
     if (store.testState !== 'running' || store.mode !== 'speed') return
     if (!retryWithDeepgram) return
@@ -191,7 +215,7 @@ export default function Home() {
       if (!isListening && waveActivity < 0.25) return
       void retryWithDeepgram().then((result) => {
         if (!result.ok) {
-          setStartError(result.error ?? 'Deepgram speech recognition failed — try browser mode or check your connection')
+          setStartError(result.error ?? 'Deepgram speech recognition failed. try browser mode or check your connection')
         }
       })
     }, 5000)
@@ -227,6 +251,7 @@ export default function Home() {
 
   const handleStart = useCallback(async () => {
     setStartError(null)
+    setPendingLeaderboardScore(null)
     if (store.prompt.length === 0) loadPrompt()
 
     if (store.mode === 'speed') {
@@ -238,7 +263,7 @@ export default function Home() {
         const denied = didStart.error?.toLowerCase().includes('permission denied')
         store.setMicState(denied ? 'denied' : 'idle')
         const providerLabel = activeSource === 'deepgram' ? 'Deepgram' : 'Browser speech'
-        setStartError(didStart.error ?? `${providerLabel} could not start — check mic access and try again`)
+        setStartError(didStart.error ?? `${providerLabel} could not start. check mic access and try again`)
         return
       }
 
@@ -280,8 +305,10 @@ export default function Home() {
   }, [stopTimer, finalizeSpeed])
 
   const handleRetry = useCallback(() => {
+    if (pendingLeaderboardScore) return
     setIsPersonalBest(false)
     setStartError(null)
+    setPendingLeaderboardScore(null)
     setDissolvedCount(0)
     setIsEnding(false)
     gameMetricsRef.current = { rawWpms: [] }
@@ -296,11 +323,13 @@ export default function Home() {
     const text = regeneratePrompt(s.promptType as PromptMode, s.duration, last, s.customPromptText)
     useTestStore.getState().setPrompt(splitPrompt(text))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resetProvider, resetTimer])
+  }, [resetProvider, resetTimer, pendingLeaderboardScore])
 
   const handleNext = useCallback(() => {
+    if (pendingLeaderboardScore) return
     setIsPersonalBest(false)
     setStartError(null)
+    setPendingLeaderboardScore(null)
     setDissolvedCount(0)
     setIsEnding(false)
     gameMetricsRef.current = { rawWpms: [] }
@@ -316,10 +345,13 @@ export default function Home() {
     const text = regeneratePrompt(s2.promptType as PromptMode, s2.duration, last, s2.customPromptText)
     s2.setPrompt(splitPrompt(text))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resetProvider, resetTimer])
+  }, [resetProvider, resetTimer, pendingLeaderboardScore])
 
   const handlePractice = useCallback(() => {
+    if (pendingLeaderboardScore) return
     setIsPersonalBest(false)
+    setStartError(null)
+    setPendingLeaderboardScore(null)
     setDissolvedCount(0)
     setIsEnding(false)
     gameMetricsRef.current = { rawWpms: [] }
@@ -336,7 +368,7 @@ export default function Home() {
     const practiceText = generatePracticePrompt(missedWords, s.duration)
     useTestStore.getState().setPrompt(splitPrompt(practiceText))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resetProvider, resetTimer])
+  }, [resetProvider, resetTimer, pendingLeaderboardScore])
 
   const handleStopRef = useRef(handleStop)
   useEffect(() => { handleStopRef.current = handleStop }, [handleStop])
@@ -345,6 +377,7 @@ export default function Home() {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName
       if (tag === 'TEXTAREA' || tag === 'INPUT') return
+      if (pendingLeaderboardScore) return
 
       if (e.key === 'Tab') {
         e.preventDefault()
@@ -381,9 +414,9 @@ export default function Home() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store.testState, store.duration, handleRetry, handleNext, handleStop, handleStart, resetTimer, resetProvider])
+  }, [store.testState, store.duration, handleRetry, handleNext, handleStop, handleStart, resetTimer, resetProvider, pendingLeaderboardScore])
 
-  // Hero entrance animation
+  // hero entrance
   useEffect(() => {
     if (!heroRef.current || store.testState !== 'idle') return
     const ctx = gsap.context(() => {
@@ -401,6 +434,9 @@ export default function Home() {
   const isRunning = store.testState === 'running'
   const isEnded   = store.testState === 'ended'
   const isIdle    = store.testState === 'idle'
+  const startHint = store.settings.sttProvider === 'deepgram'
+    ? 'before you start: allow the mic, read the text out loud, and keep a steady pace. deepgram mode needs the local proxy or deployed server to be running.'
+    : 'before you start: allow the mic, read the text out loud, and speak naturally. chrome usually works best for browser speech.'
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg)' }}>
@@ -420,77 +456,80 @@ export default function Home() {
 
       <main
         className={`flex-1 flex flex-col items-center px-6 py-8 mx-auto w-full ${
-          store.mode === 'speed' ? (isIdle ? 'max-w-[1180px]' : 'max-w-[900px]') : 'max-w-3xl'
+          store.mode === 'speed' ? (isIdle ? 'max-w-[1320px]' : 'max-w-[900px]') : 'max-w-3xl'
         } ${isIdle ? 'justify-start' : 'justify-center'}`}
       >
         {!isEnded ? (
           <div className="relative w-full flex flex-col items-stretch">
             {store.mode === 'speed' ? (
               <div className="flex flex-col w-full gap-8">
-                {/* Idle hero */}
+                {/* idle hero */}
                 {isIdle && (
                   <div
                     ref={heroRef}
                     className="hero-shell hero-stage"
                     data-mic-hovered={micHovered ? 'true' : 'false'}
                   >
+                    <HeroLeaderboard />
+                    <section className="hero-center-copy" aria-label="MonkeySpeak start">
                     <div className="hero-stage-content">
                       <div className="hero-animate hero-title-block">
                         <h1 className="hero-title font-display font-black">
-                          how fast<span className="hero-title-accent">⚡</span>can you speak{' '}
-                          <span className="hero-title-emoji">🙊</span>
+                          <span className="hero-title-line">
+                            how fast<span className="hero-title-accent">⚡</span>can u
+                          </span>
+                          <span className="hero-title-line">
+                            speak <span className="hero-title-emoji">🙊</span>
+                          </span>
                         </h1>
                         <p className="hero-subtitle font-mono">
                           read it. say it.{' '}
                           <span className="hero-subtitle-highlight">beat your score.</span>
+                        </p>
+                        <p className="hero-animate start-hint font-mono">
+                          {startHint}
                         </p>
                       </div>
 
                       {startError && (
                         <div
                           role="alert"
-                          className="hero-animate clean-card-sm px-4 py-3 flex items-center justify-between gap-4 w-full max-w-md"
-                          style={{
-                            background: 'color-mix(in srgb, var(--error) 12%, var(--surface))',
-                            color: 'var(--error)',
-                            fontSize: '0.85rem',
-                          }}
+                          className="hero-animate note-panel alert-note px-4 py-3 flex items-center justify-between gap-4 w-full max-w-md"
                         >
                           <span className="font-mono">{startError}</span>
                           <button
                             onClick={() => setStartError(null)}
                             aria-label="Dismiss error"
-                            style={{ cursor: 'pointer', background: 'none', border: 'none', color: 'inherit', fontSize: '1rem' }}
+                            className="plain-icon-btn"
                           >
-                            ✕
+                            x
                           </button>
                         </div>
                       )}
                     </div>
 
                     <div className="hero-cta-zone hero-animate">
-                      <HeroFloatingCards />
                       <HeroMonkey
                         onStart={handleStart}
                         micState={store.micState}
                         onHoverChange={setMicHovered}
                       />
                     </div>
+                    </section>
+
+                    <div className="hero-side-stack hero-animate">
+                      <HeroTopScore />
+                    </div>
                   </div>
                 )}
 
-                {/* Running — live test card */}
+                {/* running live test */}
                 {(isRunning || isEnding) && (
                   <>
                     {sttError && (
                       <div
                         role="alert"
-                        className="clean-card-sm px-4 py-3 flex items-center justify-between gap-4 w-full mb-4"
-                        style={{
-                          background: 'color-mix(in srgb, var(--error) 12%, var(--surface))',
-                          color: 'var(--error)',
-                          fontSize: '0.85rem',
-                        }}
+                        className="note-panel alert-note px-4 py-3 flex items-center justify-between gap-4 w-full mb-4"
                       >
                         <span className="font-mono">{sttError}</span>
                       </div>
@@ -542,6 +581,13 @@ export default function Home() {
       </main>
 
       <SettingsPanel isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <LeaderboardSavePrompt
+        score={pendingLeaderboardScore}
+        onClose={() => setPendingLeaderboardScore(null)}
+        onSaved={() => {
+          window.dispatchEvent(new Event('leaderboard:refresh'))
+        }}
+      />
     </div>
   )
 }

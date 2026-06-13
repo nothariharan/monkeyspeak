@@ -4,6 +4,7 @@ import { useTestStore } from '@/store/testStore'
 import type { Mode } from '@/store/testStore'
 import { THEMES, THEME_ORDER, applyTheme } from '@/lib/themes'
 import type { ThemeName } from '@/lib/themes'
+import LogoMark from '@/components/LogoMark'
 
 interface HeaderProps {
   onSettingsOpen: () => void
@@ -30,17 +31,12 @@ export default function Header({ onSettingsOpen }: HeaderProps) {
       className="grid grid-cols-[1fr_auto_1fr] items-center gap-4 px-6 py-4 select-none"
       style={{ borderBottom: '1px solid var(--border)' }}
     >
-      {/* Logo */}
-      <span
-        className="justify-self-start font-mono text-xl lowercase tracking-tight min-w-0"
-        style={{ color: 'var(--text-active)' }}
-        aria-label="MonkeySpeak"
-      >
-        monkey<span style={{ color: 'var(--accent)' }}>speak</span>
-      </span>
+      <div className="justify-self-start min-w-0">
+        <LogoMark />
+      </div>
 
       {/* Center — mode switcher */}
-      <div className="clean-segment shrink-0" role="tablist" aria-label="Mode selection">
+      <div className="choice-strip shrink-0" role="tablist" aria-label="Mode selection">
         <button
           id="mode-speed"
           role="tab"

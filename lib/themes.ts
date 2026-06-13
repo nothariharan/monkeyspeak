@@ -163,7 +163,7 @@ export const THEMES: Record<ThemeName, ThemeDef> = {
 export const THEME_ORDER: ThemeName[] = ['latte', 'frappe', 'macchiato', 'mocha']
 
 /**
- * Apply a theme + accent to the document root as CSS custom properties.
+ * push theme tokens onto :root. accent comes from user settings, not hardcoded.
  */
 export function applyTheme(theme: ThemeDef, accentHex: string) {
   const root = document.documentElement

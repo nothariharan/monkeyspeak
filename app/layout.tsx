@@ -8,10 +8,10 @@ export const metadata: Metadata = {
     ],
     apple: '/logo.png',
   },
-  title: 'MonkeySpeak — Voice Speed & Clarity Benchmark',
+  title: 'MonkeySpeak - speaking speed practice',
   description:
-    'Measure how fast and accurately you speak. MonkeySpeak is the spoken equivalent of MonkeyType — real-time WPM tracking via Deepgram and word-level clarity scoring.',
-  keywords: ['WPM', 'voice', 'speech', 'benchmark', 'Deepgram', 'clarity', 'dictation'],
+    'A small app for practicing speaking speed and checking how clearly your words get transcribed.',
+  keywords: ['WPM', 'voice', 'speech', 'speaking practice', 'Deepgram', 'clarity', 'dictation'],
   openGraph: {
     title: 'MonkeySpeak',
     description: 'The voice benchmark. How fast and clearly do you speak?',
@@ -34,7 +34,7 @@ export default function RootLayout({
           href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Archivo:wght@400;500;600;700;800&family=JetBrains+Mono:ital,wght@0,100..800%3B1,100..800&family=Fira+Code:wght@300..700&family=Inconsolata:wdth,wght@50..200,200..900&display=swap"
         />
       </head>
-      <body className="min-h-screen" style={{ background: 'var(--bg)', color: 'var(--text-active)' }}>
+      <body className="min-h-[100dvh]" style={{ background: 'var(--bg)', color: 'var(--text-active)' }}>
         {children}
       </body>
     </html>

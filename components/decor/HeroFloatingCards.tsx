@@ -20,9 +20,9 @@ const cards: FloatingCard[] = [
   {
     position: 'top-left',
     tone: 'green',
-    title: 'Average human',
-    stat: '110 WPM',
-    body: "That's around 150 words per minute.",
+    title: 'warm up pace',
+    stat: '110 wpm',
+    body: 'a normal reading-aloud speed',
     icon: (
       <svg viewBox="0 0 24 24" fill="none" aria-hidden>
         <circle cx="12" cy="8" r="3.5" />
@@ -33,9 +33,9 @@ const cards: FloatingCard[] = [
   {
     position: 'bottom-left',
     tone: 'purple',
-    title: 'Top 1% people',
-    stat: '180+ WPM',
-    body: 'Can you reach the top?',
+    title: 'fast run',
+    stat: '180+ wpm',
+    body: 'hard, but fun to chase',
     icon: (
       <svg viewBox="0 0 24 24" fill="none" aria-hidden>
         <path d="M8 4h8v3a4 4 0 0 1-8 0V4Z" />
@@ -50,9 +50,9 @@ const cards: FloatingCard[] = [
   {
     position: 'top-right',
     tone: 'orange',
-    title: 'Fast speakers are',
-    stat: 'more persuasive.',
-    body: '',
+    title: 'watch for',
+    stat: 'fillers',
+    body: 'um, uh, like, and pauses',
     icon: (
       <svg viewBox="0 0 24 24" fill="none" aria-hidden>
         <path d="M4 17 10 11l4 4 6-8" />
@@ -63,9 +63,9 @@ const cards: FloatingCard[] = [
   {
     position: 'bottom-right',
     tone: 'blue',
-    title: 'Your voice is',
-    stat: 'faster',
-    body: 'than you think.',
+    title: 'try again',
+    stat: 'beat last run',
+    body: 'small gains count here',
     icon: (
       <svg viewBox="0 0 24 24" fill="none" aria-hidden>
         <circle cx="12" cy="12" r="9" />
@@ -95,24 +95,11 @@ export default function HeroFloatingCards() {
 
       gsap.from(root.querySelectorAll('.hero-floating-card'), {
         opacity: 0,
-        y: 18,
-        scale: 0.92,
+        duration: 0.5,
         stagger: 0.08,
-        duration: 0.55,
         ease: 'power2.out',
         delay: 0.25,
-      })
-
-      root.querySelectorAll('.hero-floating-card').forEach((el, i) => {
-        gsap.to(el, {
-          y: i % 2 === 0 ? -7 : 7,
-          x: i % 2 === 0 ? 4 : -4,
-          duration: 2.8 + i * 0.25,
-          ease: 'sine.inOut',
-          yoyo: true,
-          repeat: -1,
-          delay: i * 0.16,
-        })
+        clearProps: 'transform',
       })
     })
 
@@ -121,15 +108,19 @@ export default function HeroFloatingCards() {
 
   const wiggle = (target: HTMLDivElement | null) => {
     if (!target || reducedRef.current) return
+    const baseRotate = Number(target.dataset.baseRotate ?? 0)
     gsap.fromTo(
       target,
-      { rotate: Number(target.dataset.baseRotate ?? 0) - 3 },
+      { rotate: baseRotate - 3 },
       {
-        rotate: Number(target.dataset.baseRotate ?? 0) + 4,
+        rotate: baseRotate + 4,
         duration: 0.12,
         yoyo: true,
         repeat: 3,
         ease: 'sine.inOut',
+        onComplete: () => {
+          gsap.set(target, { rotate: baseRotate, clearProps: 'x,y,scale' })
+        },
       }
     )
   }
@@ -156,7 +147,7 @@ export default function HeroFloatingCards() {
               <strong>{card.stat}</strong>
               {card.body && <span className="hero-floating-card-body">{card.body}</span>}
             </div>
-            <span className="hero-floating-card-spark" />
+            <span className={`hero-paper-tape hero-paper-tape--${card.tone}`} aria-hidden />
           </div>
         )
       })}
