@@ -75,11 +75,21 @@ export function proxyHttpOrigin(): string | null {
 }
 
 export async function probeProxyBackendReachable(): Promise<{ ok: boolean; status?: number; err?: string }> {
-  const origin = proxyHttpOrigin()
-  if (!origin) return { ok: false, err: 'no proxy configured' }
+  if (typeof window === 'undefined') {
+    const origin = proxyHttpOrigin()
+    if (!origin) return { ok: false, err: 'no proxy configured' }
+    try {
+      const r = await fetch(origin, { method: 'GET', cache: 'no-store' })
+      return { ok: r.ok, status: r.status }
+    } catch (e) {
+      return { ok: false, err: String(e) }
+    }
+  }
+
   try {
-    const r = await fetch(origin, { method: 'GET', mode: 'cors', cache: 'no-store' })
-    return { ok: r.ok, status: r.status }
+    const r = await fetch('/api/deepgram/proxy-health', { cache: 'no-store' })
+    if (!r.ok) return { ok: false, status: r.status, err: 'proxy health check failed' }
+    return (await r.json()) as { ok: boolean; status?: number; err?: string }
   } catch (e) {
     return { ok: false, err: String(e) }
   }
