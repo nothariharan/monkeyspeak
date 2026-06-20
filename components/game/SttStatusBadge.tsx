@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import type { ProviderType } from '@/hooks/useSpeechProvider'
 
+// live stt indicator in the game hud — shows provider + listening/degraded/error
+
 interface SttStatusBadgeProps {
   activeSource: ProviderType
   isListening: boolean

@@ -1,5 +1,7 @@
 'use client'
 
+// passage mode hud — elapsed clock + words dissolved count (no countdown timer)
+
 function formatElapsed(ms: number): string {
   const s = Math.floor(ms / 1000)
   const m = Math.floor(s / 60)
