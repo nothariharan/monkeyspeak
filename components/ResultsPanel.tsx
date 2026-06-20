@@ -7,6 +7,8 @@ import SessionGraph from '@/components/game/SessionGraph'
 import { resolveResultsTimeline } from '@/lib/stats/timeline'
 import { useTestStore } from '@/store/testStore'
 import type { DiffWord, SpeedResults } from '@/store/testStore'
+import ScoringInfo from '@/components/ScoringInfo'
+import HistoryDrawer from '@/components/HistoryDrawer'
 
 interface ResultsPanelProps {
   mode: 'speed' | 'clarity'
@@ -96,6 +98,7 @@ export default function ResultsPanel({
   const [displayWpm, setDisplayWpm] = useState(0)
   const [showDetail, setShowDetail] = useState(false)
   const [showStats, setShowStats] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
   const panelRef = useRef<HTMLDivElement | null>(null)
   const detailRef = useRef<HTMLDivElement | null>(null)
   const revealRef = useRef<HTMLDivElement | null>(null)
@@ -276,9 +279,12 @@ export default function ResultsPanel({
                 >
                   {displayWpm}
                 </span>
-                <span className="font-display text-sm font-bold mb-1 uppercase" style={{ color: 'var(--text-stats)' }}>
-                  wpm
-                </span>
+                <div className="flex items-end gap-1.5 mb-1">
+                  <span className="font-display text-sm font-bold uppercase" style={{ color: 'var(--text-stats)' }}>
+                    wpm
+                  </span>
+                  <ScoringInfo />
+                </div>
               </div>
 
               {renderDelta()}
@@ -300,16 +306,7 @@ export default function ResultsPanel({
               )}
             </div>
 
-            {graphTimeline && (
-              <div className="results-hero-graph">
-                <SessionGraph
-                  timeline={graphTimeline}
-                  durationSec={duration}
-                  compact
-                  showMomentum={false}
-                />
-              </div>
-            )}
+            {/* graph moved to full-width section below metrics */}
           </div>
 
           {/* secondary stats. all theme vars, no random purple hex */}
@@ -366,6 +363,18 @@ export default function ResultsPanel({
               }
             />
           </div>
+
+          {/* full-width pace graph */}
+          {graphTimeline && (
+            <div className={`${showStats ? '' : 'opacity-0'}`}>
+              <SessionGraph
+                timeline={graphTimeline}
+                durationSec={duration}
+                height={240}
+                showMomentum
+              />
+            </div>
+          )}
 
           {/* word breakdown bar */}
           <div className="note-panel stat-card flex flex-col gap-3 p-5">
@@ -448,6 +457,9 @@ export default function ResultsPanel({
               <button type="button" id="btn-share" onClick={handleShare} className="desk-btn desk-btn-quiet">
                 share
               </button>
+              <button type="button" onClick={() => setHistoryOpen(true)} className="desk-btn desk-btn-quiet">
+                history
+              </button>
             </div>
             <p className="font-mono text-xs" style={{ color: 'var(--text-stats)' }}>
               tab · retry &nbsp;&nbsp; enter · next
@@ -518,6 +530,11 @@ export default function ResultsPanel({
           </div>
         </div>
       ) : null}
+
+      <HistoryDrawer
+        isOpen={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+      />
     </div>
   )
 }
