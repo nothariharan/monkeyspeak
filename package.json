@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "postinstall": "patch-package",
+    "postinstall": "patch-package && node scripts/copy-ort-assets.js",
     "clean": "node -e \"const fs=require('fs');for(const p of['.next','node_modules/.cache','.turbo']){try{fs.rmSync(p,{recursive:true,force:true})}catch(e){}}\"",
     "dev": "next dev",
     "dev:backend": "node backend/index.js",
