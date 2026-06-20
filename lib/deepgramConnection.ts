@@ -21,7 +21,7 @@ export function buildDeepgramListenUrl(language: string): string {
   url.searchParams.set('endpointing', '10')
   url.searchParams.set('no_delay', 'true')
   url.searchParams.set('filler_words', 'true')
-  url.searchParams.set('utterance_end_ms', '1000')
+  url.searchParams.set('utterance_end_ms', '400')
   return url.toString()
 }
 
@@ -47,17 +47,18 @@ export function buildDeepgramProxyUrl(language: string): string | null {
   url.searchParams.set('lang', language)
   url.searchParams.set('interim_results', 'true')
   url.searchParams.set('vad_events', 'true')
-  url.searchParams.set('utterance_end_ms', '1000')
+  url.searchParams.set('utterance_end_ms', '400')
   return url.toString()
 }
 
 /** Same-origin HTTP bridge — works on Brave/Edge where direct WS to Deepgram is blocked. */
-export function buildDeepgramBridgeUrl(language: string): string {
+export function buildDeepgramBridgeUrl(language: string, duration?: number): string {
   const url = new URL('/api/deepgram/live', typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000')
   url.searchParams.set('lang', language)
   url.searchParams.set('interim_results', 'true')
   url.searchParams.set('vad_events', 'true')
-  url.searchParams.set('utterance_end_ms', '1000')
+  url.searchParams.set('utterance_end_ms', '400')
+  if (duration) url.searchParams.set('duration', String(duration))
   return url.toString()
 }
 

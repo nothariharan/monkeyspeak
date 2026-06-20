@@ -218,7 +218,7 @@ export function useWebSpeech(): SpeechProvider {
         if (prev[prev.length - 1] === norm) return prev
         return [...prev, norm]
       })
-    }, 450)
+    }, 200)
   }, [clearSingleTokenTimer])
 
   const failSession = useCallback((msg: string) => {

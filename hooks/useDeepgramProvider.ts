@@ -452,7 +452,7 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
             } catch (fetchErr: unknown) {
               const msg =
                 fetchErr instanceof Error && fetchErr.message.includes('duplex')
-                  ? 'Browser cannot stream audio to the server — try Chrome or allow cross-site connections'
+                  ? 'Your browser does not support audio streaming — try updating your browser or switching to Web Speech mode'
                   : 'Deepgram bridge connection failed — check mic permission and reload'
               setError(msg)
               _teardown()
@@ -464,7 +464,13 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
             stopWatchdog()
 
             if (!response.ok || !response.body) {
-              const msg = `Deepgram bridge failed (${response.status})`
+              let msg = `Deepgram bridge failed (${response.status})`
+              if (response.status === 429) {
+                try {
+                  const body = await response.clone().json() as { error?: string }
+                  msg = body.error ?? 'Daily Deepgram limit reached — switch to browser speech mode'
+                } catch { /* ignore */ }
+              }
               setError(msg)
               _teardown()
               settle({ ok: false, error: msg })
@@ -569,7 +575,7 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
     [_teardown, _setupAudioWorklet, _handleDgWire]
   )
 
-  const _resolveListenTarget = useCallback(async (language: string): Promise<ListenTarget> => {
+  const _resolveListenTarget = useCallback(async (language: string, duration: number): Promise<ListenTarget> => {
     const profile = await getBrowserSpeechProfile()
     const proxyUrl = buildDeepgramProxyUrl(language)
     if (proxyUrl) {
@@ -578,15 +584,9 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
       sttDebug('external proxy offline', probe.err ?? probe.status)
     }
 
-    if (profile.isBrave || profile.isEdge) {
-      return {
-        mode: 'none',
-        error:
-          'Deepgram proxy is not reachable — set NEXT_PUBLIC_DEEPGRAM_PROXY_URL to your Render backend, or switch to browser speech mode',
-      }
-    }
-
-    return { mode: 'bridge', url: buildDeepgramBridgeUrl(language) }
+    // The HTTP bridge is same-origin fetch — Brave/Edge Shields don't block it.
+    // (They block cross-origin WebSockets to api.deepgram.com, which the bridge avoids.)
+    return { mode: 'bridge', url: buildDeepgramBridgeUrl(language, duration) }
   }, [])
 
   // ── Open proxy or direct (ephemeral key) Deepgram connection ───────────
@@ -609,7 +609,8 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
     setMicStream(stream)
 
     const language = useTestStore.getState().settings.language ?? 'en-US'
-    const target = await _resolveListenTarget(language)
+    const duration = useTestStore.getState().duration ?? 30
+    const target = await _resolveListenTarget(language, duration)
     if (target.mode === 'none') {
       setError(target.error)
       stream.getTracks().forEach((t) => t.stop())

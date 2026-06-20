@@ -9,6 +9,9 @@ import type { ProviderType, SpeechProvider, SessionStartResult } from './useSpee
 export type ActiveSpeechProvider = SpeechProvider & {
   /** Provider actually driving transcripts (may differ after fallback). */
   activeSource: ProviderType
+  /** Set when an automatic Deepgram→WebSpeech fallback fires; clear with clearFallbackMessage(). */
+  fallbackMessage: string | null
+  clearFallbackMessage: () => void
 }
 
 /**
@@ -21,6 +24,7 @@ export function useActiveSpeechProvider(provider: ProviderType): ActiveSpeechPro
   const deepgram = useDeepgramProvider(true)
 
   const [activeSource, setActiveSource] = useState<ProviderType>(provider)
+  const [fallbackMessage, setFallbackMessage] = useState<string | null>(null)
   const usingDeepgramRef = useRef(false)
 
   useEffect(() => {
@@ -54,6 +58,7 @@ export function useActiveSpeechProvider(provider: ProviderType): ActiveSpeechPro
       const fallback = await webSpeech.startSession()
       if (fallback.ok) {
         useTestStore.getState().setSttProvider('webspeech')
+        setFallbackMessage('Switched to browser speech — Deepgram unavailable')
         return fallback
       }
       return result
@@ -94,5 +99,7 @@ export function useActiveSpeechProvider(provider: ProviderType): ActiveSpeechPro
     retryWithDeepgram,
     stopSession,
     reset,
+    fallbackMessage,
+    clearFallbackMessage: useCallback(() => setFallbackMessage(null), []),
   }
 }
