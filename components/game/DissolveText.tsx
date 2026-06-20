@@ -118,9 +118,7 @@ export default function DissolveText({ words, dissolvedCount }: DissolveTextProp
               style={{ color, fontWeight, opacity }}
             >
               {word}
-              {isCurrent && (
-                <span className="dissolve-word-underline" aria-hidden />
-              )}
+              <span className={`dissolve-word-underline${isCurrent ? ' dissolve-word-underline--active' : ''}`} aria-hidden />
             </span>
           )
         })}

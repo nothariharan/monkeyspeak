@@ -11,6 +11,8 @@ interface SessionGraphProps {
   compact?: boolean
   /** hide momentum trace when space is tight */
   showMomentum?: boolean
+  /** override the full-size canvas height (default 200) */
+  height?: number
 }
 
 const W = 640
@@ -56,13 +58,14 @@ export default function SessionGraph({
   durationSec,
   compact = false,
   showMomentum = true,
+  height,
 }: SessionGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const wpmPathRef = useRef<SVGPathElement>(null)
   const rawPathRef = useRef<SVGPathElement>(null)
   const momentumPathRef = useRef<SVGPathElement>(null)
 
-  const H = compact ? H_COMPACT : H_FULL
+  const H = compact ? H_COMPACT : (height ?? H_FULL)
   const PAD = compact ? PAD_COMPACT : PAD_FULL
   const PLOT_W = W - PAD.left - PAD.right
   const PLOT_H = H - PAD.top - PAD.bottom
@@ -144,6 +147,38 @@ export default function SessionGraph({
         role="img"
         aria-label="Session WPM graph"
       >
+        {/* word-window shaded bands — only in full-size view */}
+        {!compact && timeline.wordWindows?.map(({ startSecond, endSecond, label }, i) => {
+          const x = PAD.left + (startSecond / maxSec) * PLOT_W
+          const w = Math.max(0, (endSecond - startSecond) / maxSec * PLOT_W)
+          const midX = x + w / 2
+          return (
+            <g key={`ww-${i}`}>
+              {i % 2 === 1 && (
+                <rect
+                  x={x}
+                  y={PAD.top}
+                  width={w}
+                  height={PLOT_H}
+                  fill="var(--text-stats)"
+                  opacity="0.06"
+                />
+              )}
+              <text
+                x={midX}
+                y={PAD.top + 9}
+                textAnchor="middle"
+                fontSize="7"
+                fill="var(--text-stats)"
+                fontFamily="var(--font-mono, monospace)"
+                opacity="0.5"
+              >
+                {label}
+              </text>
+            </g>
+          )
+        })}
+
         {yTicks.map(({ val, y }) => (
           <g key={`y-${val}`}>
             <line

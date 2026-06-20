@@ -8,6 +8,31 @@ export interface TimelineSample {
   currentIndex: number
 }
 
+function buildWordWindows(
+  samples: TimelineSample[],
+  windowSize = 10
+): { startSecond: number; endSecond: number; label: string }[] {
+  if (samples.length < 2) return []
+  const maxIndex = Math.max(...samples.map((s) => s.currentIndex))
+  if (maxIndex < windowSize) return []
+
+  const lastSec = samples[samples.length - 1]!.second
+  const windows: { startSecond: number; endSecond: number; label: string }[] = []
+
+  for (let wStart = 0; wStart < maxIndex; wStart += windowSize) {
+    const wEnd = wStart + windowSize
+    const startSample = samples.find((s) => s.currentIndex >= wStart)
+    const endSample = samples.find((s) => s.currentIndex >= wEnd)
+    windows.push({
+      startSecond: startSample?.second ?? 0,
+      endSecond: endSample?.second ?? lastSec,
+      label: `${wStart + 1}–${wEnd}`,
+    })
+  }
+
+  return windows
+}
+
 /** turn live samples into chart series for the results graph */
 export function buildSessionTimeline(
   samples: TimelineSample[],
@@ -46,7 +71,9 @@ export function buildSessionTimeline(
     if (entry.tag !== 'added') promptIdx++
   }
 
-  return { raw, wpm, momentum, errors }
+  const wordWindows = buildWordWindows(samples)
+
+  return { raw, wpm, momentum, errors, wordWindows }
 }
 
 /** if the live sampler barely ran, fake a flat-ish line so the results graph still renders */

@@ -1212,8 +1212,28 @@ body {
   left: 0;
   right: 0;
   height: 3px;
+  border-radius: 2px;
   background: var(--accent);
-  opacity: 0.5;
+  opacity: 0;
+  transform: scaleX(0.2);
+  transform-origin: left;
+  transition: none;
+}
+
+.dissolve-word-underline--active {
+  animation:
+    underline-in 0.16s var(--ease-snappy) forwards,
+    underline-breathe 1.8s ease-in-out 0.16s infinite;
+}
+
+@keyframes underline-in {
+  from { opacity: 0;   transform: scaleX(0.2); }
+  to   { opacity: 0.6; transform: scaleX(1);   }
+}
+
+@keyframes underline-breathe {
+  0%, 100% { opacity: 0.5; }
+  50%       { opacity: 0.85; }
 }
 
 /* Momentum fire HUD */
@@ -1418,6 +1438,12 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .ambient-floater {
     animation: none;
+  }
+
+  .dissolve-word-underline--active {
+    animation: none;
+    opacity: 0.55;
+    transform: scaleX(1);
   }
 }
 
