@@ -1,6 +1,5 @@
 import { createClient, LiveTranscriptionEvents } from '@deepgram/sdk'
-
-
+import { checkAndReserveDeepgramSeconds } from '@/lib/deepgramRateLimit'
 
 export const runtime = 'nodejs'
 
@@ -8,12 +7,20 @@ export const dynamic = 'force-dynamic'
 
 export const maxDuration = 300
 
-
+function clientIp(req: Request): string {
+  const forwarded = req.headers.get('x-forwarded-for')
+  if (forwarded) return forwarded.split(',')[0]?.trim() || 'unknown'
+  return req.headers.get('x-real-ip') ?? 'unknown'
+}
 
 function resolveLanguage(params: URLSearchParams): string {
-
   return params.get('lang') ?? params.get('language') ?? 'en-US'
+}
 
+function resolveDuration(params: URLSearchParams): number {
+  const valid = [15, 30, 60, 120]
+  const n = parseInt(params.get('duration') ?? '', 10)
+  return valid.includes(n) ? n : 120
 }
 
 
@@ -53,6 +60,17 @@ export async function POST(req: Request) {
 
 
   const incoming = new URL(req.url)
+
+  const duration = resolveDuration(incoming.searchParams)
+  const ip = clientIp(req)
+  const rateCheck = checkAndReserveDeepgramSeconds(ip, duration)
+  if (!rateCheck.ok) {
+    const msg =
+      rateCheck.reason === 'ip_limit'
+        ? `Daily Deepgram limit reached for your IP (${rateCheck.remainingSeconds}s remaining today). Switch to browser speech or try again tomorrow.`
+        : `Global Deepgram quota exhausted for today. Switch to browser speech or try again tomorrow.`
+    return Response.json({ error: msg, remainingSeconds: rateCheck.remainingSeconds }, { status: 429 })
+  }
 
   const encoder = new TextEncoder()
 
@@ -100,7 +118,7 @@ export async function POST(req: Request) {
 
     filler_words: true,
 
-    utterance_end_ms: 1000,
+    utterance_end_ms: 400,
 
   })
 
