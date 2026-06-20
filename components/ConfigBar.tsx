@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { gsap } from 'gsap'
 import { useTestStore } from '@/store/testStore'
 import { shouldPreferDeepgramStt } from '@/lib/browserSpeech'
-import type { Duration, PromptType } from '@/store/testStore'
+import type { Duration, PromptType, EndCondition, PromptDifficulty } from '@/store/testStore'
 import type { ProviderType } from '@/hooks/useSpeechProvider'
 
 const SPEED_DURATIONS: Duration[] = [15, 30, 60, 120]
@@ -23,6 +23,17 @@ const CLARITY_PROMPTS: { label: string; value: PromptType }[] = [
 const PROVIDERS: { label: string; value: ProviderType }[] = [
   { label: 'browser', value: 'webspeech' },
   { label: 'deepgram', value: 'deepgram' },
+]
+
+const END_CONDITIONS: { label: string; value: EndCondition }[] = [
+  { label: 'timed', value: 'timer' },
+  { label: 'passage', value: 'passage' },
+]
+
+const DIFFICULTIES: { label: string; value: PromptDifficulty }[] = [
+  { label: 'easy', value: 'easy' },
+  { label: 'normal', value: 'normal' },
+  { label: 'hard', value: 'hard' },
 ]
 
 function SegmentGroup({
@@ -76,8 +87,11 @@ export default function ConfigBar() {
   const barRef = useRef<HTMLDivElement>(null)
   const {
     mode, duration, promptType, customPromptText, testState, settings, setSttProvider,
-    setDuration, setPromptType, setCustomPromptText,
+    setDuration, setPromptType, setCustomPromptText, updateSettings,
   } = useTestStore()
+
+  const endCondition = settings.endCondition ?? 'timer'
+  const promptDifficulty = settings.promptDifficulty ?? 'normal'
 
   const [recommendDeepgram, setRecommendDeepgram] = useState(false)
 
@@ -127,6 +141,38 @@ export default function ConfigBar() {
             </SegmentBtn>
           ))}
         </SegmentGroup>
+
+        {mode === 'speed' && (
+          <SegmentGroup label="end">
+            {END_CONDITIONS.map((ec) => (
+              <SegmentBtn
+                key={ec.value}
+                id={`end-${ec.value}`}
+                active={endCondition === ec.value}
+                disabled={isRunning}
+                onClick={() => !isRunning && updateSettings({ endCondition: ec.value })}
+              >
+                {ec.label}
+              </SegmentBtn>
+            ))}
+          </SegmentGroup>
+        )}
+
+        {mode === 'speed' && promptType === 'sentences' && (
+          <SegmentGroup label="difficulty">
+            {DIFFICULTIES.map((d) => (
+              <SegmentBtn
+                key={d.value}
+                id={`difficulty-${d.value}`}
+                active={promptDifficulty === d.value}
+                disabled={isRunning}
+                onClick={() => !isRunning && updateSettings({ promptDifficulty: d.value })}
+              >
+                {d.label}
+              </SegmentBtn>
+            ))}
+          </SegmentGroup>
+        )}
 
         {mode === 'speed' && (
           <SegmentGroup label="stt">

@@ -10,6 +10,8 @@ export type Duration = 15 | 30 | 60 | 120
 export type PromptType = 'sentences' | 'numbers' | 'custom' | 'technical' | 'tongue-twisters'
 export type FontChoice = 'jetbrains' | 'fira' | 'inconsolata'
 export type FontSize = 'small' | 'medium' | 'large'
+export type EndCondition = 'timer' | 'passage'
+export type PromptDifficulty = 'easy' | 'normal' | 'hard'
 export type { ThemeName } from '@/lib/themes'
 
 export interface DiffWord {
@@ -51,6 +53,12 @@ export interface Settings {
   leaderboardEmoji?: string
   /** netWpm of the most recent speed run, used to show a delta on the results screen. */
   lastSpeedWpm?: number
+  /** Last 20 completed test runs, newest first. */
+  sessionHistory: SessionHistoryEntry[]
+  /** Whether the test ends on timer expiry or when all prompt words are spoken. */
+  endCondition: EndCondition
+  /** Difficulty for sentences mode: easy = simple short words, normal = common, hard = complex. */
+  promptDifficulty: PromptDifficulty
 }
 
 export interface SessionTimeline {
@@ -58,6 +66,17 @@ export interface SessionTimeline {
   wpm: { second: number; wpm: number }[]
   momentum: { second: number; value: number }[]
   errors: { second: number; wpm: number }[]
+  wordWindows?: { startSecond: number; endSecond: number; label: string }[]
+}
+
+export interface SessionHistoryEntry {
+  date: string
+  mode: 'speed' | 'clarity'
+  duration: number
+  promptType: string
+  netWpm: number
+  accuracy: number
+  fillerCount: number
 }
 
 export interface SpeedResults {
@@ -121,6 +140,7 @@ interface TestStore {
   setLeaderboardEmoji: (emoji: string) => void
   /** Returns true if this was a new personal best. */
   checkAndUpdatePersonalBest: (key: string, wpm: number) => boolean
+  pushSessionHistory: (entry: SessionHistoryEntry) => void
   resetTest: () => void
   startTest: () => void
 }
@@ -140,6 +160,9 @@ const DEFAULT_SETTINGS: Settings = {
   sttProvider: 'webspeech',
   skipVad: true,
   personalBests: {},
+  sessionHistory: [],
+  endCondition: 'timer',
+  promptDifficulty: 'normal',
 }
 
 // ─── Store ────────────────────────────────────────────────────────────────────
@@ -208,6 +231,14 @@ export const useTestStore = create<TestStore>()(
           },
         })),
 
+      pushSessionHistory: (entry) =>
+        set((s) => ({
+          settings: {
+            ...s.settings,
+            sessionHistory: [entry, ...(s.settings.sessionHistory ?? [])].slice(0, 20),
+          },
+        })),
+
       checkAndUpdatePersonalBest: (key, wpm) => {
         const bests = get().settings.personalBests ?? {}
         const current = bests[key]
@@ -263,6 +294,9 @@ export const useTestStore = create<TestStore>()(
               ...DEFAULT_SETTINGS.personalBests,
               ...(p?.settings?.personalBests ?? {}),
             },
+            sessionHistory: p?.settings?.sessionHistory ?? [],
+            endCondition: p?.settings?.endCondition ?? 'timer',
+            promptDifficulty: p?.settings?.promptDifficulty ?? 'normal',
           },
         }
       },

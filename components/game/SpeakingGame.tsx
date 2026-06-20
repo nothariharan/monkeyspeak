@@ -9,6 +9,8 @@ import GameHUD from '@/components/game/GameHUD'
 import DissolveText from '@/components/game/DissolveText'
 import VoiceWave from '@/components/game/VoiceWave'
 import MonkeyDisplay from '@/components/game/MonkeyDisplay'
+import type { ProviderType, } from '@/hooks/useSpeechProvider'
+import type { EndCondition } from '@/store/testStore'
 
 function cumulativeCharsFromDissolved(words: string[], dissolvedCount: number): number {
   let chars = 0
@@ -29,6 +31,11 @@ interface SpeakingGameProps {
   game: SpeakingGameState
   timelineRef: MutableRefObject<TimelineSample[]>
   isEnding?: boolean
+  activeSource: ProviderType
+  isListening: boolean
+  sttError?: string | null
+  endCondition?: EndCondition
+  elapsedMs?: number
 }
 
 export default function SpeakingGame({
@@ -42,6 +49,11 @@ export default function SpeakingGame({
   game,
   timelineRef,
   isEnding = false,
+  activeSource,
+  isListening,
+  sttError,
+  endCondition = 'timer',
+  elapsedMs = 0,
 }: SpeakingGameProps) {
   const active = !isEnding
   const voice = useVoiceActivity({ micStream, isActive: active, isEnding })
@@ -80,6 +92,14 @@ export default function SpeakingGame({
           timeRemainingMs={timeRemainingMs}
           totalDurationMs={totalDurationMs}
           momentum={momentum}
+          activeSource={activeSource}
+          isListening={isListening}
+          sttError={sttError}
+          hasWords={dissolvedCount > 0}
+          endCondition={endCondition}
+          elapsedMs={elapsedMs}
+          currentIndex={dissolvedCount}
+          totalWords={words.length}
         />
 
         <div className="game-stage">

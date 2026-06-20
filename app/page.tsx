@@ -25,6 +25,8 @@ import HeroLeaderboard from '@/components/decor/HeroLeaderboard'
 import HeroMonkey from '@/components/decor/HeroMonkey'
 import HeroTopScore from '@/components/decor/HeroTopScore'
 import LeaderboardSavePrompt from '@/components/decor/LeaderboardSavePrompt'
+import CapabilityBanner from '@/components/CapabilityBanner'
+import Toast from '@/components/Toast'
 import type { Duration, PromptType } from '@/store/testStore'
 
 type PendingLeaderboardScore = {
@@ -57,6 +59,7 @@ export default function Home() {
   const interimTextRef = useRef('')
 
   const sttProvider = store.settings.sttProvider ?? 'webspeech'
+  const endCondition = store.settings.endCondition ?? 'timer'
   const {
     interimText,
     previewWords,
@@ -70,6 +73,8 @@ export default function Home() {
     retryWithDeepgram,
     stopSession,
     reset: resetProvider,
+    fallbackMessage,
+    clearFallbackMessage,
   } = useActiveSpeechProvider(sttProvider)
 
   const speechActive =
@@ -179,6 +184,15 @@ export default function Home() {
         consistency,
         timeline,
       })
+      s.pushSessionHistory({
+        date: new Date().toISOString(),
+        mode: 'speed',
+        duration: resultDuration,
+        promptType: resultPromptType,
+        netWpm,
+        accuracy,
+        fillerCount,
+      })
       s.setTestState('ended')
       setPendingLeaderboardScore({
         wpm: netWpm,
@@ -191,6 +205,7 @@ export default function Home() {
   }, [stopSession])
 
   const handleTimerEnd = useCallback(() => {
+    if (useTestStore.getState().settings.endCondition === 'passage') return
     finalizeSpeed(store.duration)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [finalizeSpeed, store.duration])
@@ -234,7 +249,8 @@ export default function Home() {
 
   const loadPrompt = useCallback(() => {
     const s = useTestStore.getState()
-    const text = generatePrompt(s.promptType as PromptMode, s.duration, s.customPromptText)
+    const difficulty = s.settings.promptDifficulty ?? 'normal'
+    const text = generatePrompt(s.promptType as PromptMode, s.duration, s.customPromptText, difficulty)
     s.setPrompt(splitPrompt(text))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -320,7 +336,7 @@ export default function Home() {
     s.resetTest()
     resetTimer(s.duration)
     const last = s.prompt.join(' ')
-    const text = regeneratePrompt(s.promptType as PromptMode, s.duration, last, s.customPromptText)
+    const text = regeneratePrompt(s.promptType as PromptMode, s.duration, last, s.customPromptText, s.settings.promptDifficulty ?? 'normal')
     useTestStore.getState().setPrompt(splitPrompt(text))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resetProvider, resetTimer, pendingLeaderboardScore])
@@ -342,7 +358,7 @@ export default function Home() {
     s.resetTest()
     resetTimer(s.duration)
     const s2 = useTestStore.getState()
-    const text = regeneratePrompt(s2.promptType as PromptMode, s2.duration, last, s2.customPromptText)
+    const text = regeneratePrompt(s2.promptType as PromptMode, s2.duration, last, s2.customPromptText, s2.settings.promptDifficulty ?? 'normal')
     s2.setPrompt(splitPrompt(text))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resetProvider, resetTimer, pendingLeaderboardScore])
@@ -372,6 +388,13 @@ export default function Home() {
 
   const handleStopRef = useRef(handleStop)
   useEffect(() => { handleStopRef.current = handleStop }, [handleStop])
+
+  useEffect(() => {
+    if (store.testState !== 'running' || store.mode !== 'speed') return
+    if ((store.settings.endCondition ?? 'timer') !== 'passage') return
+    if (store.prompt.length === 0 || dissolvedCount < store.prompt.length) return
+    handleStopRef.current()
+  }, [dissolvedCount, store.testState, store.mode, store.prompt.length, store.settings.endCondition])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -434,6 +457,7 @@ export default function Home() {
   const isRunning = store.testState === 'running'
   const isEnded   = store.testState === 'ended'
   const isIdle    = store.testState === 'idle'
+  const elapsedMs = store.duration * 1000 - timeRemaining
   const startHint = store.settings.sttProvider === 'deepgram'
     ? 'before you start: allow the mic, read the text out loud, and keep a steady pace. deepgram mode needs the local proxy or deployed server to be running.'
     : 'before you start: allow the mic, read the text out loud, and speak naturally. chrome usually works best for browser speech.'
@@ -491,6 +515,8 @@ export default function Home() {
                         </p>
                       </div>
 
+                      <CapabilityBanner />
+
                       {startError && (
                         <div
                           role="alert"
@@ -545,6 +571,11 @@ export default function Home() {
                       game={speakingGame}
                       timelineRef={timelineRef}
                       isEnding={isEnding}
+                      activeSource={activeSource}
+                      isListening={isListening}
+                      sttError={sttError}
+                      endCondition={endCondition}
+                      elapsedMs={elapsedMs}
                     />
                   </>
                 )}
@@ -588,6 +619,7 @@ export default function Home() {
           window.dispatchEvent(new Event('leaderboard:refresh'))
         }}
       />
+      <Toast message={fallbackMessage} onDismiss={clearFallbackMessage} />
     </div>
   )
 }

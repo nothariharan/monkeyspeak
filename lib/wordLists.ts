@@ -1,5 +1,21 @@
 // Static word pools — no logic
 
+/** Simplest words — short, high-frequency, monosyllabic or bisyllabic. For easy mode. */
+export const EASY_WORDS: string[] = [
+  'the', 'a', 'an', 'in', 'on', 'at', 'to', 'of', 'is', 'it',
+  'be', 'and', 'or', 'but', 'by', 'for', 'as', 'not', 'so', 'up',
+  'he', 'she', 'we', 'you', 'me', 'us', 'my', 'his', 'her', 'its',
+  'go', 'get', 'use', 'say', 'see', 'do', 'can', 'may', 'let',
+  'big', 'new', 'old', 'top', 'one', 'two', 'own', 'far', 'few',
+  'day', 'way', 'too', 'now', 'how', 'who', 'why', 'when', 'then',
+  'just', 'like', 'make', 'take', 'give', 'keep', 'turn', 'look',
+  'know', 'feel', 'want', 'need', 'mean', 'call', 'will', 'come',
+  'back', 'hand', 'door', 'life', 'year', 'good', 'time', 'work',
+  'help', 'hold', 'high', 'long', 'much', 'real', 'only', 'best',
+  'find', 'even', 'play', 'show', 'move', 'next', 'stay', 'love',
+  'win', 'run', 'fly', 'sit', 'try', 'put', 'hit', 'set', 'cut',
+]
+
 export const COMMON_WORDS: string[] = [
   'the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'it',
   'for', 'not', 'on', 'with', 'he', 'as', 'you', 'do', 'at', 'this',

@@ -1,4 +1,5 @@
-import { COMMON_WORDS, TECHNICAL_WORDS, HARD_WORDS, NUMBER_WORDS } from './wordLists'
+import { COMMON_WORDS, EASY_WORDS, TECHNICAL_WORDS, HARD_WORDS, NUMBER_WORDS } from './wordLists'
+import type { PromptDifficulty } from '@/store/testStore'
 
 /** Matches store `PromptType` without importing the store. */
 export type PromptMode =
@@ -46,7 +47,8 @@ function pickWords(pool: string[], count: number): string[] {
 export function generatePrompt(
   mode: PromptMode,
   duration: number,
-  customText?: string
+  customText?: string,
+  difficulty: PromptDifficulty = 'normal'
 ): string {
   if (mode === 'custom' && customText) {
     return customText.trim().toLowerCase().replace(/\s+/g, ' ')
@@ -54,8 +56,13 @@ export function generatePrompt(
 
   const wordCount = WORD_COUNTS[duration] ?? 90
 
+  const sentencesPool =
+    difficulty === 'easy' ? EASY_WORDS :
+    difficulty === 'hard' ? HARD_WORDS :
+    COMMON_WORDS
+
   const poolMap: Record<PromptMode, string[]> = {
-    sentences: COMMON_WORDS,
+    sentences: sentencesPool,
     technical: TECHNICAL_WORDS,
     numbers: NUMBER_WORDS,
     hard: HARD_WORDS,
@@ -71,17 +78,18 @@ export function regeneratePrompt(
   mode: PromptMode,
   duration: number,
   lastPrompt?: string,
-  customText?: string
+  customText?: string,
+  difficulty: PromptDifficulty = 'normal'
 ): string {
   if (mode === 'custom') return generatePrompt(mode, duration, customText)
 
   for (let attempt = 0; attempt < 5; attempt++) {
-    const candidate = generatePrompt(mode, duration)
+    const candidate = generatePrompt(mode, duration, undefined, difficulty)
     if (!lastPrompt || candidate.split(' ')[0] !== lastPrompt.split(' ')[0]) {
       return candidate
     }
   }
-  return generatePrompt(mode, duration)
+  return generatePrompt(mode, duration, undefined, difficulty)
 }
 
 /**
