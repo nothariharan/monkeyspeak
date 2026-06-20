@@ -97,7 +97,7 @@ export default function ScoringInfo() {
             {FILLER_LIST}
           </Row>
           <Row label="repeats">
-            first match wins; duplicate words counted as extra (don't hurt accuracy)
+            first match wins; duplicate words counted as extra (do not hurt accuracy)
           </Row>
           <Row label="corrections">
             uncorrected mistakes count as substitutions; the word after still aligns normally
