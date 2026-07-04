@@ -1,5 +1,6 @@
 import { createClient, LiveTranscriptionEvents } from '@deepgram/sdk'
 import { checkAndReserveDeepgramSeconds } from '@/lib/deepgramRateLimit'
+import { DEEPGRAM_UTTERANCE_END_MS } from '@/lib/deepgramConnection'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -73,7 +74,7 @@ export async function POST(req: Request) {
     endpointing: 10,
     no_delay: true,
     filler_words: true,
-    utterance_end_ms: 1000,
+    utterance_end_ms: Number(DEEPGRAM_UTTERANCE_END_MS),
   })
 
   let upstreamOpen = false

@@ -8,6 +8,9 @@ export async function parseDeepgramWireMessage(data: unknown): Promise<string | 
   return null
 }
 
+/** Deepgram live listen rejects utterance_end_ms below 1000 (returns HTTP 400). */
+export const DEEPGRAM_UTTERANCE_END_MS = '1000'
+
 export function buildDeepgramListenUrl(language: string): string {
   const url = new URL('wss://api.deepgram.com/v1/listen')
   url.searchParams.set('model', 'nova-3')
@@ -21,7 +24,7 @@ export function buildDeepgramListenUrl(language: string): string {
   url.searchParams.set('endpointing', '10')
   url.searchParams.set('no_delay', 'true')
   url.searchParams.set('filler_words', 'true')
-  url.searchParams.set('utterance_end_ms', '400')
+  url.searchParams.set('utterance_end_ms', DEEPGRAM_UTTERANCE_END_MS)
   return url.toString()
 }
 
@@ -47,7 +50,7 @@ export function buildDeepgramProxyUrl(language: string): string | null {
   url.searchParams.set('lang', language)
   url.searchParams.set('interim_results', 'true')
   url.searchParams.set('vad_events', 'true')
-  url.searchParams.set('utterance_end_ms', '400')
+  url.searchParams.set('utterance_end_ms', DEEPGRAM_UTTERANCE_END_MS)
   return url.toString()
 }
 
@@ -55,9 +58,6 @@ export function buildDeepgramProxyUrl(language: string): string | null {
 export function buildDeepgramBridgeUrl(language: string, duration?: number): string {
   const url = new URL('/api/deepgram/live', typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000')
   url.searchParams.set('lang', language)
-  url.searchParams.set('interim_results', 'true')
-  url.searchParams.set('vad_events', 'true')
-  url.searchParams.set('utterance_end_ms', '400')
   if (duration) url.searchParams.set('duration', String(duration))
   return url.toString()
 }

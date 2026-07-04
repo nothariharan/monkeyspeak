@@ -121,6 +121,10 @@ function buildDeepgramListenUrl(browserReqUrl) {
     // deepgram rejects live ws below 1000ms with a 400. learned that the hard way.
     utterance_end_ms: '1000',
   };
+  if (p.has('utterance_end_ms')) {
+    const ms = parseInt(p.get('utterance_end_ms'), 10);
+    if (!Number.isFinite(ms) || ms < 1000) p.set('utterance_end_ms', '1000');
+  }
   for (const [k, v] of Object.entries(defaults)) {
     if (!p.has(k)) p.set(k, v);
   }
