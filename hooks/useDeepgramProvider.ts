@@ -152,6 +152,13 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
 
     if (msg.type === 'BridgeReady') return
 
+    if (msg.type === 'Error') {
+      const message = (msg as { message?: string }).message ?? 'Deepgram connection error'
+      console.warn('[STT:deepgram]', message)
+      setError(message)
+      return
+    }
+
     if (msg.type === 'Results') {
       const r = msg as DgResultsEvent
       const alt = r.channel?.alternatives?.[0]
@@ -217,6 +224,8 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
       onSpeechStartRef.current?.((msg as DgSpeechStartedEvent).timestamp ?? Date.now())
     } else if (msg.type === 'UtteranceEnd') {
       onSpeechEndRef.current?.(Date.now())
+    } else if (msg.type !== 'Metadata') {
+      console.warn('[STT:deepgram] unhandled event:', msg.type, json.slice(0, 200))
     }
   }, [])
 

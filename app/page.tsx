@@ -512,7 +512,7 @@ export default function Home() {
   const isIdle    = store.testState === 'idle'
   const elapsedMs = store.duration * 1000 - timeRemaining
   const startHint = store.settings.sttProvider === 'deepgram'
-    ? 'before you start: allow the mic, read the text out loud, and keep a steady pace. deepgram mode needs the local proxy or deployed server to be running.'
+    ? 'before you start: allow the mic, read the text out loud, and keep a steady pace. if nothing transcribes, open DevTools (F12) → Console and look for [STT:deepgram] errors.'
     : 'before you start: allow the mic, read the text out loud, and speak naturally. chrome usually works best for browser speech.'
 
   return (

@@ -73,7 +73,7 @@ export async function POST(req: Request) {
     endpointing: 10,
     no_delay: true,
     filler_words: true,
-    utterance_end_ms: 400,
+    utterance_end_ms: 1000,
   })
 
   let upstreamOpen = false
