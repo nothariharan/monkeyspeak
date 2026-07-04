@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useWebSpeech } from './useWebSpeech'
 import { useDeepgramProvider } from './useDeepgramProvider'
 import { useTestStore } from '@/store/testStore'
+import { getBrowserSpeechProfile } from '@/lib/browserSpeech'
 import type { ProviderType, SpeechProvider, SessionStartResult } from './useSpeechProvider'
 
 export type ActiveSpeechProvider = SpeechProvider & {
@@ -35,6 +36,7 @@ export function useActiveSpeechProvider(provider: ProviderType): ActiveSpeechPro
 
   const startDeepgramSession = useCallback(async (): Promise<SessionStartResult> => {
     webSpeech.stopSession()
+    webSpeech.reset()
     setActiveSource('deepgram')
     const result = await deepgram.startSession()
     if (result.ok) {
@@ -52,8 +54,13 @@ export function useActiveSpeechProvider(provider: ProviderType): ActiveSpeechPro
       const result = await startDeepgramSession()
       if (result.ok) return result
 
-      // deepgram flaked. stop it cleanly and try browser speech before giving up.
+      // deepgram flaked. on Brave/Edge, browser speech is also blocked — don't fallback.
       deepgram.stopSession()
+      const profile = await getBrowserSpeechProfile()
+      if (profile.preferDeepgram) {
+        return result
+      }
+
       setActiveSource('webspeech')
       const fallback = await webSpeech.startSession()
       if (fallback.ok) {

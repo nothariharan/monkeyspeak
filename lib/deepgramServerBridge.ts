@@ -1,5 +1,7 @@
 /** Server-side Deepgram listen URL builder (shared by /api/deepgram/live). */
 
+import { clampUtteranceEndMs, DEEPGRAM_UTTERANCE_END_MS } from '@/lib/deepgramConnection'
+
 export function buildDeepgramListenUrlFromParams(params: URLSearchParams): string {
   const p = new URLSearchParams(params)
 
@@ -7,6 +9,8 @@ export function buildDeepgramListenUrlFromParams(params: URLSearchParams): strin
     p.set('language', p.get('lang')!)
     p.delete('lang')
   }
+
+  clampUtteranceEndMs(p)
 
   const defaults: Record<string, string> = {
     model: 'nova-3',
@@ -20,7 +24,7 @@ export function buildDeepgramListenUrlFromParams(params: URLSearchParams): strin
     endpointing: '10',
     no_delay: 'true',
     filler_words: 'true',
-    utterance_end_ms: '1000',
+    utterance_end_ms: DEEPGRAM_UTTERANCE_END_MS,
   }
 
   for (const [key, value] of Object.entries(defaults)) {

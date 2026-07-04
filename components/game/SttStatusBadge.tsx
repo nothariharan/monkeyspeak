@@ -26,7 +26,7 @@ const LABELS: Record<BadgeVariant, string> = {
 const TITLES: Record<BadgeVariant, string> = {
   deepgram: 'Deepgram connected',
   webspeech: 'Browser speech active',
-  degraded: 'No words detected — speech may be degraded',
+  degraded: 'No words detected — speak louder or check mic input',
   error: 'STT error',
 }
 

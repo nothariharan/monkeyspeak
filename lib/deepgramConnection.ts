@@ -11,6 +11,13 @@ export async function parseDeepgramWireMessage(data: unknown): Promise<string | 
 /** Deepgram live listen rejects utterance_end_ms below 1000 (returns HTTP 400). */
 export const DEEPGRAM_UTTERANCE_END_MS = '1000'
 
+/** Clamp invalid client-provided utterance_end_ms before forwarding to Deepgram. */
+export function clampUtteranceEndMs(params: URLSearchParams): void {
+  if (!params.has('utterance_end_ms')) return
+  const ms = parseInt(params.get('utterance_end_ms') ?? '', 10)
+  if (!Number.isFinite(ms) || ms < 1000) params.set('utterance_end_ms', DEEPGRAM_UTTERANCE_END_MS)
+}
+
 export function buildDeepgramListenUrl(language: string): string {
   const url = new URL('wss://api.deepgram.com/v1/listen')
   url.searchParams.set('model', 'nova-3')
@@ -50,7 +57,7 @@ export function buildDeepgramProxyUrl(language: string): string | null {
   url.searchParams.set('lang', language)
   url.searchParams.set('interim_results', 'true')
   url.searchParams.set('vad_events', 'true')
-  url.searchParams.set('utterance_end_ms', DEEPGRAM_UTTERANCE_END_MS)
+  // utterance_end_ms is set server-side — avoids stale client bundles sending 400.
   return url.toString()
 }
 

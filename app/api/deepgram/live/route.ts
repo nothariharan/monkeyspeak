@@ -1,6 +1,7 @@
 import { createClient, LiveTranscriptionEvents } from '@deepgram/sdk'
 import { checkAndReserveDeepgramSeconds } from '@/lib/deepgramRateLimit'
 import { DEEPGRAM_UTTERANCE_END_MS } from '@/lib/deepgramConnection'
+import { buildDeepgramListenUrlFromParams } from '@/lib/deepgramServerBridge'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -61,6 +62,22 @@ export async function POST(req: Request) {
 
   writeLine(JSON.stringify({ type: 'BridgeReady' }))
 
+  const listenParams = new URLSearchParams({
+    model: 'nova-3',
+    language: resolveLanguage(incoming.searchParams),
+    encoding: 'linear16',
+    sample_rate: '16000',
+    channels: '1',
+    smart_format: 'false',
+    interim_results: 'true',
+    vad_events: 'true',
+    endpointing: '10',
+    no_delay: 'true',
+    filler_words: 'true',
+    utterance_end_ms: DEEPGRAM_UTTERANCE_END_MS,
+  })
+  const upstreamPreview = buildDeepgramListenUrlFromParams(listenParams).replace(/\?.*/, '?…')
+
   const deepgram = createClient(apiKey)
   const live = deepgram.listen.live({
     model: 'nova-3',
@@ -79,6 +96,16 @@ export async function POST(req: Request) {
 
   let upstreamOpen = false
   const audioQueue: Uint8Array[] = []
+
+  const keepAliveTimer = setInterval(() => {
+    if (upstreamOpen) {
+      try {
+        live.keepAlive()
+      } catch {
+        /* ignore */
+      }
+    }
+  }, 3_000)
 
   const flushQueue = () => {
     if (!upstreamOpen) return
@@ -102,6 +129,7 @@ export async function POST(req: Request) {
       live.on(LiveTranscriptionEvents.Error, (err: unknown) => {
         clearTimeout(timeout)
         const message = err instanceof Error ? err.message : 'Deepgram upstream connection failed'
+        console.error('[deepgram/live] upstream rejected:', upstreamPreview, message)
         reject(new Error(message))
       })
     })
@@ -116,6 +144,7 @@ export async function POST(req: Request) {
   live.on(LiveTranscriptionEvents.Metadata, forwardEvent)
 
   live.on(LiveTranscriptionEvents.Close, () => {
+    clearInterval(keepAliveTimer)
     void writer.close().catch(() => {})
   })
 
@@ -142,6 +171,7 @@ export async function POST(req: Request) {
       const message = err instanceof Error ? err.message : 'Audio stream failed'
       writeLine(JSON.stringify({ type: 'Error', message }))
     } finally {
+      clearInterval(keepAliveTimer)
       if (upstreamOpen) live.requestClose()
     }
   }

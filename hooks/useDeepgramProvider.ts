@@ -9,6 +9,7 @@ import {
   parseDeepgramWireMessage,
   probeProxyBackendReachable,
 } from '@/lib/deepgramConnection'
+import { getBrowserSpeechProfile } from '@/lib/browserSpeech'
 import { useTestStore } from '@/store/testStore'
 import type { SpeechProvider, SessionStartResult } from './useSpeechProvider'
 
@@ -78,8 +79,6 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
   const activeRef        = useRef(false)
   const onSpeechStartRef = useRef<((ts: number) => void) | null>(null)
   const onSpeechEndRef   = useRef<((ts: number) => void) | null>(null)
-  const debugBytesSentRef = useRef(0)
-  const debugResultsRef   = useRef(0)
   const previewWordsRef   = useRef<string[]>([])
 
   // ── Teardown ──────────────────────────────────────────────────────────────
@@ -154,7 +153,7 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
 
     if (msg.type === 'Error') {
       const message = (msg as { message?: string }).message ?? 'Deepgram connection error'
-      console.warn('[STT:deepgram]', message)
+      sttDebug('error', message)
       setError(message)
       return
     }
@@ -168,7 +167,6 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
       const transcript = displayTranscript(alt)
       if (!transcript && wordObjs.length === 0) return
 
-      debugResultsRef.current++
       sttDebug(r.is_final ? 'final' : 'interim', transcript.slice(0, 80), `words=${wordObjs.length}`)
 
       if (!r.is_final) {
@@ -225,7 +223,7 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
     } else if (msg.type === 'UtteranceEnd') {
       onSpeechEndRef.current?.(Date.now())
     } else if (msg.type !== 'Metadata') {
-      console.warn('[STT:deepgram] unhandled event:', msg.type, json.slice(0, 200))
+      sttDebug('unhandled event', msg.type, json.slice(0, 200))
     }
   }, [])
 
@@ -261,7 +259,6 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
       const sendPcm = (input: Float32Array) => {
         if (!sessionLive() || !sink.isOpen()) return
         const pcm16 = float32ToLinear16Pcm16k(input, ctx.sampleRate)
-        debugBytesSentRef.current += pcm16.byteLength
         sink.sendPcm(pcm16.buffer)
       }
 
@@ -397,9 +394,8 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
           sendPcm: (buffer) => {
             void writer.write(new Uint8Array(buffer)).catch(() => {})
           },
-          sendJson: (payload) => {
-            void writer.write(new TextEncoder().encode(JSON.stringify(payload))).catch(() => {})
-          },
+          // HTTP bridge body is PCM-only; JSON control frames go over WebSocket proxy only.
+          sendJson: () => {},
           isOpen: () => !abort.signal.aborted,
         }
 
@@ -416,10 +412,14 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
           window.clearTimeout(clearWatchdog)
         }
 
-        const readNdjson = async (body: ReadableStream<Uint8Array>) => {
+        const readNdjson = async (
+          body: ReadableStream<Uint8Array>,
+          onBridgeReady: () => void
+        ) => {
           const reader = body.getReader()
           const decoder = new TextDecoder()
           let pending = ''
+          let bridgeReadySeen = false
 
           while (activeRef.current && !abort.signal.aborted) {
             const { done, value } = await reader.read()
@@ -431,7 +431,12 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
               if (!line.trim()) continue
               try {
                 const msg = JSON.parse(line) as { type?: string }
-                if (msg.type === 'BridgeReady') stopWatchdog()
+                if (msg.type === 'BridgeReady' && !bridgeReadySeen) {
+                  bridgeReadySeen = true
+                  sttDebug('bridge ready')
+                  stopWatchdog()
+                  onBridgeReady()
+                }
               } catch {
                 /* ignore */
               }
@@ -460,16 +465,13 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
             } catch (fetchErr: unknown) {
               const msg =
                 fetchErr instanceof Error && fetchErr.message.includes('duplex')
-                  ? 'Your browser does not support audio streaming — try updating your browser or switching to Web Speech mode'
+                  ? 'This browser cannot stream audio to Deepgram — try Chrome, or use Deepgram via WebSocket proxy'
                   : 'Deepgram bridge connection failed — check mic permission and reload'
               setError(msg)
               _teardown()
               settle({ ok: false, error: msg })
               return
             }
-
-            window.clearTimeout(clearWatchdog)
-            stopWatchdog()
 
             if (!response.ok || !response.body) {
               let msg = `Deepgram bridge failed (${response.status})`
@@ -487,6 +489,34 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
 
             sttDebug('Deepgram bridge open', bridgeUrl.replace(/\?.*/, '?…'))
 
+            let bridgeReadyResolve!: () => void
+            const bridgeReady = new Promise<void>((resolve) => {
+              bridgeReadyResolve = resolve
+            })
+
+            const ndjsonTask = readNdjson(response.body, () => bridgeReadyResolve())
+
+            try {
+              await Promise.race([
+                bridgeReady,
+                new Promise<never>((_, reject) => {
+                  window.setTimeout(
+                    () => reject(new Error('Deepgram bridge timed out — no upstream response')),
+                    20_000
+                  )
+                }),
+              ])
+            } catch (bridgeErr: unknown) {
+              const msg =
+                bridgeErr instanceof Error
+                  ? bridgeErr.message
+                  : 'Deepgram bridge timed out — try Chrome or allow Brave Shields for this site'
+              setError(msg)
+              _teardown()
+              settle({ ok: false, error: msg })
+              return
+            }
+
             const audioOk = await audioSetup
             if (!audioOk) {
               settle({ ok: false, error: 'Could not start audio capture' })
@@ -495,7 +525,7 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
 
             setIsListening(true)
             settle({ ok: true })
-            await readNdjson(response.body)
+            await ndjsonTask
           } catch (err: unknown) {
             stopWatchdog()
             if (abort.signal.aborted) return
@@ -504,7 +534,7 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
             _teardown()
             if (!settled) settle({ ok: false, error: msg })
           } finally {
-            if (activeRef.current) {
+            if (activeRef.current && !abort.signal.aborted) {
               setError('Connection lost — press Enter to retry')
               _teardown()
             }
@@ -588,15 +618,28 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
       typeof window !== 'undefined' &&
       (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
 
-    // On Vercel, prefer the same-origin HTTP bridge — it runs on the deployment itself
-    // and avoids Render cold starts / flaky cross-origin WebSocket upgrades.
-    // Local dev still uses ws://localhost:8080 when the standalone backend is up.
-    if (onLocalhost) {
+    const profile =
+      typeof window !== 'undefined'
+        ? await getBrowserSpeechProfile()
+        : { isBrave: false, isEdge: false, preferDeepgram: false, onstartTimeoutMs: 3000 }
+
+    // Brave/Edge often never deliver NDJSON on a half-duplex fetch body — use WS proxy instead.
+    // Chrome/Firefox use the same-origin HTTP bridge on Vercel (no Render cold start).
+    const preferWsProxy = onLocalhost || profile.isBrave || profile.isEdge
+
+    if (preferWsProxy) {
       const proxyUrl = buildDeepgramProxyUrl(language)
       if (proxyUrl) {
         const probe = await probeProxyBackendReachable()
-        if (probe.ok) return { mode: 'proxy', url: proxyUrl }
-        sttDebug('local proxy offline', probe.err ?? probe.status)
+        if (probe.ok) {
+          sttDebug(
+            profile.isBrave || profile.isEdge
+              ? 'WS proxy (Brave/Edge)'
+              : 'WS proxy'
+          )
+          return { mode: 'proxy', url: proxyUrl }
+        }
+        sttDebug('WS proxy unavailable', probe.err ?? probe.status)
       }
     }
 
@@ -634,9 +677,11 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
     }
 
     if (target.mode === 'bridge') {
+      sttDebug('HTTP bridge', target.url.replace(/\?.*/, '?…'))
       return _connectBridge(target.url, stream)
     }
 
+    sttDebug('WebSocket proxy', target.url.replace(/\?.*/, '?…'))
     return _connectWebSocket(new WebSocket(target.url), stream, 'Deepgram proxy')
   }, [_resolveListenTarget, _connectBridge, _connectWebSocket])
 

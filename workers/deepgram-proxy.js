@@ -10,6 +10,11 @@ function buildDeepgramUrl(searchParams) {
     p.set('language', p.get('lang'))
     p.delete('lang')
   }
+  if (p.has('utterance_end_ms')) {
+    const ms = parseInt(p.get('utterance_end_ms'), 10)
+    if (!Number.isFinite(ms) || ms < 1000) p.set('utterance_end_ms', '1000')
+  }
+
   const defaults = {
     model: 'nova-3',
     language: 'en-US',

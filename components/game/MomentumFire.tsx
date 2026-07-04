@@ -9,25 +9,12 @@ interface MomentumFireProps {
 
 export default function MomentumFire({ momentum }: MomentumFireProps) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const valueQuickRef = useRef<gsap.QuickToFunc | null>(null)
   const isHigh = momentum >= 50
 
   useEffect(() => {
     const el = containerRef.current?.querySelector('.momentum-fire-value')
     if (!el) return
-
-    valueQuickRef.current = gsap.quickTo(el, 'scale', {
-      duration: 0.35,
-      ease: 'power2.out',
-    })
-
-    return () => {
-      valueQuickRef.current = null
-    }
-  }, [])
-
-  useEffect(() => {
-    valueQuickRef.current?.(isHigh ? 1.06 : 1)
+    gsap.to(el, { scale: isHigh ? 1.06 : 1, duration: 0.35, ease: 'power2.out' })
   }, [isHigh])
 
   return (
