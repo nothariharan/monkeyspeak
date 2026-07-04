@@ -1,7 +1,19 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
+import {
+  buildThemeBootScript,
+  buildThemeTokenMap,
+  buildThemeVarsCss,
+  DEFAULT_ACCENT_HEX,
+} from '@/lib/themeBoot'
+import { THEME_ORDER } from '@/lib/themes'
 import './globals.css'
 
+export const viewport: Viewport = {
+  viewportFit: 'cover',
+}
+
 export const metadata: Metadata = {
+  metadataBase: new URL('https://monkeyspeak-delta.vercel.app'),
   icons: {
     icon: [
       { url: '/logo.png', type: 'image/png' },
@@ -16,8 +28,19 @@ export const metadata: Metadata = {
     title: 'MonkeySpeak',
     description: 'The voice benchmark. How fast and clearly do you speak?',
     type: 'website',
+    url: '/',
+    siteName: 'MonkeySpeak',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'MonkeySpeak',
+    description: 'The voice benchmark. How fast and clearly do you speak?',
   },
 }
+
+const THEME_TOKENS = buildThemeTokenMap()
+const THEME_VARS_CSS = buildThemeVarsCss(THEME_TOKENS)
+const themeBootScript = buildThemeBootScript(THEME_ORDER)
 
 export default function RootLayout({
   children,
@@ -25,8 +48,23 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" data-theme="latte" data-accent="blue" data-font="jetbrains" data-fontsize="medium">
+    /*
+     * suppressHydrationWarning: the boot script may change data-theme / data-font
+     * before React hydrates. That's intentional — we just don't want a console warning.
+     */
+    <html
+      lang="en"
+      data-theme="latte"
+      data-font="jetbrains"
+      data-fontsize="medium"
+      suppressHydrationWarning
+    >
       <head>
+        {/* Palette tokens via data-theme — keeps <html> free of inline style="" */}
+        <style id="ms-theme-vars" dangerouslySetInnerHTML={{ __html: THEME_VARS_CSS }} />
+        {/* Accent is user-picked; boot script rewrites this tag from localStorage */}
+        <style id="ms-accent">{`html{--accent:${DEFAULT_ACCENT_HEX}}`}</style>
+        <script dangerouslySetInnerHTML={{ __html: themeBootScript }} />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link

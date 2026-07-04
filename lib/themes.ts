@@ -164,21 +164,14 @@ export const THEME_ORDER: ThemeName[] = ['latte', 'frappe', 'macchiato', 'mocha'
 
 /**
  * push theme tokens onto :root. accent comes from user settings, not hardcoded.
+ *
+ * Palette colors live in static CSS ([data-theme="…"] in layout). Only the accent
+ * hex is patched at runtime via #ms-accent so we never attach style="" to <html>.
  */
 export function applyTheme(theme: ThemeDef, accentHex: string) {
   const root = document.documentElement
-  root.style.setProperty('--bg',           theme.bg)
-  root.style.setProperty('--bg-surface',   theme.bgSurface)
-  root.style.setProperty('--surface',     theme.surface)
-  root.style.setProperty('--border',      theme.border)
-  root.style.setProperty('--shadow',      theme.shadow)
-  root.style.setProperty('--text-muted',  theme.textMuted)
-  root.style.setProperty('--text-stats',  theme.textStats)
-  root.style.setProperty('--text-active', theme.textActive)
-  root.style.setProperty('--text-current', theme.textCurrent)
-  root.style.setProperty('--success',     theme.success)
-  root.style.setProperty('--error',       theme.error)
-  root.style.setProperty('--orange',      theme.orange)
-  root.style.setProperty('--accent',      accentHex)
   root.dataset.theme = theme.name
+  if (typeof document === 'undefined') return
+  const el = document.getElementById('ms-accent')
+  if (el) el.textContent = `html{--accent:${accentHex}}`
 }
