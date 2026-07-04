@@ -1,16 +1,10 @@
-# Theme boot without hydration warnings
+# theme boot without hydration warnings
 
-## What was going wrong
+## what was going wrong
 
-On every page load, a small blocking script in `app/layout.tsx` reads the user's
-saved settings from `localStorage` and applies their theme before the first paint.
-That prevents a bright "latte" flash when someone prefers a dark palette.
+on every load a blocking script in `app/layout.tsx` reads saved settings from localStorage and applies the theme before first paint — stops a bright latte flash when someone prefers dark mode
 
-The old approach wrote every CSS variable directly onto `<html>` via
-`document.documentElement.style.setProperty(...)`. That worked visually, but React
-18's hydration pass compares the server HTML to the client DOM. By the time React
-ran, `<html>` already carried a `style="..."` attribute the server never sent —
-hence the console warning:
+the old approach wrote css vars straight onto `<html>` with `style.setProperty`. looked fine but react 18 hydration compares server html to client dom. by then `<html>` already had a `style="..."` the server never sent:
 
 ```
 Warning: Extra attributes from the server: style
@@ -18,47 +12,38 @@ Warning: Extra attributes from the server: style
     at RootLayout (Server)
 ```
 
-## How we fixed it
+## how we fixed it
 
-Theme palette tokens now live in static CSS generated from `lib/themes.ts`:
+palette tokens now live in static css from `lib/themes.ts`:
 
 ```css
 [data-theme="latte"] { --bg: #f5f2ea; --surface: #ffffff; … }
 [data-theme="mocha"] { --bg: #0a0a0a; … }
 ```
 
-The boot script only flips `data-theme`, `data-font`, and `data-fontsize` on
-`<html>`. No inline `style=""` on the root element.
+the boot script only flips `data-theme`, `data-font`, and `data-fontsize` on `<html>` — no inline style on the root
 
-The accent color is still user-configurable, but it is injected through a
-dedicated `<style id="ms-accent">` tag instead of inline styles. Both the boot
-script and `applyTheme()` in `lib/themes.ts` rewrite that tag's contents.
+accent color goes through `<style id="ms-accent">` instead. boot script and `applyTheme()` in `lib/themes.ts` both rewrite that tag
 
-`<html>` also uses `suppressHydrationWarning` because `data-theme` may legitimately
-differ between the server default (`latte`) and what localStorage says before
-hydration completes.
+`<html>` uses `suppressHydrationWarning` because `data-theme` can legitimately differ between server default (latte) and localStorage before hydration finishes
 
-## Files involved
+## files
 
-| File | Role |
+| file | role |
 |------|------|
-| `lib/themeBoot.ts` | Builds token map, static CSS, boot script, and `applyAccentHex()` |
-| `lib/themes.ts` | `applyTheme()` sets `data-theme` + accent tag |
-| `app/layout.tsx` | Injects `#ms-theme-vars`, `#ms-accent`, and the boot script in `<head>` |
+| `lib/themeBoot.ts` | token map, static css, boot script, `applyAccentHex()` |
+| `lib/themes.ts` | `applyTheme()` sets data-theme + accent tag |
+| `app/layout.tsx` | injects `#ms-theme-vars`, `#ms-accent`, boot script in head |
 
-## Verifying locally
+## verify locally
 
-1. Pick a dark theme and a non-default accent in Settings.
-2. Hard-refresh the page.
-3. Open DevTools → Console — the `Extra attributes from the server: style` warning
-   should be gone.
-4. Confirm there is no theme flash and the accent color still matches your pick.
+1. pick a dark theme + non-default accent in settings
+2. hard refresh
+3. console should not show the extra attributes style warning
+4. no theme flash, accent still matches
 
-## Notes for future changes
+## notes for later
 
-- If you add a new theme, update `lib/themes.ts` only — layout CSS is generated
-  from that file at build time.
-- Avoid `root.style.setProperty` for theme tokens on `<html>`; use `data-*` attrs
-  or the `#ms-accent` style tag pattern instead.
-- `suppressHydrationWarning` on `<html>` is scoped to expected theme drift; don't
-  use it as a blanket fix on other elements.
+- new theme? update `lib/themes.ts` only — layout css is generated at build time
+- dont use `root.style.setProperty` for theme tokens on html — use data attrs or `#ms-accent`
+- `suppressHydrationWarning` on html is for expected theme drift only, not a blanket fix elsewhere

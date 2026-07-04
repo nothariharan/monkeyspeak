@@ -1,5 +1,4 @@
-// ─── Brutalist Theme Definitions ─────────────────────────────────────────────
-// Latte = light (default) · Frappe = medium · Macchiato = dark · Mocha = darkest
+// brutalist theme defs — latte light, frappe medium, macchiato dark, mocha darkest
 
 export type ThemeName = 'latte' | 'frappe' | 'macchiato' | 'mocha'
 

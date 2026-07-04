@@ -1,4 +1,4 @@
-/** Shared helpers for browser Web Speech API startup and error copy. */
+// browser web speech helpers — startup timeouts and error copy
 
 
 
@@ -16,18 +16,16 @@ type BraveNavigator = Navigator & { brave?: { isBrave?: () => Promise<boolean> }
 
 
 
-/** Chrome-class browsers: onstart usually within a few seconds. */
+/** chrome usually fires onstart within a few seconds */
 
 export const ONSTART_TIMEOUT_MS = {
 
   default: 3000,
 
-  /** Brave may wait for a speech prompt after mic permission. */
-
+  /** brave waits longer after mic permission */
   brave: 8000,
 
-  /** Edge uses a different cloud endpoint and often fires onstart later. */
-
+  /** edge cloud endpoint is slower to onstart */
   edge: 10000,
 
 } as const
@@ -40,7 +38,7 @@ export type BrowserSpeechProfile = {
 
   isEdge: boolean
 
-  /** Prefer Deepgram over Web Speech on this browser. */
+  /** use deepgram instead of webspeech on this browser */
 
   preferDeepgram: boolean
 

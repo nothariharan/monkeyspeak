@@ -13,7 +13,7 @@ import { getBrowserSpeechProfile } from '@/lib/browserSpeech'
 import { useTestStore } from '@/store/testStore'
 import type { SpeechProvider, SessionStartResult } from './useSpeechProvider'
 
-// ── Deepgram JSON wire types ──────────────────────────────────────────────────
+// deepgram wire types for live json events
 interface DgWord {
   word: string
   start: number
@@ -81,7 +81,7 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
   const onSpeechEndRef   = useRef<((ts: number) => void) | null>(null)
   const previewWordsRef   = useRef<string[]>([])
 
-  // ── Teardown ──────────────────────────────────────────────────────────────
+  // tear down mic ws bridge and timers
   const _teardown = useCallback(() => {
     activeRef.current = false
 
@@ -142,7 +142,7 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
     _teardown()
   }, [_teardown])
 
-  // ── Deepgram JSON event handler (same wire format regardless of proxy) ────
+  // parse results / speech events — same shape from bridge or ws proxy
   const _handleDgJson = useCallback((json: string) => {
     if (!activeRef.current) return
 
@@ -236,7 +236,7 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
     [_handleDgJson]
   )
 
-  // ── Audio worklet + VAD setup ─────────────────────────────────────────────
+  // audio worklet + optional vad before pcm hits deepgram
   const _setupAudioWorklet = useCallback(async (sink: LiveAudioSink, stream: MediaStream): Promise<boolean> => {
     const sessionLive = () => activeRef.current
 
@@ -356,7 +356,7 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
       worklet.connect(mute)
       mute.connect(ctx.destination)
 
-      // KeepAlive: prevent Deepgram from closing the connection during silence
+      // keepalive over ws only — http bridge pcm body must stay pcm-only
       keepAliveRef.current = setInterval(() => {
         if (sink.isOpen()) {
           sink.sendJson({ type: 'KeepAlive' })
@@ -394,7 +394,7 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
           sendPcm: (buffer) => {
             void writer.write(new Uint8Array(buffer)).catch(() => {})
           },
-          // HTTP bridge body is PCM-only; JSON control frames go over WebSocket proxy only.
+          // bridge upload is pcm-only, json control frames are ws-only
           sendJson: () => {},
           isOpen: () => !abort.signal.aborted,
         }
@@ -447,7 +447,7 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
 
         void (async () => {
           try {
-            // Prime the upload stream so Vercel starts the handler before audio arrives.
+            // kick the upload stream so vercel starts the handler before pcm arrives
             await writer.write(new Uint8Array([0]))
 
             activeRef.current = true
@@ -623,8 +623,8 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
         ? await getBrowserSpeechProfile()
         : { isBrave: false, isEdge: false, preferDeepgram: false, onstartTimeoutMs: 3000 }
 
-    // Brave/Edge often never deliver NDJSON on a half-duplex fetch body — use WS proxy instead.
-    // Chrome/Firefox use the same-origin HTTP bridge on Vercel (no Render cold start).
+    // brave/edge half-duplex fetch never streams ndjson back — use render ws proxy
+    // chrome/firefox use vercel http bridge (no render cold start)
     const preferWsProxy = onLocalhost || profile.isBrave || profile.isEdge
 
     if (preferWsProxy) {
@@ -646,7 +646,7 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
     return { mode: 'bridge', url: buildDeepgramBridgeUrl(language, duration) }
   }, [])
 
-  // ── Open proxy or direct (ephemeral key) Deepgram connection ───────────
+  // pick ws proxy or http bridge then open the session
   const _openConnection = useCallback(async (): Promise<SessionStartResult> => {
     setError(null)
 

@@ -389,9 +389,7 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stopTimer, finalizeSpeed])
 
-  // Shared teardown for the transient run scratch state (refs, timers-adjacent
-  // React state, and the STT provider). Every "start a fresh run" path funnels
-  // through here so they can't drift out of sync.
+  // shared reset for run scratch state + stt so start paths stay in sync
   const clearRunScratch = useCallback(() => {
     setIsPersonalBest(false)
     setStartError(null)

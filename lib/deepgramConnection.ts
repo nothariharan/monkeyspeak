@@ -1,6 +1,6 @@
-/** Browser ↔ Deepgram connection helpers (proxy or direct JWT on Vercel). */
+// browser ↔ deepgram helpers — proxy url, http bridge, wire parsing
 
-/** Deepgram live JSON may arrive as a text frame or a UTF-8 binary frame via WS proxies. */
+// deepgram json can show up as text or utf-8 binary over ws proxies
 export async function parseDeepgramWireMessage(data: unknown): Promise<string | null> {
   if (typeof data === 'string') return data
   if (data instanceof Blob) return data.text()
@@ -8,10 +8,10 @@ export async function parseDeepgramWireMessage(data: unknown): Promise<string | 
   return null
 }
 
-/** Deepgram live listen rejects utterance_end_ms below 1000 (returns HTTP 400). */
+// live listen 400s below 1000ms — keep this constant everywhere
 export const DEEPGRAM_UTTERANCE_END_MS = '1000'
 
-/** Clamp invalid client-provided utterance_end_ms before forwarding to Deepgram. */
+// clamp bad utterance_end_ms from stale client bundles
 export function clampUtteranceEndMs(params: URLSearchParams): void {
   if (!params.has('utterance_end_ms')) return
   const ms = parseInt(params.get('utterance_end_ms') ?? '', 10)
@@ -41,7 +41,7 @@ export function buildDeepgramProxyUrl(language: string): string | null {
 
   try {
     const parsed = new URL(base)
-    // Dev proxy URLs get baked into client bundles — ignore them off localhost.
+    // dev proxy urls ship in the client bundle — ignore off localhost
     if (typeof window !== 'undefined') {
       const onLocalhost =
         window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
@@ -57,11 +57,11 @@ export function buildDeepgramProxyUrl(language: string): string | null {
   url.searchParams.set('lang', language)
   url.searchParams.set('interim_results', 'true')
   url.searchParams.set('vad_events', 'true')
-  // utterance_end_ms is set server-side — avoids stale client bundles sending 400.
+  // utterance_end_ms lives on the proxy server not the query string
   return url.toString()
 }
 
-/** Same-origin HTTP bridge — works on Brave/Edge where direct WS to Deepgram is blocked. */
+// same-origin http bridge — chrome/firefox prod path
 export function buildDeepgramBridgeUrl(language: string, duration?: number): string {
   const url = new URL('/api/deepgram/live', typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000')
   url.searchParams.set('lang', language)
@@ -69,7 +69,6 @@ export function buildDeepgramBridgeUrl(language: string, duration?: number): str
   return url.toString()
 }
 
-/** Always use same-origin HTTP bridge in the browser unless a remote WS proxy is configured. */
 export function shouldUseDeepgramBridge(): boolean {
   return typeof window !== 'undefined'
 }
@@ -122,11 +121,7 @@ export function isJwtDeepgramToken(token: string): boolean {
   return token.startsWith('eyJ') && token.split('.').length === 3
 }
 
-/**
- * Open a live listen socket from the browser.
- * Uses short ephemeral keys via the `token` subprotocol — JWTs are too long for
- * Sec-WebSocket-Protocol and fail the handshake in Chrome/Edge/Brave.
- */
+// ephemeral keys use the token subprotocol — full jwts are too long for ws handshake
 export function openDeepgramWebSocket(listenUrl: string, token: string): WebSocket {
   if (isJwtDeepgramToken(token)) {
     console.warn(

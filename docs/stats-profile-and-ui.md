@@ -1,98 +1,68 @@
-# Stats dashboard, profile hub, and UI consistency
+# stats dashboard, profile hub, and ui consistency
 
-## Overview
+## overview
 
-This release adds local analytics and a speaker profile without changing the core
-speed test loop. It also aligns secondary pages with the homepage's minimal desk
-style — soft borders, pill buttons, lowercase display type — instead of the older
-brutalist cards (thick black outlines and hard offset shadows).
+local analytics + speaker profile without touching the core speed test loop. secondary pages now match the homepage minimal desk style — soft borders, pill buttons, lowercase type — instead of thick brutalist outlines
 
-## New routes and surfaces
+## new routes and surfaces
 
 ### `/stats`
 
-Local-only analytics dashboard. Data comes from `sessionHistory` and
-`lifetimeStats` in the Zustand store (persisted to `localStorage`).
+local-only dashboard. data from `sessionHistory` and `lifetimeStats` in zustand (persisted to localStorage)
 
-| Section | What it shows |
+| section | what it shows |
 |---------|----------------|
-| Summary metrics | Total runs, average WPM, max WPM, average accuracy |
-| WPM trend | Line chart of net WPM across speed runs (oldest → newest) |
-| Consistency curve | Line chart when consistency scores exist |
-| Weekly fillers | Bar chart of average filler words per session by week |
-| Missed words | Top five words the STT pipeline most often missed |
+| summary metrics | total runs, avg wpm, max wpm, avg accuracy |
+| wpm trend | line chart of net wpm across speed runs |
+| consistency curve | line chart when consistency scores exist |
+| weekly fillers | bar chart of avg fillers per session by week |
+| missed words | top five words the stt pipeline missed most |
 
-Charts are lightweight inline SVG — no chart library dependency. Empty states use
-the same dashed placeholder treatment as the homepage preflight hint.
+charts are inline svg — no chart library. empty states use the same dashed placeholder as the homepage preflight hint
 
-### Profile hub (header drawer)
+### profile hub (header drawer)
 
-Opened from the user icon in the header. Shows:
+opened from the user icon in the header:
 
-- Mascot tier based on personal-best WPM
-- Lifetime stats grid (runs, speaking time, words, fillers, accuracy, streak)
-- GitHub-style activity heatmap (24 weeks)
-- Achievement grid with unlock states
+- mascot tier from personal-best wpm
+- lifetime stats grid (runs, speaking time, words, fillers, accuracy, streak)
+- github-style activity heatmap (24 weeks)
+- achievement grid with unlock states
 
-### Error boundaries
+### error boundaries
 
 - `app/error.tsx` — recoverable runtime errors with retry + home link
-- `app/not-found.tsx` — friendly 404 for unknown routes
+- `app/not-found.tsx` — friendly 404
 
-### SEO / sharing
+## achievements
 
-- `app/robots.ts`, `app/sitemap.ts` — crawl hints
-- `app/opengraph-image.tsx` — dynamic OG image for link previews
+defined in `lib/achievements.ts`, evaluated after each session save in the store:
 
-## Supporting modules
+| id | unlock condition |
+|----|------------------|
+| first_words | complete 1 session |
+| howler_monkey | 100+ wpm speed run |
+| silverback | 150+ wpm speed run |
+| zen_chimp | 30s+ speed run with 0 fillers |
+| yap_master | complete a 120s speed session |
+| clarity_s | 98%+ accuracy in clarity mode |
+| twister_master | tongue twister run at 85%+ accuracy |
+| chatterbox | 2000+ lifetime words spoken |
 
-| Path | Purpose |
-|------|---------|
-| `lib/achievements.ts` | Badge definitions and unlock evaluation |
-| `lib/stats/streak.ts` | Speaking streak calculation |
-| `lib/__tests__/*.test.ts` | Unit tests for achievements, streak, WPM, consistency |
-| `public/mascot_*.png` | Tier mascots for profile / monkey display |
+## shared css
 
-## Styling conventions
+desk-style tokens live in `app/globals.css`:
 
-Shared classes live in `app/globals.css`:
+- `.stats-card`, `.stats-metric`, `.stats-section-title`
+- `.profile-drawer`, `.achievement-badge`
+- reused on home results panel, settings, stats, error pages
 
-- `stats-card`, `stats-metric`, `stats-empty`, `stats-chip` — stats page
-- `stats-page-title`, `stats-page-subtitle` — page headings
-- `profile-drawer`, `achievement-card` — profile hub
-- Existing desk primitives: `desk-btn`, `note-panel`, `paper-panel`, `stat-label`, `stat-value`
+## files to touch
 
-When adding new pages, prefer these classes over inline `boxShadow: '4px 4px 0 …'`
-patterns.
-
-## Store changes
-
-`store/testStore.ts` now tracks:
-
-- `sessionHistory` entries with WPM, accuracy, fillers, missed words, consistency
-- `lifetimeStats` aggregates
-- `speakingActivity` heatmap counts
-- `unlockedAchievements` IDs
-
-Achievements emit a `monkeyspeak:badge-unlocked` window event; the homepage listens
-and shows a collect-sticker modal.
-
-## Testing
-
-```bash
-npm test
-```
-
-Covers achievement rules, streak math, WPM helpers, and consistency scoring.
-
-## Future documentation (reserved)
-
-<!-- Space intentionally left for later sections: -->
-
-<!-- - API / leaderboard integration notes -->
-<!-- - Achievement catalog with unlock criteria table -->
-<!-- - Analytics privacy model (local-only vs cloud) -->
-<!-- - Chart data schema for sessionHistory entries -->
-<!-- - Mascot tier thresholds -->
-<!-- - Mobile layout breakpoints for /stats -->
-<!-- - Screenshot gallery for marketing / README -->
+| area | start here |
+|------|------------|
+| stats page | `app/stats/page.tsx` |
+| profile drawer | `components/ProfileHub.tsx` |
+| achievement logic | `lib/achievements.ts` |
+| streak | `lib/stats/streak.ts` |
+| store persistence | `store/testStore.ts` |

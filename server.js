@@ -11,10 +11,7 @@ const port = parseInt(process.env.PORT || '3000', 10)
 const app = next({ dev, hostname, port })
 const handle = app.getRequestHandler()
 
-/**
- * Merge browser query params into a Deepgram /v1/listen URL.
- * Maps `lang` → `language` (browser passes `lang`; Deepgram expects `language`).
- */
+// merge browser query params into deepgram /v1/listen (lang → language etc)
 function buildDeepgramListenUrl(reqUrl) {
   const incoming = new URL(reqUrl, 'http://127.0.0.1')
   const p = incoming.searchParams

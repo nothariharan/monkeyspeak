@@ -29,11 +29,8 @@ function toSocketData(chunk: Uint8Array): ArrayBuffer {
   return copy.buffer
 }
 
-/**
- * Same-origin HTTP bridge: browser streams PCM in the request body and reads
- * NDJSON Deepgram events from the response. Avoids cross-origin WebSocket to
- * api.deepgram.com (blocked by Brave Shields and some Edge privacy settings).
- */
+// same-origin http bridge — browser streams pcm in, reads ndjson events out
+// avoids cross-origin ws to api.deepgram.com (brave shields etc)
 export async function POST(req: Request) {
   const apiKey = process.env.DEEPGRAM_API_KEY
   if (!apiKey) {

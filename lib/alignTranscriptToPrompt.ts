@@ -18,7 +18,7 @@ export function alignTranscriptToPrompt(
     .split(/\s+/)
     .filter(Boolean)
 
-  // strip fillers before alignment. ums shouldn't count as spoken words.
+  // strip fillers before alignment — ums dont count as spoken words
   const spokenTokens: EnrichedWord[] = rawTokens
     .filter((w) => !isFiller(w))
     .map((w) => ({ word: w }))
@@ -27,10 +27,10 @@ export function alignTranscriptToPrompt(
     return prompt.map((w) => ({ word: w, tag: 'missed' as const }))
   }
 
-  // Pass the full prompt as the window; windowStart = 0 so promptIdx is absolute.
+  // full prompt window, promptIdx is absolute from 0
   const entries = smithWatermanAlign(spokenTokens, prompt, 0)
 
-  // Build a map from promptIdx -> best spoken hit
+  // promptIdx → best spoken match
   const coverage = new Map<number, { spokenWord: string; score: number }>()
   for (const e of entries) {
     if (e.spokenIdx !== null) {
@@ -41,7 +41,7 @@ export function alignTranscriptToPrompt(
     }
   }
 
-  // score >= 2 = close enough. below that we call it a substitution.
+  // score 2+ = correct, below = substitution
   return prompt.map((promptWord, i) => {
     const hit = coverage.get(i)
     if (!hit) return { word: promptWord, tag: 'missed' as const }
@@ -54,7 +54,7 @@ export function alignTranscriptToPrompt(
   })
 }
 
-/** Count filler words in the raw transcript (before filler stripping). */
+// filler count on raw transcript before stripping
 export function countFillers(transcript: string): number {
   return transcript
     .toLowerCase()

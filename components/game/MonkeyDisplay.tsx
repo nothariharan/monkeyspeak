@@ -27,8 +27,7 @@ const TIER_CYCLE_SEC: Record<MomentumSpriteTier, number> = {
   '120+': 0.75,
 }
 
-// Pendulum easing: turning-point frames linger, fast middle frames rush.
-// Returns durations in milliseconds for use with rAF timestamp accumulation.
+// pendulum easing — linger on turning points rush through the middle
 function buildEasedDurationsMs(sequenceLength: number, totalSec: number): number[] {
   const m = sequenceLength
   if (m <= 1) return [totalSec * 1000]
@@ -43,8 +42,7 @@ function buildEasedDurationsMs(sequenceLength: number, totalSec: number): number
   return weights.map(w => (w / sum) * totalSec * 1000)
 }
 
-// Hysteresis band: momentum must move this far past a threshold before the tier
-// changes, preventing rapid oscillation when momentum sits near a boundary.
+// hysteresis so momentum hovering on a tier boundary doesn't flicker sprites
 const HYST = 6
 
 function resolveNextTier(

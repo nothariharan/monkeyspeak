@@ -1,4 +1,4 @@
-/** Server-side Deepgram listen URL builder (shared by /api/deepgram/live). */
+// server-side listen url builder for /api/deepgram/live
 
 import { clampUtteranceEndMs, DEEPGRAM_UTTERANCE_END_MS } from '@/lib/deepgramConnection'
 

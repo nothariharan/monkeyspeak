@@ -4,8 +4,7 @@ const express = require('express');
 const cors = require('cors');
 const WebSocket = require('ws');
 
-// env load order matters: repo root .env.local first (same file next.js uses),
-// then fallbacks. dotenv won't stomp keys that are already set.
+// env load order — repo root .env.local first (same file next.js uses)
 require('dotenv').config({ path: path.join(__dirname, '..', '.env.local') });
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 require('dotenv').config({ path: path.join(__dirname, '.env') });

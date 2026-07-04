@@ -1,59 +1,43 @@
 'use client'
 
-// ─── Shared STT provider interface ──────────────────────────────────────────
+// shared stt provider interface — webspeech and deepgram both implement this
 
-/** A finalised word with optional per-word timing and confidence from Deepgram. */
+/** one finalised word, optional timing from deepgram */
 export interface EnrichedWord {
   word: string
-  /** Seconds from the start of the audio stream (Deepgram only). */
+  /** seconds from stream start (deepgram) */
   start?: number
-  /** Seconds from the start of the audio stream (Deepgram only). */
   end?: number
-  /** ASR confidence score 0–1 (Deepgram only). */
+  /** asr confidence 0–1 (deepgram) */
   confidence?: number
 }
 
 export interface SpeechProviderState {
-  /** Current interim (unconfirmed) transcript from the STT engine. */
+  /** live interim transcript */
   interimText: string
-  /** Non-final spoken words used only for immediate live UI progress. */
+  /** unconfirmed words for instant ui progress */
   previewWords: string[]
-  /** Words that have been finalised by the STT engine this session. */
+  /** finalised words this session */
   confirmedWords: string[]
-  /** Number of filler words detected this session. */
   fillerCount: number
-  /** True between startSession() and stopSession(). */
   isListening: boolean
-  /** Non-null when the provider has encountered an error. */
   error: string | null
-  /** Raw MediaStream, forwarded to WaveformVisualiser. */
   micStream: MediaStream | null
-  /** True when the browser STT path detects live audio (no MediaStream required). */
+  /** browser stt path can signal audio without a mediastream */
   audioActive?: boolean
 }
 
 export interface SpeechProviderActions {
-  /**
-   * Optional warm-connect: opens mic + WS during the 3-2-1 countdown so
-   * startSession() can skip the handshake (Deepgram only).
-   */
+  /** warm mic + ws during countdown (deepgram only) */
   armSession?: () => Promise<SessionStartResult>
   startSession: () => Promise<SessionStartResult>
-  /** Switch to Deepgram when browser Web Speech is stuck (Brave / Edge). */
+  /** bail out of stuck browser stt and try deepgram */
   retryWithDeepgram?: () => Promise<SessionStartResult>
   stopSession: () => void
-  /** Clears interimText, confirmedWords, fillerCount, and resets internal refs. */
   reset: () => void
-  /**
-   * Register a callback fired when VAD detects the start of speech.
-   * Fires within ~32ms of the first phoneme (Deepgram path only).
-   * WebSpeech implementation is a no-op.
-   */
+  /** vad speech start hook (~32ms, deepgram path) */
   onSpeechStart?: (handler: (ts: number) => void) => void
-  /**
-   * Register a callback fired when VAD detects the end of speech.
-   * WebSpeech implementation is a no-op.
-   */
+  /** vad speech end hook (deepgram path) */
   onSpeechEnd?: (handler: (ts: number) => void) => void
 }
 
@@ -61,7 +45,7 @@ export type SpeechProvider = SpeechProviderState & SpeechProviderActions
 
 export type ProviderType = 'webspeech' | 'deepgram'
 
-/** Result of armSession / startSession — error is set when ok is false. */
+/** arm/start result — error set when ok is false */
 export type SessionStartResult =
   | { ok: true }
   | { ok: false; error: string }

@@ -8,18 +8,16 @@ import { getBrowserSpeechProfile } from '@/lib/browserSpeech'
 import type { ProviderType, SpeechProvider, SessionStartResult } from './useSpeechProvider'
 
 export type ActiveSpeechProvider = SpeechProvider & {
-  /** Provider actually driving transcripts (may differ after fallback). */
+  /** whoever is actually feeding transcripts right now */
   activeSource: ProviderType
-  /** Set when an automatic Deepgram→WebSpeech fallback fires; clear with clearFallbackMessage(). */
+  /** set when we auto-fallback deepgram → webspeech */
   fallbackMessage: string | null
   clearFallbackMessage: () => void
 }
 
-/**
- * both speech hooks stay mounted (rules of hooks).
- * browser mode = web speech only.
- * deepgram mode = try deepgram first, fall back to web speech if it dies.
- */
+// both hooks stay mounted (rules of hooks)
+// browser mode = webspeech only
+// deepgram mode = try deepgram first, fallback to webspeech on chrome if it dies
 export function useActiveSpeechProvider(provider: ProviderType): ActiveSpeechProvider {
   const webSpeech = useWebSpeech()
   const deepgram = useDeepgramProvider(true)
@@ -54,7 +52,7 @@ export function useActiveSpeechProvider(provider: ProviderType): ActiveSpeechPro
       const result = await startDeepgramSession()
       if (result.ok) return result
 
-      // deepgram flaked. on Brave/Edge, browser speech is also blocked — don't fallback.
+      // deepgram died — on brave/edge webspeech is blocked too so don't fallback
       deepgram.stopSession()
       const profile = await getBrowserSpeechProfile()
       if (profile.preferDeepgram) {
@@ -76,7 +74,7 @@ export function useActiveSpeechProvider(provider: ProviderType): ActiveSpeechPro
   }, [provider, deepgram, webSpeech, startDeepgramSession])
 
   const retryWithDeepgram = useCallback(async (): Promise<SessionStartResult> => {
-    // runtime failsafe: mic is hot but no words after a few seconds
+    // mic hot but no words — retry deepgram
     if (usingDeepgramRef.current && activeSource === 'deepgram') return { ok: true }
     deepgram.stopSession()
     webSpeech.stopSession()

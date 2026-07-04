@@ -12,9 +12,8 @@ const EMOJI_SET = new Set<string>(LEADERBOARD_EMOJI_OPTIONS)
 const rateLimit = new Map<string, number>()
 const RATE_WINDOW_MS = 30_000
 
-// Duration-aware sanity ceilings. Sustained intelligible read-aloud pace tops out
-// well below these; longer runs can't hold a burst pace so their ceiling is lower.
-// This is defense-in-depth, NOT anti-cheat — a signed run-token is the real fix.
+// rough wpm ceilings per duration — defense in depth not anti-cheat
+// signed run tokens are the real fix when we get there
 const MAX_WPM_BY_DURATION: Record<Duration, number> = {
   15: 260,
   30: 240,

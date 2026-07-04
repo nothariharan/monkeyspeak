@@ -7,7 +7,7 @@ import ProfileHub from '@/components/ProfileHub'
 import SettingsPanel from '@/components/SettingsPanel'
 import { useTestStore, type SessionHistoryEntry } from '@/store/testStore'
 
-// ─── Lightweight SVG Line Chart Component ─────────────────────────────────────
+// lightweight svg line chart for stats page
 
 function StatsLineChart({
   data,
@@ -115,7 +115,7 @@ function StatsLineChart({
   )
 }
 
-// ─── Lightweight SVG Bar Chart Component ──────────────────────────────────────
+// lightweight svg bar chart for stats page
 
 function StatsBarChart({
   data,
@@ -199,7 +199,7 @@ function StatsBarChart({
   )
 }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
+// stats page
 
 export default function StatsPage() {
   const { settings } = useTestStore()

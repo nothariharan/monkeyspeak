@@ -1,9 +1,9 @@
 import { THEMES, type ThemeName } from '@/lib/themes'
 
-/** CSS variable map for one theme — mirrors what globals.css expects on :root. */
+// css vars for one theme — matches globals.css :root tokens
 export type ThemeTokenMap = Record<string, string>
 
-/** Build the token map from lib/themes.ts so layout and runtime stay in sync. */
+// build token map from lib/themes so layout and runtime agree
 export function buildThemeTokenMap(): Record<ThemeName, ThemeTokenMap> {
   const map = {} as Record<ThemeName, ThemeTokenMap>
 
@@ -27,7 +27,7 @@ export function buildThemeTokenMap(): Record<ThemeName, ThemeTokenMap> {
   return map
 }
 
-/** Static CSS: one [data-theme] block per palette. No inline styles on <html>. */
+// static [data-theme] blocks — no inline style on html (hydration safe)
 export function buildThemeVarsCss(tokens: Record<ThemeName, ThemeTokenMap>): string {
   return Object.entries(tokens)
     .map(([name, vars]) => {
@@ -39,14 +39,11 @@ export function buildThemeVarsCss(tokens: Record<ThemeName, ThemeTokenMap>): str
     .join('')
 }
 
-/** Default accent before localStorage hydrates — latte blue swatch. */
+// default accent before localStorage loads
 export const DEFAULT_ACCENT_HEX = '#3b82f6'
 
-/**
- * Blocking head script: flip data-theme / font attrs and patch #ms-accent.
- * We deliberately avoid root.style.setProperty — that left a style="" on <html>
- * and React complained during hydration.
- */
+// blocking head script — sets data-theme/font and patches #ms-accent
+// we skip root.style.setProperty because that left style="" on html and react yelled
 export function buildThemeBootScript(themeNames: ThemeName[]): string {
   const themeLookup = Object.fromEntries(themeNames.map((name) => [name, 1]))
   return `(function(){try{
@@ -64,7 +61,7 @@ if(el)el.textContent='html{--accent:'+accent+'}';
 }catch(e){}})();`
 }
 
-/** Runtime accent updates (settings panel, store rehydrate). Same path as the boot script. */
+// runtime accent updates from settings panel or store rehydrate
 export function applyAccentHex(accentHex: string) {
   if (typeof document === 'undefined') return
   const el = document.getElementById('ms-accent')

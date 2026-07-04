@@ -1,15 +1,5 @@
-/**
- * Server-side budget guard for Deepgram API usage.
- *
- * Tracks cumulative seconds reserved per-IP and globally, resetting daily (UTC).
- * Caps are configurable via env vars — set in Vercel/Render dashboard, not code.
- *
- *   DEEPGRAM_SECONDS_PER_IP     default: 300  (5 min per IP per day)
- *   DEEPGRAM_SECONDS_GLOBAL     default: 3600 (60 min total per day)
- *
- * In-memory only — resets on cold-start. That's intentional: cold-starts happen
- * infrequently on Vercel and the slight budget leak is preferable to a database dep.
- */
+// daily deepgram budget per ip + globally — in-memory, resets on cold start
+// DEEPGRAM_SECONDS_PER_IP default 300, DEEPGRAM_SECONDS_GLOBAL default 3600
 
 type Bucket = { seconds: number; dayKey: string }
 
@@ -57,10 +47,7 @@ export type RateLimitResult =
   | { ok: true }
   | { ok: false; reason: 'ip_limit' | 'global_limit'; remainingSeconds: number }
 
-/**
- * Check whether the IP has budget left, then reserve `durationSeconds` from both
- * the per-IP and global daily buckets.  Call this before opening a Deepgram session.
- */
+// reserve seconds from ip + global buckets before opening a deepgram session
 export function checkAndReserveDeepgramSeconds(
   ip: string,
   durationSeconds: number,

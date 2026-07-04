@@ -31,42 +31,34 @@ export function evaluateAchievements(
     }
   }
 
-  // 1. first_words
   if (lifetime.totalRuns >= 1) {
     unlock('first_words')
   }
 
-  // 2. howler_monkey
   if (newEntry.mode === 'speed' && newEntry.netWpm >= 100) {
     unlock('howler_monkey')
   }
 
-  // 3. silverback
   if (newEntry.mode === 'speed' && newEntry.netWpm >= 150) {
     unlock('silverback')
   }
 
-  // 4. zen_chimp
   if (newEntry.mode === 'speed' && newEntry.duration >= 30 && newEntry.fillerCount === 0) {
     unlock('zen_chimp')
   }
 
-  // 5. yap_master
   if (newEntry.mode === 'speed' && newEntry.duration >= 120) {
     unlock('yap_master')
   }
 
-  // 6. clarity_s
   if (newEntry.mode === 'clarity' && newEntry.accuracy >= 98) {
     unlock('clarity_s')
   }
 
-  // 7. twister_master
   if (newEntry.promptType === 'tongue-twisters' && newEntry.accuracy >= 85) {
     unlock('twister_master')
   }
 
-  // 8. chatterbox
   if (lifetime.totalWords >= 2000) {
     unlock('chatterbox')
   }
