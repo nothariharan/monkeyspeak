@@ -9,7 +9,6 @@ import {
   parseDeepgramWireMessage,
   probeProxyBackendReachable,
 } from '@/lib/deepgramConnection'
-import { getBrowserSpeechProfile } from '@/lib/browserSpeech'
 import { useTestStore } from '@/store/testStore'
 import type { SpeechProvider, SessionStartResult } from './useSpeechProvider'
 
@@ -576,16 +575,22 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
   )
 
   const _resolveListenTarget = useCallback(async (language: string, duration: number): Promise<ListenTarget> => {
-    const profile = await getBrowserSpeechProfile()
-    const proxyUrl = buildDeepgramProxyUrl(language)
-    if (proxyUrl) {
-      const probe = await probeProxyBackendReachable()
-      if (probe.ok) return { mode: 'proxy', url: proxyUrl }
-      sttDebug('external proxy offline', probe.err ?? probe.status)
+    const onLocalhost =
+      typeof window !== 'undefined' &&
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+
+    // On Vercel, prefer the same-origin HTTP bridge — it runs on the deployment itself
+    // and avoids Render cold starts / flaky cross-origin WebSocket upgrades.
+    // Local dev still uses ws://localhost:8080 when the standalone backend is up.
+    if (onLocalhost) {
+      const proxyUrl = buildDeepgramProxyUrl(language)
+      if (proxyUrl) {
+        const probe = await probeProxyBackendReachable()
+        if (probe.ok) return { mode: 'proxy', url: proxyUrl }
+        sttDebug('local proxy offline', probe.err ?? probe.status)
+      }
     }
 
-    // The HTTP bridge is same-origin fetch — Brave/Edge Shields don't block it.
-    // (They block cross-origin WebSockets to api.deepgram.com, which the bridge avoids.)
     return { mode: 'bridge', url: buildDeepgramBridgeUrl(language, duration) }
   }, [])
 
