@@ -11,6 +11,7 @@ const SPEED_DURATIONS: Duration[] = [15, 30, 60, 120]
 const SPEED_PROMPTS:  { label: string; value: PromptType }[] = [
   { label: 'sentences', value: 'sentences' },
   { label: 'numbers',   value: 'numbers' },
+  { label: 'daily challenge', value: 'daily' },
   { label: 'custom',    value: 'custom' },
 ]
 const CLARITY_PROMPTS: { label: string; value: PromptType }[] = [
@@ -121,6 +122,7 @@ export default function ConfigBar() {
                 key={d}
                 id={`duration-${d}`}
                 active={duration === d}
+                disabled={promptType === 'daily' && d !== 30}
                 onClick={() => setDuration(d)}
               >
                 {d}s
@@ -135,7 +137,12 @@ export default function ConfigBar() {
               key={opt.value}
               id={`prompt-${opt.value}`}
               active={promptType === opt.value}
-              onClick={() => setPromptType(opt.value)}
+              onClick={() => {
+                setPromptType(opt.value)
+                if (opt.value === 'daily') {
+                  setDuration(30)
+                }
+              }}
             >
               {opt.label}
             </SegmentBtn>
@@ -148,8 +155,8 @@ export default function ConfigBar() {
               <SegmentBtn
                 key={ec.value}
                 id={`end-${ec.value}`}
-                active={endCondition === ec.value}
-                disabled={isRunning}
+                active={promptType === 'daily' ? ec.value === 'timer' : endCondition === ec.value}
+                disabled={isRunning || promptType === 'daily'}
                 onClick={() => !isRunning && updateSettings({ endCondition: ec.value })}
               >
                 {ec.label}

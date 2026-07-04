@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { gsap } from 'gsap'
+import Link from 'next/link'
 import { generateShareCard } from '@/lib/shareCard'
 import SessionGraph from '@/components/game/SessionGraph'
 import { resolveResultsTimeline } from '@/lib/stats/timeline'
@@ -42,11 +43,12 @@ const TAG_CLASS: Record<DiffWord['tag'], string> = {
 }
 
 const reviewBoxStyle: CSSProperties = {
-  border: '3px solid var(--border)',
-  boxShadow: '4px 4px 0 var(--shadow)',
+  border: '1px solid color-mix(in srgb, var(--border) 55%, transparent)',
+  boxShadow: 'var(--shadow-soft-sm)',
   fontSize: 'var(--test-font-size, 1.05rem)',
   lineHeight: 'var(--test-line-height, 1.75)',
   background: 'var(--surface)',
+  borderRadius: 'var(--radius)',
 }
 
 function MetricCard({
@@ -443,16 +445,24 @@ export default function ResultsPanel({
           {/* Actions */}
           <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center gap-3">
-              <button type="button" id="btn-retry" onClick={onRetry} className="desk-btn desk-btn-primary flex-1 sm:flex-none">
-                try again
-              </button>
-              <button type="button" id="btn-next" onClick={onNext} className="desk-btn desk-btn-quiet flex-1 sm:flex-none">
-                new test
-              </button>
-              {onPractice && diffCounts.missed + diffCounts.substituted > 0 && (
-                <button type="button" id="btn-practice" onClick={onPractice} className="desk-btn desk-btn-quiet">
-                  practice missed
-                </button>
+              {!promptType.startsWith('daily') ? (
+                <>
+                  <button type="button" id="btn-retry" onClick={onRetry} className="desk-btn desk-btn-primary flex-1 sm:flex-none">
+                    try again
+                  </button>
+                  <button type="button" id="btn-next" onClick={onNext} className="desk-btn desk-btn-quiet flex-1 sm:flex-none">
+                    new test
+                  </button>
+                  {onPractice && diffCounts.missed + diffCounts.substituted > 0 && (
+                    <button type="button" id="btn-practice" onClick={onPractice} className="desk-btn desk-btn-quiet">
+                      practice missed
+                    </button>
+                  )}
+                </>
+              ) : (
+                <Link href="/" className="desk-btn desk-btn-primary flex-1 sm:flex-none text-center">
+                  back to challenges
+                </Link>
               )}
               <button type="button" id="btn-share" onClick={handleShare} className="desk-btn desk-btn-quiet">
                 share
@@ -461,9 +471,11 @@ export default function ResultsPanel({
                 history
               </button>
             </div>
-            <p className="font-mono text-xs" style={{ color: 'var(--text-stats)' }}>
-              tab · retry &nbsp;&nbsp; enter · next
-            </p>
+            {!promptType.startsWith('daily') && (
+              <p className="font-mono text-xs" style={{ color: 'var(--text-stats)' }}>
+                tab · retry &nbsp;&nbsp; enter · next
+              </p>
+            )}
           </div>
         </div>
       ) : mode === 'clarity' ? (

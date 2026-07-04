@@ -121,3 +121,48 @@ export function generatePracticePrompt(missedWords: string[], duration: number):
 
   return shuffle(result).join(' ')
 }
+
+export function generateDailyPrompt(dateStr: string): string {
+  // 90 words is standard for 30 seconds
+  const wordCount = 90
+  const pool = COMMON_WORDS
+
+  // Mulberry32 seed random generator based on dateStr
+  let h = 0
+  for (let i = 0; i < dateStr.length; i++) {
+    h = Math.imul(31, h) + dateStr.charCodeAt(i) | 0
+  }
+  const nextRand = () => {
+    let t = h += 0x6D2B79F5
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+
+  const shuffleSeeded = <T>(array: T[]): T[] => {
+    const arr = [...array]
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(nextRand() * (i + 1))
+      ;[arr[i], arr[j]] = [arr[j], arr[i]]
+    }
+    return arr
+  }
+
+  const result: string[] = []
+  let poolCopy = [...pool]
+  let shuffled = shuffleSeeded(poolCopy)
+  let idx = 0
+
+  while (result.length < wordCount) {
+    if (idx >= shuffled.length) {
+      const lastWord = result[result.length - 1]
+      shuffled = shuffleSeeded(pool.filter((w) => w !== lastWord))
+      idx = 0
+    }
+    result.push(shuffled[idx]!)
+    idx++
+  }
+
+  return result.join(' ')
+}
+

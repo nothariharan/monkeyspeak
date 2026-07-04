@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { gsap } from 'gsap'
 import type { SessionTimeline } from '@/store/testStore'
 
@@ -18,39 +18,31 @@ interface SessionGraphProps {
 const W = 640
 const H_FULL = 200
 const H_COMPACT = 148
-const PAD_FULL = { top: 16, right: 48, bottom: 28, left: 44 }
-const PAD_COMPACT = { top: 10, right: 12, bottom: 22, left: 34 }
+const PAD_FULL = { top: 18, right: 52, bottom: 30, left: 46 }
+const PAD_COMPACT = { top: 12, right: 30, bottom: 22, left: 34 }
 
-function buildPoints(
-  data: { second: number; wpm?: number; value?: number }[],
-  maxSec: number,
-  maxVal: number,
-  valueKey: 'wpm' | 'value',
-  pad: typeof PAD_FULL,
-  plotW: number,
-  plotH: number
-): string {
-  if (data.length === 0) return ''
-  return data
-    .map((d) => {
-      const x = pad.left + (d.second / maxSec) * plotW
-      const val = valueKey === 'wpm' ? d.wpm! : d.value!
-      const y = pad.top + plotH - (val / maxVal) * plotH
-      return `${x},${y}`
-    })
-    .join(' ')
+interface Pt {
+  x: number
+  y: number
 }
 
-function pointsToPath(points: string): string {
-  const pts = points.split(' ').filter(Boolean)
+function toPath(pts: Pt[]): string {
   if (pts.length === 0) return ''
-  const [firstX, firstY] = pts[0]!.split(',')
-  let d = `M ${firstX} ${firstY}`
-  for (let i = 1; i < pts.length; i++) {
-    const [x, y] = pts[i]!.split(',')
-    d += ` L ${x} ${y}`
-  }
+  let d = `M ${pts[0]!.x} ${pts[0]!.y}`
+  for (let i = 1; i < pts.length; i++) d += ` L ${pts[i]!.x} ${pts[i]!.y}`
   return d
+}
+
+/** merged per-second row that feeds both the plot and the hover tooltip */
+interface Row {
+  second: number
+  wpm: number
+  raw: number
+  momentum: number
+  errors: number
+  x: number
+  wpmY: number
+  rawY: number
 }
 
 export default function SessionGraph({
@@ -61,11 +53,13 @@ export default function SessionGraph({
   height,
 }: SessionGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const svgRef = useRef<SVGSVGElement>(null)
   const wpmPathRef = useRef<SVGPathElement>(null)
   const rawPathRef = useRef<SVGPathElement>(null)
   const momentumPathRef = useRef<SVGPathElement>(null)
+  const [hover, setHover] = useState<number | null>(null)
 
-  const H = compact ? H_COMPACT : (height ?? H_FULL)
+  const H = compact ? H_COMPACT : height ?? H_FULL
   const PAD = compact ? PAD_COMPACT : PAD_FULL
   const PLOT_W = W - PAD.left - PAD.right
   const PLOT_H = H - PAD.top - PAD.bottom
@@ -76,36 +70,80 @@ export default function SessionGraph({
     ...timeline.raw.map((d) => d.wpm),
     ...timeline.wpm.map((d) => d.wpm)
   )
+  const maxMomentum = Math.max(100, ...timeline.momentum.map((d) => d.value), 1)
 
-  const maxMomentum = Math.max(
-    100,
-    ...timeline.momentum.map((d) => d.value),
-    1
+  // roll the raw error list up into a count per second — this is the
+  // "how many mistakes in this section" signal monkeytype surfaces.
+  const errorsBySecond = useMemo(() => {
+    const m = new Map<number, number>()
+    for (const e of timeline.errors) m.set(e.second, (m.get(e.second) ?? 0) + 1)
+    return m
+  }, [timeline.errors])
+
+  const maxErrors = Math.max(0, ...Array.from(errorsBySecond.values()))
+  const hasErrors = maxErrors > 0
+  const errAxisMax = Math.max(1, maxErrors)
+
+  const xForSec = (sec: number) => PAD.left + (sec / maxSec) * PLOT_W
+  const yForWpm = (val: number) => PAD.top + PLOT_H - (val / maxWpm) * PLOT_H
+  const yForErr = (count: number) => PAD.top + PLOT_H - (count / errAxisMax) * PLOT_H
+
+  const rows: Row[] = useMemo(
+    () =>
+      timeline.wpm.map((w, i) => ({
+        second: w.second,
+        wpm: w.wpm,
+        raw: timeline.raw[i]?.wpm ?? w.wpm,
+        momentum: timeline.momentum[i]?.value ?? 0,
+        errors: errorsBySecond.get(w.second) ?? 0,
+        x: PAD.left + (w.second / maxSec) * PLOT_W,
+        wpmY: PAD.top + PLOT_H - (w.wpm / maxWpm) * PLOT_H,
+        rawY: PAD.top + PLOT_H - ((timeline.raw[i]?.wpm ?? w.wpm) / maxWpm) * PLOT_H,
+      })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [timeline, errorsBySecond, maxSec, maxWpm, PLOT_W, PLOT_H, PAD.left, PAD.top]
   )
 
-  const rawPoints = buildPoints(timeline.raw, maxSec, maxWpm, 'wpm', PAD, PLOT_W, PLOT_H)
-  const wpmPoints = buildPoints(timeline.wpm, maxSec, maxWpm, 'wpm', PAD, PLOT_W, PLOT_H)
-  const momentumPoints = showMomentum
-    ? buildPoints(timeline.momentum, maxSec, maxMomentum, 'value', PAD, PLOT_W, PLOT_H)
-    : ''
+  const wpmPts = rows.map((r) => ({ x: r.x, y: r.wpmY }))
+  const rawPts = rows.map((r) => ({ x: r.x, y: r.rawY }))
+  const momentumPts = showMomentum
+    ? timeline.momentum.map((d) => ({
+        x: xForSec(d.second),
+        y: PAD.top + PLOT_H - (d.value / maxMomentum) * PLOT_H,
+      }))
+    : []
 
-  const rawPath = pointsToPath(rawPoints)
-  const wpmPath = pointsToPath(wpmPoints)
-  const momentumPath = pointsToPath(momentumPoints)
+  const wpmPath = toPath(wpmPts)
+  const rawPath = toPath(rawPts)
+  const momentumPath = toPath(momentumPts)
+
+  const errorMarks = Array.from(errorsBySecond.entries()).map(([second, count]) => ({
+    second,
+    count,
+    x: xForSec(second),
+    y: yForErr(count),
+  }))
 
   const gridLines = compact ? 3 : 4
   const yTicks = Array.from({ length: gridLines + 1 }, (_, i) => {
     const val = Math.round((maxWpm / gridLines) * i)
-    const y = PAD.top + PLOT_H - (val / maxWpm) * PLOT_H
-    return { val, y }
+    return { val, y: yForWpm(val) }
   })
 
   const xTicks = Math.min(maxSec, compact ? 4 : 6)
   const xTickValues = Array.from({ length: xTicks + 1 }, (_, i) => {
     const sec = Math.round((maxSec / xTicks) * i)
-    const x = PAD.left + (sec / maxSec) * PLOT_W
-    return { sec, x }
+    return { sec, x: xForSec(sec) }
   })
+
+  // right-hand errors axis ticks — integers only
+  const errTickCount = Math.min(errAxisMax, 4)
+  const errTicks = hasErrors
+    ? Array.from({ length: errTickCount + 1 }, (_, i) => {
+        const val = Math.round((errAxisMax / errTickCount) * i)
+        return { val, y: yForErr(val) }
+      }).filter((t, i, arr) => arr.findIndex((o) => o.val === t.val) === i)
+    : []
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -122,11 +160,19 @@ export default function SessionGraph({
           delay: 0.25,
         })
       }
+      gsap.from('.session-graph-dot', {
+        opacity: 0,
+        stagger: 0.02,
+        duration: 0.4,
+        ease: 'power1.out',
+        delay: compact ? 0.5 : 0.7,
+      })
       gsap.from('.session-graph-error', {
         opacity: 0,
         scale: 0,
+        transformOrigin: 'center',
         stagger: 0.05,
-        duration: 0.3,
+        duration: 0.35,
         ease: 'back.out(2)',
         delay: compact ? 0.75 : 1.0,
       })
@@ -134,35 +180,61 @@ export default function SessionGraph({
     return () => ctx.revert()
   }, [timeline, compact])
 
+  const handleMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    const svg = svgRef.current
+    if (!svg || rows.length === 0) return
+    const rect = svg.getBoundingClientRect()
+    const vbX = ((e.clientX - rect.left) / rect.width) * W
+    let nearest = 0
+    let best = Infinity
+    for (let i = 0; i < rows.length; i++) {
+      const d = Math.abs(rows[i]!.x - vbX)
+      if (d < best) {
+        best = d
+        nearest = i
+      }
+    }
+    setHover(nearest)
+  }
+
+  const active = hover != null ? rows[hover] : null
+  const tipLeftPct = active ? Math.min(88, Math.max(12, (active.x / W) * 100)) : 0
+
   return (
     <div
       ref={containerRef}
-      className={`session-graph session-graph--embedded flex flex-col gap-3 ${compact ? 'session-graph--compact' : 'note-panel stat-card p-4'}`}
+      className={`session-graph session-graph--embedded relative flex flex-col gap-3 ${compact ? 'session-graph--compact' : 'note-panel stat-card p-4'}`}
     >
-      <p className="stat-label">pace over time</p>
+      {!compact && (
+        <div className="flex items-baseline justify-between">
+          <p className="stat-label">pace over time</p>
+          {hasErrors && (
+            <p className="font-mono text-xs" style={{ color: 'var(--error)' }}>
+              {timeline.errors.length} slip{timeline.errors.length === 1 ? '' : 's'}
+            </p>
+          )}
+        </div>
+      )}
 
       <svg
+        ref={svgRef}
         viewBox={`0 0 ${W} ${H}`}
         className="w-full"
         role="img"
-        aria-label="Session WPM graph"
+        aria-label="Session WPM and error graph"
+        onPointerMove={handleMove}
+        onPointerLeave={() => setHover(null)}
+        style={{ touchAction: 'none' }}
       >
         {/* word-window shaded bands — only in full-size view */}
         {!compact && timeline.wordWindows?.map(({ startSecond, endSecond, label }, i) => {
-          const x = PAD.left + (startSecond / maxSec) * PLOT_W
-          const w = Math.max(0, (endSecond - startSecond) / maxSec * PLOT_W)
+          const x = xForSec(startSecond)
+          const w = Math.max(0, ((endSecond - startSecond) / maxSec) * PLOT_W)
           const midX = x + w / 2
           return (
             <g key={`ww-${i}`}>
               {i % 2 === 1 && (
-                <rect
-                  x={x}
-                  y={PAD.top}
-                  width={w}
-                  height={PLOT_H}
-                  fill="var(--text-stats)"
-                  opacity="0.06"
-                />
+                <rect x={x} y={PAD.top} width={w} height={PLOT_H} fill="var(--text-stats)" opacity="0.06" />
               )}
               <text
                 x={midX}
@@ -181,15 +253,7 @@ export default function SessionGraph({
 
         {yTicks.map(({ val, y }) => (
           <g key={`y-${val}`}>
-            <line
-              x1={PAD.left}
-              y1={y}
-              x2={PAD.left + PLOT_W}
-              y2={y}
-              stroke="var(--border)"
-              strokeWidth="1"
-              opacity="0.35"
-            />
+            <line x1={PAD.left} y1={y} x2={PAD.left + PLOT_W} y2={y} stroke="var(--border)" strokeWidth="1" opacity="0.35" />
             {!compact && (
               <text
                 x={PAD.left - 6}
@@ -205,17 +269,25 @@ export default function SessionGraph({
           </g>
         ))}
 
+        {/* right-hand errors axis */}
+        {!compact && hasErrors && errTicks.map(({ val, y }) => (
+          <text
+            key={`err-${val}`}
+            x={PAD.left + PLOT_W + 7}
+            y={y + 4}
+            textAnchor="start"
+            fontSize="9"
+            fill="var(--error)"
+            fontFamily="var(--font-mono, monospace)"
+            opacity="0.75"
+          >
+            {val}
+          </text>
+        ))}
+
         {xTickValues.map(({ sec, x }) => (
           <g key={`x-${sec}`}>
-            <line
-              x1={x}
-              y1={PAD.top}
-              x2={x}
-              y2={PAD.top + PLOT_H}
-              stroke="var(--border)"
-              strokeWidth="1"
-              opacity="0.2"
-            />
+            <line x1={x} y1={PAD.top} x2={x} y2={PAD.top + PLOT_H} stroke="var(--border)" strokeWidth="1" opacity="0.2" />
             <text
               x={x}
               y={H - 6}
@@ -229,11 +301,25 @@ export default function SessionGraph({
           </g>
         ))}
 
-        {showMomentum && momentumPoints && (
+        {showMomentum && momentumPath && (
           <polygon
-            points={`${PAD.left},${PAD.top + PLOT_H} ${momentumPoints} ${PAD.left + PLOT_W},${PAD.top + PLOT_H}`}
+            points={`${PAD.left},${PAD.top + PLOT_H} ${momentumPts.map((p) => `${p.x},${p.y}`).join(' ')} ${PAD.left + PLOT_W},${PAD.top + PLOT_H}`}
             fill="var(--accent)"
             opacity="0.07"
+          />
+        )}
+
+        {/* hover crosshair sits under the traces */}
+        {active && (
+          <line
+            x1={active.x}
+            y1={PAD.top}
+            x2={active.x}
+            y2={PAD.top + PLOT_H}
+            stroke="var(--accent)"
+            strokeWidth="1"
+            opacity="0.4"
+            strokeDasharray="3 3"
           />
         )}
 
@@ -246,7 +332,8 @@ export default function SessionGraph({
             strokeWidth={compact ? '1.25' : '1.5'}
             strokeLinecap="round"
             strokeLinejoin="round"
-            opacity="0.4"
+            strokeDasharray="5 4"
+            opacity="0.5"
           />
         )}
 
@@ -268,47 +355,78 @@ export default function SessionGraph({
             d={momentumPath}
             fill="none"
             stroke="var(--accent-muted)"
-            strokeWidth="1.5"
+            strokeWidth="1.25"
             strokeLinecap="round"
             strokeLinejoin="round"
-            strokeDasharray="4 3"
-            opacity="0.75"
+            strokeDasharray="1 4"
+            opacity="0.6"
           />
         )}
 
-        {timeline.errors.map((err, i) => {
-          const x = PAD.left + (err.second / maxSec) * PLOT_W
-          const y = PAD.top + PLOT_H - (err.wpm / maxWpm) * PLOT_H
+        {/* wpm sample dots */}
+        {!compact && rows.map((r, i) => (
+          <circle
+            key={`dot-${i}`}
+            className="session-graph-dot"
+            cx={r.x}
+            cy={r.wpmY}
+            r={active === r ? 3.5 : 2}
+            fill="var(--accent)"
+            stroke="var(--surface)"
+            strokeWidth="1"
+          />
+        ))}
+
+        {/* per-second error crosses on the right axis */}
+        {errorMarks.map((m, i) => {
+          const s = compact ? 3 : 4
           return (
-            <circle
-              key={i}
-              className="session-graph-error"
-              cx={x}
-              cy={y}
-              r={compact ? '3.5' : '4'}
-              fill="var(--error)"
-              stroke="var(--surface)"
-              strokeWidth="1.5"
-            />
+            <g key={`err-mark-${i}`} className="session-graph-error">
+              <line x1={m.x - s} y1={m.y - s} x2={m.x + s} y2={m.y + s} stroke="var(--error)" strokeWidth="2" strokeLinecap="round" />
+              <line x1={m.x - s} y1={m.y + s} x2={m.x + s} y2={m.y - s} stroke="var(--error)" strokeWidth="2" strokeLinecap="round" />
+            </g>
           )
         })}
       </svg>
 
+      {/* hover tooltip */}
+      {active && (
+        <div
+          className="pointer-events-none absolute z-10 font-mono note-panel"
+          style={{
+            left: `${tipLeftPct}%`,
+            top: compact ? 4 : 34,
+            transform: 'translateX(-50%)',
+            padding: '6px 9px',
+            fontSize: '11px',
+            lineHeight: 1.5,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <div style={{ color: 'var(--text-active)', fontWeight: 700 }}>{active.second}s</div>
+          <div style={{ color: 'var(--accent)' }}>wpm · {active.wpm}</div>
+          <div style={{ color: 'var(--text-stats)' }}>raw · {active.raw}</div>
+          <div style={{ color: active.errors > 0 ? 'var(--error)' : 'var(--text-muted)' }}>
+            errors · {active.errors}
+          </div>
+        </div>
+      )}
+
       {!compact && (
         <div className="flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs" style={{ color: 'var(--text-stats)' }}>
           <span>
-            <span style={{ color: 'var(--text-stats)', opacity: 0.55 }}>-</span> raw
+            <span style={{ color: 'var(--accent)' }}>—</span> wpm
           </span>
           <span>
-            <span style={{ color: 'var(--accent)' }}>-</span> wpm
+            <span style={{ color: 'var(--text-stats)', opacity: 0.55 }}>- -</span> raw
           </span>
           {showMomentum && (
             <span>
-              <span style={{ color: 'var(--accent-muted)' }}>-</span> momentum
+              <span style={{ color: 'var(--accent-muted)' }}>··</span> momentum
             </span>
           )}
           <span>
-            <span style={{ color: 'var(--error)' }}>●</span> errors
+            <span style={{ color: 'var(--error)', fontWeight: 700 }}>✕</span> errors
           </span>
         </div>
       )}

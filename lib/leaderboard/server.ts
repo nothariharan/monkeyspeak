@@ -12,6 +12,16 @@ const EMOJI_SET = new Set<string>(LEADERBOARD_EMOJI_OPTIONS)
 const rateLimit = new Map<string, number>()
 const RATE_WINDOW_MS = 30_000
 
+// Duration-aware sanity ceilings. Sustained intelligible read-aloud pace tops out
+// well below these; longer runs can't hold a burst pace so their ceiling is lower.
+// This is defense-in-depth, NOT anti-cheat — a signed run-token is the real fix.
+const MAX_WPM_BY_DURATION: Record<Duration, number> = {
+  15: 260,
+  30: 240,
+  60: 220,
+  120: 210,
+}
+
 type DbRow = {
   id: string
   name: string
@@ -43,6 +53,9 @@ export function parseDuration(value: string | null): Duration | null {
 
 export function parsePromptType(value: string | null): PromptType | null {
   if (!value) return null
+  if (/^daily(-\d{4}-\d{2}-\d{2})?$/.test(value)) {
+    return value as PromptType
+  }
   return PROMPT_TYPES.includes(value as PromptType) ? (value as PromptType) : null
 }
 
@@ -82,6 +95,7 @@ export function validateSubmitPayload(body: unknown): SubmitPayload | { error: s
   if (!Number.isFinite(wpm) || wpm < 1 || wpm > 250) return { error: 'wpm looks suspicious' }
   if (!Number.isFinite(accuracy) || accuracy < 0 || accuracy > 100) return { error: 'accuracy out of range' }
   if (!duration) return { error: 'invalid duration' }
+  if (wpm > MAX_WPM_BY_DURATION[duration]) return { error: 'wpm looks suspicious' }
   if (!promptType) return { error: 'invalid prompt type' }
 
   return { name, emoji, wpm: Math.round(wpm), accuracy: Math.round(accuracy), duration, promptType }

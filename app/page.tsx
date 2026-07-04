@@ -3,10 +3,12 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
 import { gsap } from 'gsap'
 
+import Link from 'next/link'
 import { useTestStore } from '@/store/testStore'
 import { useTimer } from '@/hooks/useTimer'
 import { useActiveSpeechProvider } from '@/hooks/useActiveSpeechProvider'
-import { generatePrompt, regeneratePrompt, generatePracticePrompt, type PromptMode } from '@/lib/prompts'
+import { generatePrompt, regeneratePrompt, generatePracticePrompt, generateDailyPrompt, type PromptMode } from '@/lib/prompts'
+import { getLocalDateStr, calculateSpeakingStreak } from '@/lib/stats/streak'
 import { diffWords, calcClarityScore } from '@/lib/diff'
 import { alignTranscriptToPrompt, countFillers } from '@/lib/alignTranscriptToPrompt'
 import { netWpmFromChars, rawWpmFromChars } from '@/lib/stats/wpm'
@@ -21,6 +23,7 @@ import SpeakingGame from '@/components/game/SpeakingGame'
 import ClarityInput from '@/components/ClarityInput'
 import ResultsPanel from '@/components/ResultsPanel'
 import SettingsPanel from '@/components/SettingsPanel'
+import ProfileHub from '@/components/ProfileHub'
 import HeroLeaderboard from '@/components/decor/HeroLeaderboard'
 import HeroMonkey from '@/components/decor/HeroMonkey'
 import HeroTopScore from '@/components/decor/HeroTopScore'
@@ -43,6 +46,8 @@ function splitPrompt(text: string): string[] {
 export default function Home() {
   const store = useTestStore()
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [profileOpen, setProfileOpen] = useState(false)
+  const [unlockedBadgeNames, setUnlockedBadgeNames] = useState<string[]>([])
   const [isPersonalBest, setIsPersonalBest] = useState(false)
   const [startError, setStartError] = useState<string | null>(null)
   const [dissolvedCount, setDissolvedCount] = useState(0)
@@ -114,6 +119,19 @@ export default function Home() {
   }, [speakingGame.rawWpms])
 
   useEffect(() => {
+    if (typeof window === 'undefined') return
+    const onBadge = (e: Event) => {
+      const ids = (e as CustomEvent<string[]>).detail
+      import('@/lib/achievements').then(({ ACHIEVEMENTS }) => {
+        const names = ids.map(id => ACHIEVEMENTS.find(a => a.id === id)?.title ?? id)
+        setUnlockedBadgeNames(prev => [...prev, ...names])
+      })
+    }
+    window.addEventListener('monkeyspeak:badge-unlocked', onBadge)
+    return () => window.removeEventListener('monkeyspeak:badge-unlocked', onBadge)
+  }, [])
+
+  useEffect(() => {
     const applyFromStore = () => {
       const { settings } = useTestStore.getState()
       const html = document.documentElement
@@ -170,6 +188,15 @@ export default function Home() {
     const consistency = computeConsistency(metrics.rawWpms)
     const timeline = buildSessionTimeline(timelineRef.current, diff)
 
+    const todayStr = getLocalDateStr()
+    const activeDailyKey = resultPromptType === 'daily' ? `daily-${todayStr}` : resultPromptType
+
+    const missedWordsList = diff
+      .filter((w) => w.tag === 'missed' || w.tag === 'substituted')
+      .map((w) => w.tag === 'substituted' ? (w.expected ?? w.word) : w.word)
+      .map(w => w.toLowerCase().replace(/[^a-z0-9']/g, '').trim())
+      .filter(Boolean)
+
     setIsEnding(true)
     window.setTimeout(() => {
       s.setResults({
@@ -188,17 +215,20 @@ export default function Home() {
         date: new Date().toISOString(),
         mode: 'speed',
         duration: resultDuration,
-        promptType: resultPromptType,
+        promptType: activeDailyKey,
         netWpm,
         accuracy,
         fillerCount,
+        missedWords: missedWordsList,
+        consistency,
+        wordsSpoken: allSpokenWords.length,
       })
       s.setTestState('ended')
       setPendingLeaderboardScore({
         wpm: netWpm,
         accuracy,
         duration: resultDuration,
-        promptType: resultPromptType,
+        promptType: activeDailyKey as PromptType,
       })
       setIsEnding(false)
     }, 1200)
@@ -249,9 +279,15 @@ export default function Home() {
 
   const loadPrompt = useCallback(() => {
     const s = useTestStore.getState()
-    const difficulty = s.settings.promptDifficulty ?? 'normal'
-    const text = generatePrompt(s.promptType as PromptMode, s.duration, s.customPromptText, difficulty)
-    s.setPrompt(splitPrompt(text))
+    if (s.promptType === 'daily') {
+      const today = getLocalDateStr()
+      const text = generateDailyPrompt(today)
+      s.setPrompt(splitPrompt(text))
+    } else {
+      const difficulty = s.settings.promptDifficulty ?? 'normal'
+      const text = generatePrompt(s.promptType as PromptMode, s.duration, s.customPromptText, difficulty)
+      s.setPrompt(splitPrompt(text))
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -268,6 +304,14 @@ export default function Home() {
   const handleStart = useCallback(async () => {
     setStartError(null)
     setPendingLeaderboardScore(null)
+
+    const sStore = useTestStore.getState()
+    const todayStr = getLocalDateStr()
+    if (sStore.promptType === 'daily' && sStore.settings.lastStartedDailyChallengeDate === todayStr) {
+      setStartError("You've already started today's challenge! Only one attempt allowed.")
+      return
+    }
+
     if (store.prompt.length === 0) loadPrompt()
 
     if (store.mode === 'speed') {
@@ -281,6 +325,10 @@ export default function Home() {
         const providerLabel = activeSource === 'deepgram' ? 'Deepgram' : 'Browser speech'
         setStartError(didStart.error ?? `${providerLabel} could not start. check mic access and try again`)
         return
+      }
+
+      if (store.promptType === 'daily') {
+        store.updateSettings({ lastStartedDailyChallengeDate: todayStr })
       }
 
       const now = Date.now()
@@ -314,14 +362,37 @@ export default function Home() {
       const diff = diffWords(promptStr, s.clarityTranscript)
       const promptWordCount = promptStr.trim().split(/\s+/).filter(Boolean).length
       const { score, grade } = calcClarityScore(diff, promptWordCount)
+      
+      const missedWordsList = diff
+        .filter((w) => w.tag === 'missed' || w.tag === 'substituted')
+        .map((w) => w.tag === 'substituted' ? (w.expected ?? w.word) : w.word)
+        .map(w => w.toLowerCase().replace(/[^a-z0-9']/g, '').trim())
+        .filter(Boolean)
+
+      const spokenWordCount = s.clarityTranscript.trim().split(/\s+/).filter(Boolean).length
+
       s.setDiffResult(diff, score, grade)
+      s.pushSessionHistory({
+        date: new Date().toISOString(),
+        mode: 'clarity',
+        duration: 0,
+        promptType: s.promptType,
+        netWpm: 0,
+        accuracy: score,
+        fillerCount: 0,
+        missedWords: missedWordsList,
+        consistency: 0,
+        wordsSpoken: spokenWordCount,
+      })
       s.setTestState('ended')
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stopTimer, finalizeSpeed])
 
-  const handleRetry = useCallback(() => {
-    if (pendingLeaderboardScore) return
+  // Shared teardown for the transient run scratch state (refs, timers-adjacent
+  // React state, and the STT provider). Every "start a fresh run" path funnels
+  // through here so they can't drift out of sync.
+  const clearRunScratch = useCallback(() => {
     setIsPersonalBest(false)
     setStartError(null)
     setPendingLeaderboardScore(null)
@@ -332,6 +403,11 @@ export default function Home() {
     setTestStartedAt(null)
     testStartedAtRef.current = null
     resetProvider()
+  }, [resetProvider])
+
+  const handleRetry = useCallback(() => {
+    if (pendingLeaderboardScore) return
+    clearRunScratch()
     const s = useTestStore.getState()
     s.resetTest()
     resetTimer(s.duration)
@@ -339,20 +415,11 @@ export default function Home() {
     const text = regeneratePrompt(s.promptType as PromptMode, s.duration, last, s.customPromptText, s.settings.promptDifficulty ?? 'normal')
     useTestStore.getState().setPrompt(splitPrompt(text))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resetProvider, resetTimer, pendingLeaderboardScore])
+  }, [clearRunScratch, resetTimer, pendingLeaderboardScore])
 
   const handleNext = useCallback(() => {
     if (pendingLeaderboardScore) return
-    setIsPersonalBest(false)
-    setStartError(null)
-    setPendingLeaderboardScore(null)
-    setDissolvedCount(0)
-    setIsEnding(false)
-    gameMetricsRef.current = { rawWpms: [] }
-    timelineRef.current = []
-    setTestStartedAt(null)
-    testStartedAtRef.current = null
-    resetProvider()
+    clearRunScratch()
     const s = useTestStore.getState()
     const last = s.prompt.join(' ')
     s.resetTest()
@@ -361,20 +428,11 @@ export default function Home() {
     const text = regeneratePrompt(s2.promptType as PromptMode, s2.duration, last, s2.customPromptText, s2.settings.promptDifficulty ?? 'normal')
     s2.setPrompt(splitPrompt(text))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resetProvider, resetTimer, pendingLeaderboardScore])
+  }, [clearRunScratch, resetTimer, pendingLeaderboardScore])
 
   const handlePractice = useCallback(() => {
     if (pendingLeaderboardScore) return
-    setIsPersonalBest(false)
-    setStartError(null)
-    setPendingLeaderboardScore(null)
-    setDissolvedCount(0)
-    setIsEnding(false)
-    gameMetricsRef.current = { rawWpms: [] }
-    timelineRef.current = []
-    setTestStartedAt(null)
-    testStartedAtRef.current = null
-    resetProvider()
+    clearRunScratch()
     const s = useTestStore.getState()
     const missedWords = (s.results?.diff ?? [])
       .filter((w) => w.tag === 'missed' || w.tag === 'substituted')
@@ -384,7 +442,7 @@ export default function Home() {
     const practiceText = generatePracticePrompt(missedWords, s.duration)
     useTestStore.getState().setPrompt(splitPrompt(practiceText))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resetProvider, resetTimer, pendingLeaderboardScore])
+  }, [clearRunScratch, resetTimer, pendingLeaderboardScore])
 
   const handleStopRef = useRef(handleStop)
   useEffect(() => { handleStopRef.current = handleStop }, [handleStop])
@@ -407,13 +465,7 @@ export default function Home() {
         if (store.testState === 'running') handleStop()
         else if (store.testState === 'ended') handleRetry()
         else {
-          setDissolvedCount(0)
-          setIsEnding(false)
-          gameMetricsRef.current = { rawWpms: [] }
-          timelineRef.current = []
-          setTestStartedAt(null)
-          testStartedAtRef.current = null
-          resetProvider()
+          clearRunScratch()
           store.resetTest()
           resetTimer(store.duration)
         }
@@ -430,6 +482,7 @@ export default function Home() {
       }
 
       if (e.ctrlKey && e.key === ',') { e.preventDefault(); setSettingsOpen((o) => !o) }
+      if (e.ctrlKey && e.key === 'p') { e.preventDefault(); setProfileOpen((o) => !o) }
       if (e.ctrlKey && e.key === '1') { e.preventDefault(); store.setMode('speed') }
       if (e.ctrlKey && e.key === '2') { e.preventDefault(); store.setMode('clarity') }
     }
@@ -437,7 +490,7 @@ export default function Home() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store.testState, store.duration, handleRetry, handleNext, handleStop, handleStart, resetTimer, resetProvider, pendingLeaderboardScore])
+  }, [store.testState, store.duration, handleRetry, handleNext, handleStop, handleStart, resetTimer, clearRunScratch, pendingLeaderboardScore, setProfileOpen])
 
   // hero entrance
   useEffect(() => {
@@ -464,7 +517,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg)' }}>
-      <Header onSettingsOpen={() => setSettingsOpen(true)} />
+      <Header onSettingsOpen={() => setSettingsOpen(true)} onProfileOpen={() => setProfileOpen(true)} />
 
       {isIdle && <ConfigBar />}
 
@@ -496,51 +549,73 @@ export default function Home() {
                   >
                     <HeroLeaderboard />
                     <section className="hero-center-copy" aria-label="MonkeySpeak start">
-                    <div className="hero-stage-content">
-                      <div className="hero-animate hero-title-block">
-                        <h1 className="hero-title font-display font-black">
-                          <span className="hero-title-line">
-                            how fast<span className="hero-title-accent">⚡</span>can u
-                          </span>
-                          <span className="hero-title-line">
-                            speak <span className="hero-title-emoji">🙊</span>
-                          </span>
-                        </h1>
-                        <p className="hero-subtitle font-mono">
-                          read it. say it.{' '}
-                          <span className="hero-subtitle-highlight">beat your score.</span>
+                    {store.promptType === 'daily' && store.settings.lastStartedDailyChallengeDate === getLocalDateStr() ? (
+                      <div className="hero-stage-content note-panel flex flex-col items-center justify-center text-center p-6 gap-4 max-w-md w-full">
+                        <span className="text-3xl animate-bounce">🔒</span>
+                        <h2 className="font-display font-black text-lg" style={{ color: 'var(--text-active)' }}>
+                          daily challenge completed
+                        </h2>
+                        <p className="stats-page-subtitle leading-normal max-w-xs">
+                          {"One date, one seed, one attempt. You've already taken today's challenge. Come back tomorrow!"}
                         </p>
-                        <p className="hero-animate start-hint font-mono">
-                          {startHint}
-                        </p>
+                        <Link href="/stats" className="desk-btn desk-btn-primary text-xs py-2 px-4">
+                          view stats dashboard 📊
+                        </Link>
                       </div>
+                    ) : (
+                      <>
+                        <div className="hero-stage-content">
+                          <div className="hero-animate hero-title-block">
+                            <h1 className="hero-title font-display font-black">
+                              <span className="hero-title-line">
+                                how fast<span className="hero-title-accent">⚡</span>can u
+                              </span>
+                              <span className="hero-title-line">
+                                speak <span className="hero-title-emoji">🙊</span>
+                              </span>
+                            </h1>
+                            <p className="hero-subtitle font-mono">
+                              read it. say it.{' '}
+                              <span className="hero-subtitle-highlight">beat your score.</span>
+                            </p>
+                            {calculateSpeakingStreak(store.settings.speakingActivity) > 0 && (
+                              <div className="hero-animate inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-solid border-[var(--border)] bg-[var(--surface)] text-[var(--accent)] font-mono text-xs mt-2 select-none w-fit">
+                                <span>🔥 {calculateSpeakingStreak(store.settings.speakingActivity)} day streak</span>
+                              </div>
+                            )}
+                            <p className="hero-animate start-hint font-mono mt-3">
+                              {store.promptType === 'daily' ? '⚠️ DAILY CHALLENGE: One date, one seed, one attempt. Are you ready? Hit Start.' : startHint}
+                            </p>
+                          </div>
 
-                      <CapabilityBanner />
+                          <CapabilityBanner />
 
-                      {startError && (
-                        <div
-                          role="alert"
-                          className="hero-animate note-panel alert-note px-4 py-3 flex items-center justify-between gap-4 w-full max-w-md"
-                        >
-                          <span className="font-mono">{startError}</span>
-                          <button
-                            onClick={() => setStartError(null)}
-                            aria-label="Dismiss error"
-                            className="plain-icon-btn"
-                          >
-                            x
-                          </button>
+                          {startError && (
+                            <div
+                              role="alert"
+                              className="hero-animate note-panel alert-note px-4 py-3 flex items-center justify-between gap-4 w-full max-w-md"
+                            >
+                              <span className="font-mono">{startError}</span>
+                              <button
+                                onClick={() => setStartError(null)}
+                                aria-label="Dismiss error"
+                                className="plain-icon-btn"
+                              >
+                                x
+                              </button>
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
 
-                    <div className="hero-cta-zone hero-animate">
-                      <HeroMonkey
-                        onStart={handleStart}
-                        micState={store.micState}
-                        onHoverChange={setMicHovered}
-                      />
-                    </div>
+                        <div className="hero-cta-zone hero-animate">
+                          <HeroMonkey
+                            onStart={handleStart}
+                            micState={store.micState}
+                            onHoverChange={setMicHovered}
+                          />
+                        </div>
+                      </>
+                    )}
                     </section>
 
                     <div className="hero-side-stack hero-animate">
@@ -612,6 +687,44 @@ export default function Home() {
       </main>
 
       <SettingsPanel isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <ProfileHub isOpen={profileOpen} onClose={() => setProfileOpen(false)} />
+
+      {/* Badge Unlocked Notification Modal */}
+      {unlockedBadgeNames.length > 0 && (
+        <div
+          className="fixed inset-0 z-[300] flex items-center justify-center p-6"
+          style={{ background: 'rgba(0,0,0,0.65)' }}
+        >
+          <div className="paper-panel p-6 text-center flex flex-col items-center gap-4 max-w-sm w-full">
+            <p className="text-2xl animate-bounce">🐵✨</p>
+            <h2 className="font-display font-black text-xl" style={{ color: 'var(--text-active)' }}>
+              badge unlocked!
+            </h2>
+            <p className="stats-page-subtitle">
+              You unlocked:
+            </p>
+            <div className="flex flex-col gap-2 w-full">
+              {unlockedBadgeNames.map((name) => (
+                <div
+                  key={name}
+                  className="small-chip justify-center font-semibold"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  🏆 {name}
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setUnlockedBadgeNames([])}
+              className="desk-btn desk-btn-primary text-xs mt-2"
+            >
+              collect sticker
+            </button>
+          </div>
+        </div>
+      )}
+
       <LeaderboardSavePrompt
         score={pendingLeaderboardScore}
         onClose={() => setPendingLeaderboardScore(null)}

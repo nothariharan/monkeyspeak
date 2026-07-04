@@ -37,7 +37,7 @@ export default function Toast({ message, onDismiss, durationMs = 3500 }: ToastPr
         padding: '0.55rem 1rem',
         borderRadius: '0.5rem',
         boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
-        maxWidth: '22rem',
+        maxWidth: 'min(22rem, calc(100vw - 2rem))',
       }}
     >
       {message}

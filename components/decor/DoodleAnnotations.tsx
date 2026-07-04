@@ -31,8 +31,9 @@ export default function DoodleAnnotations({ showIdle = true }: DoodleAnnotations
         className="absolute -right-2 top-4 hidden sm:flex items-center"
         style={{
           background: 'var(--success)',
-          border: '2px solid var(--border)',
-          boxShadow: '3px 3px 0 var(--shadow)',
+          border: '1px solid color-mix(in srgb, var(--success) 60%, var(--border))',
+          boxShadow: 'var(--shadow-soft-sm)',
+          borderRadius: 'var(--radius-pill)',
           padding: '0.35rem 0.75rem',
           fontFamily: 'var(--font-display)',
           fontWeight: 700,

@@ -1,13 +1,14 @@
 import { create } from 'zustand'
 import type { ProviderType } from '@/hooks/useSpeechProvider'
 import { persist } from 'zustand/middleware'
+import { evaluateAchievements } from '@/lib/achievements'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type Mode = 'speed' | 'clarity'
 export type TestState = 'idle' | 'running' | 'ended'
 export type Duration = 15 | 30 | 60 | 120
-export type PromptType = 'sentences' | 'numbers' | 'custom' | 'technical' | 'tongue-twisters'
+export type PromptType = 'sentences' | 'numbers' | 'custom' | 'technical' | 'tongue-twisters' | 'daily' | `daily-${string}`
 export type FontChoice = 'jetbrains' | 'fira' | 'inconsolata'
 export type FontSize = 'small' | 'medium' | 'large'
 export type EndCondition = 'timer' | 'passage'
@@ -59,6 +60,22 @@ export interface Settings {
   endCondition: EndCondition
   /** Difficulty for sentences mode: easy = simple short words, normal = common, hard = complex. */
   promptDifficulty: PromptDifficulty
+  /** Speaking frequency per calendar day: "YYYY-MM-DD" -> count */
+  speakingActivity: Record<string, number>
+  /** IDs of achievements unlocked by the user */
+  unlockedAchievements: string[]
+  /** Aggregated speaker statistics */
+  lifetimeStats: {
+    totalRuns: number
+    totalSeconds: number
+    totalWords: number
+    totalFillers: number
+    avgAccuracy: number
+    /** Running sum of every run's accuracy. avgAccuracy is derived from this to avoid rounding drift. */
+    accuracySum: number
+  }
+  /** Date of the most recently started daily challenge: "YYYY-MM-DD" */
+  lastStartedDailyChallengeDate?: string
 }
 
 export interface SessionTimeline {
@@ -77,6 +94,10 @@ export interface SessionHistoryEntry {
   netWpm: number
   accuracy: number
   fillerCount: number
+  missedWords?: string[]
+  consistency?: number
+  /** Actual number of words spoken this run. When absent, lifetime stats fall back to a WPM estimate. */
+  wordsSpoken?: number
 }
 
 export interface SpeedResults {
@@ -163,6 +184,17 @@ const DEFAULT_SETTINGS: Settings = {
   sessionHistory: [],
   endCondition: 'timer',
   promptDifficulty: 'normal',
+  speakingActivity: {},
+  unlockedAchievements: [],
+  lifetimeStats: {
+    totalRuns: 0,
+    totalSeconds: 0,
+    totalWords: 0,
+    totalFillers: 0,
+    avgAccuracy: 0,
+    accuracySum: 0,
+  },
+  lastStartedDailyChallengeDate: undefined,
 }
 
 // ─── Store ────────────────────────────────────────────────────────────────────
@@ -232,12 +264,58 @@ export const useTestStore = create<TestStore>()(
         })),
 
       pushSessionHistory: (entry) =>
-        set((s) => ({
-          settings: {
-            ...s.settings,
-            sessionHistory: [entry, ...(s.settings.sessionHistory ?? [])].slice(0, 20),
-          },
-        })),
+        set((s) => {
+          const dateStr = new Date(entry.date).toISOString().split('T')[0] ?? new Date().toISOString().split('T')[0]
+          
+          // 1. Update activity heatmap
+          const activity = { ...s.settings.speakingActivity }
+          activity[dateStr] = (activity[dateStr] ?? 0) + 1
+
+          // 2. Words spoken this session — prefer the real count, fall back to a WPM estimate for legacy entries
+          const wordsSpoken = entry.wordsSpoken ?? Math.round(entry.netWpm * (entry.duration / 60))
+
+          // 3. Update lifetime stats
+          const currentStats = s.settings.lifetimeStats ?? {
+            totalRuns: 0,
+            totalSeconds: 0,
+            totalWords: 0,
+            totalFillers: 0,
+            avgAccuracy: 0,
+            accuracySum: 0,
+          }
+          const nextRuns = currentStats.totalRuns + 1
+          // Accumulate a raw accuracy sum and derive the average from it, so repeated
+          // rounding of the running average can't drift over many sessions.
+          const nextAccuracySum = (currentStats.accuracySum ?? currentStats.avgAccuracy * currentStats.totalRuns) + entry.accuracy
+          const nextStats = {
+            totalRuns: nextRuns,
+            totalSeconds: currentStats.totalSeconds + entry.duration,
+            totalWords: currentStats.totalWords + wordsSpoken,
+            totalFillers: currentStats.totalFillers + entry.fillerCount,
+            avgAccuracy: Math.round(nextAccuracySum / nextRuns),
+            accuracySum: nextAccuracySum,
+          }
+
+          // 4. Evaluate newly unlocked achievements
+          const currentUnlocked = s.settings.unlockedAchievements ?? []
+          const nextUnlocked = evaluateAchievements(currentUnlocked, nextStats, entry)
+
+          // 5. Fire global custom event if a new badge unlocks (to show overlay / notification)
+          if (nextUnlocked.length > currentUnlocked.length && typeof window !== 'undefined') {
+            const newlyUnlockedBadgeIds = nextUnlocked.filter(id => !currentUnlocked.includes(id))
+            window.dispatchEvent(new CustomEvent('monkeyspeak:badge-unlocked', { detail: newlyUnlockedBadgeIds }))
+          }
+
+          return {
+            settings: {
+              ...s.settings,
+              sessionHistory: [entry, ...(s.settings.sessionHistory ?? [])].slice(0, 100),
+              speakingActivity: activity,
+              lifetimeStats: nextStats,
+              unlockedAchievements: nextUnlocked,
+            },
+          }
+        }),
 
       checkAndUpdatePersonalBest: (key, wpm) => {
         const bests = get().settings.personalBests ?? {}
@@ -297,6 +375,17 @@ export const useTestStore = create<TestStore>()(
             sessionHistory: p?.settings?.sessionHistory ?? [],
             endCondition: p?.settings?.endCondition ?? 'timer',
             promptDifficulty: p?.settings?.promptDifficulty ?? 'normal',
+            speakingActivity: p?.settings?.speakingActivity ?? {},
+            unlockedAchievements: p?.settings?.unlockedAchievements ?? [],
+            lifetimeStats: (() => {
+              const persistedStats = { ...DEFAULT_SETTINGS.lifetimeStats, ...(p?.settings?.lifetimeStats ?? {}) }
+              // Seed accuracySum for pre-existing users who never had the field.
+              if (p?.settings?.lifetimeStats && p.settings.lifetimeStats.accuracySum === undefined) {
+                persistedStats.accuracySum = persistedStats.avgAccuracy * persistedStats.totalRuns
+              }
+              return persistedStats
+            })(),
+            lastStartedDailyChallengeDate: p?.settings?.lastStartedDailyChallengeDate,
           },
         }
       },

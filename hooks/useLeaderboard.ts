@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { fetchLeaderboard } from '@/lib/leaderboard/client'
-import type { LeaderboardEntry } from '@/store/testStore'
+import type { LeaderboardEntry, PromptType } from '@/store/testStore'
 import { useTestStore } from '@/store/testStore'
+import { getLocalDateStr } from '@/lib/stats/streak'
 
 export function useLeaderboard(limit = 20) {
   const duration = useTestStore((s) => s.duration)
@@ -16,7 +17,8 @@ export function useLeaderboard(limit = 20) {
     setLoading(true)
     setError(null)
     try {
-      const rows = await fetchLeaderboard(duration, promptType, limit)
+      const activePromptType = (promptType === 'daily' ? `daily-${getLocalDateStr()}` : promptType) as PromptType
+      const rows = await fetchLeaderboard(duration, activePromptType, limit)
       setEntries(rows)
     } catch (err) {
       setEntries([])

@@ -1293,6 +1293,8 @@ body {
 }
 
 .monkey-display-canvas {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
   height: 100%;
@@ -1987,5 +1989,169 @@ body {
 
   .leaderboard-save-score {
     align-items: flex-start;
+  }
+}
+
+/* stats + profile — same minimal desk language as the homepage */
+.stats-page-title {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: clamp(1.35rem, 3.5vw, 2rem);
+  letter-spacing: -0.02em;
+  text-transform: lowercase;
+  color: var(--text-active);
+  line-height: 1.1;
+}
+
+.stats-page-subtitle {
+  font-size: 0.8rem;
+  color: var(--text-stats);
+  text-transform: lowercase;
+  margin-top: 0.35rem;
+}
+
+.stats-card {
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-soft-sm);
+  padding: 1rem 1.25rem;
+}
+
+.stats-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.85rem 1rem;
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-soft-sm);
+}
+
+.stats-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 10rem;
+  padding: 1.5rem 1rem;
+  color: var(--text-stats);
+  font-size: 0.76rem;
+  line-height: 1.55;
+  text-align: center;
+  text-transform: lowercase;
+  background: color-mix(in srgb, var(--surface) 86%, var(--bg));
+  border: 1px dashed color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: var(--radius);
+}
+
+.stats-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.65rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  border: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+}
+
+.stats-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+}
+
+.profile-drawer {
+  background: var(--surface);
+  border-left: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  box-shadow: var(--shadow-soft);
+}
+
+.profile-section-divider {
+  border: none;
+  border-top: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+  margin: 0;
+}
+
+.achievement-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  text-align: center;
+  border-radius: var(--radius);
+  transition: transform 0.18s var(--ease-snappy), box-shadow 0.18s var(--ease-snappy);
+}
+
+.achievement-card--unlocked {
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  box-shadow: var(--shadow-soft-sm);
+}
+
+.achievement-card--unlocked:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-soft);
+}
+
+.achievement-card--locked {
+  opacity: 0.45;
+  border: 1px dashed color-mix(in srgb, var(--border) 70%, transparent);
+  background: transparent;
+}
+
+/* ── Mobile game & results fixes (≤640px) ── */
+@media (max-width: 640px) {
+  /* Tighter horizontal padding in the game overlay */
+  .game-focus-card {
+    padding: 0.75rem 0.875rem 0.875rem;
+    padding-bottom: max(0.875rem, env(safe-area-inset-bottom));
+  }
+
+  /* iOS notch/home-bar clearance for the full-screen game overlay */
+  .game-focus-mode {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  /* Smaller timer so it doesn't crowd the narrow screen */
+  .time-progress-clock {
+    font-size: clamp(1.75rem, 8vw, 3rem);
+  }
+
+  /* Smaller momentum value */
+  .momentum-fire-value {
+    font-size: clamp(1.25rem, 5vw, 1.85rem);
+  }
+
+  /* Default dissolve-text font to the small preset on mobile.
+     Explicit [data-fontsize] selections on the html element still override this
+     because they set the variable on a closer ancestor with higher specificity. */
+  :root {
+    --test-font-size: 1.35rem;
+    --test-line-height: 2.2rem;
+  }
+
+  /* Monkey scaled down and centred below the text column */
+  .monkey-display {
+    width: min(200px, 52vw);
+    height: min(280px, 73vw);
+    max-height: 38vh;
+    margin-top: 0.25rem;
+  }
+
+  /* Results shell — tighter vertical padding on small screens */
+  .results-shell {
+    padding: 1rem 0;
+  }
+
+  /* Better tap response across all interactive elements */
+  button,
+  [role="button"] {
+    touch-action: manipulation;
   }
 }

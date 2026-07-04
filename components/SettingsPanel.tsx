@@ -85,7 +85,7 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
 
       <aside
         ref={panelRef}
-        className="fixed top-0 right-0 h-full w-[360px] z-50 overflow-y-auto flex flex-col paper-panel"
+        className="fixed top-0 right-0 h-full w-full max-w-[360px] z-50 overflow-y-auto flex flex-col paper-panel"
         style={{
           background: 'var(--surface)',
           borderRight: 'none',
@@ -166,12 +166,14 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                     title={name}
                     aria-label={name}
                     aria-pressed={isSelected}
-                    className="w-8 h-8 transition-transform"
+                    className="w-8 h-8 rounded-full transition-transform"
                     style={{
                       background: hex,
-                      border: isSelected ? '3px solid var(--border)' : '2px solid var(--border)',
-                      boxShadow: isSelected ? '3px 3px 0 var(--shadow)' : '2px 2px 0 var(--shadow)',
-                      transform: isSelected ? 'scale(1.1)' : 'scale(1)',
+                      border: isSelected
+                        ? '2px solid var(--accent)'
+                        : '1.5px solid color-mix(in srgb, var(--border) 70%, transparent)',
+                      boxShadow: isSelected ? 'var(--shadow-soft-sm)' : 'none',
+                      transform: isSelected ? 'scale(1.08)' : 'scale(1)',
                     }}
                   >
                     {isSelected && (

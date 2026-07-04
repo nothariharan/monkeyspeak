@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 import { useLeaderboard } from '@/hooks/useLeaderboard'
 import { getLeaderboardBoard } from '@/lib/stats/leaderboard'
 import { useTestStore, type Duration } from '@/store/testStore'
+import { getLocalDateStr } from '@/lib/stats/streak'
 
 const DURATIONS: Duration[] = [15, 30, 60, 120]
 
@@ -55,7 +56,7 @@ export default function HeroLeaderboard() {
   const { entries, loading, error } = useLeaderboard()
 
   const board = useMemo(
-    () => getLeaderboardBoard(entries, duration, promptType, name),
+    () => getLeaderboardBoard(entries, duration, promptType === 'daily' ? `daily-${getLocalDateStr()}` : promptType, name),
     [entries, duration, promptType, name]
   )
 
@@ -74,7 +75,7 @@ export default function HeroLeaderboard() {
           </span>
           <h2>leaderboard</h2>
         </div>
-        <span className="hero-leaderboard-note">{promptType}</span>
+        <span className="hero-leaderboard-note">{promptType === 'daily' ? 'daily challenge' : promptType}</span>
       </div>
 
       <div className="hero-leaderboard-tabs hero-leaderboard-tabs--duration" role="tablist" aria-label="Leaderboard duration">
