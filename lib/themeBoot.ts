@@ -5,25 +5,26 @@ export type ThemeTokenMap = Record<string, string>
 
 /** Build the token map from lib/themes.ts so layout and runtime stay in sync. */
 export function buildThemeTokenMap(): Record<ThemeName, ThemeTokenMap> {
-  return Object.fromEntries(
-    Object.values(THEMES).map((t) => [
-      t.name,
-      {
-        '--bg': t.bg,
-        '--bg-surface': t.bgSurface,
-        '--surface': t.surface,
-        '--border': t.border,
-        '--shadow': t.shadow,
-        '--text-muted': t.textMuted,
-        '--text-stats': t.textStats,
-        '--text-active': t.textActive,
-        '--text-current': t.textCurrent,
-        '--success': t.success,
-        '--error': t.error,
-        '--orange': t.orange,
-      },
-    ])
-  ) as Record<ThemeName, ThemeTokenMap>
+  const map = {} as Record<ThemeName, ThemeTokenMap>
+
+  for (const t of Object.values(THEMES)) {
+    map[t.name] = {
+      '--bg': t.bg,
+      '--bg-surface': t.bgSurface,
+      '--surface': t.surface,
+      '--border': t.border,
+      '--shadow': t.shadow,
+      '--text-muted': t.textMuted,
+      '--text-stats': t.textStats,
+      '--text-active': t.textActive,
+      '--text-current': t.textCurrent,
+      '--success': t.success,
+      '--error': t.error,
+      '--orange': t.orange,
+    }
+  }
+
+  return map
 }
 
 /** Static CSS: one [data-theme] block per palette. No inline styles on <html>. */

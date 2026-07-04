@@ -14,12 +14,7 @@ export const viewport: Viewport = {
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://monkeyspeak-delta.vercel.app'),
-  icons: {
-    icon: [
-      { url: '/logo.png', type: 'image/png' },
-    ],
-    apple: '/logo.png',
-  },
+  // Favicon + apple touch icon: app/icon.png and app/apple-icon.png (monkey logo)
   title: 'MonkeySpeak - speaking speed practice',
   description:
     'A small app for practicing speaking speed and checking how clearly your words get transcribed.',
