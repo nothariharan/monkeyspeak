@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import Image from 'next/image'
 
 interface LogoMarkProps {
@@ -6,7 +7,11 @@ interface LogoMarkProps {
 
 export default function LogoMark({ className = '' }: LogoMarkProps) {
   return (
-    <span className={`logo-mark ${className}`.trim()} aria-label="monkeyspeak">
+    <Link
+      href="/"
+      className={`logo-mark ${className}`.trim()}
+      aria-label="monkeyspeak home"
+    >
       <Image
         src="/logo.png"
         alt=""
@@ -19,6 +24,6 @@ export default function LogoMark({ className = '' }: LogoMarkProps) {
         <span className="logo-mark__monkey">monkey</span>
         <span className="logo-mark__speak">speak</span>
       </span>
-    </span>
+    </Link>
   )
 }

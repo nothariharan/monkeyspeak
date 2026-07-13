@@ -11,14 +11,6 @@ monkeyspeak is basically monkeytype but you use your voice. pick a prompt, hit s
 
 works out of the box with browser speech recognition. no api key, no signup, just mic access and mild embarrassment when you misread the prompt.
 
-## screenshots
-
-| screen | preview |
-| --- | --- |
-| idle / home | ![idle](./docs/screenshots/idle.png) |
-| live test | ![live test](./docs/screenshots/live-test.png) |
-| results | ![results](./docs/screenshots/results.png) |
-
 ![monkey mascot](./public/sprites/120+/tile2.png)
 
 ## what it does (non-exhaustive)
@@ -37,21 +29,22 @@ works out of the box with browser speech recognition. no api key, no signup, jus
 - practice mode rebuilds a prompt from words you missed
 
 **leaderboard + social**
-- home page leaderboard panel — duration tabs synced with config bar, crown for top spots, your row pinned at the bottom
+- home page shows a top-5 preview with a link to the full board
+- `/leaderboard` has the full rankings (filters + scroll) plus your local stats/charts
 - global leaderboard via supabase — nickname + emoji after a run, no signup
 - top score card shows your personal best for the current duration, not whoever is #1 globally
+- `/stats` redirects to `/leaderboard#stats`
 
-**stats + profile** (`/stats`)
-- streak, totals, recent runs, wpm trend charts
+**profile**
 - achievement grid (first words, silverback, clarity s, etc)
 - profile hub drawer — nickname, activity, badges
-- all local except the global board
+- personal bests and trends stay local; the board is the only shared piece
 
 **ui + polish**
-- minimal desk-style layout shared across home, stats, results, settings
-- monkey mascot reacts to speaking momentum (gsap sprites)
-- themes, accent colors, fonts, blind mode, transcript toggles
-- daily challenge card, branded og image, monkey favicon
+- desk / doodle hero (slanted sticky notes, paper tape, monkey mascot)
+- themes, accent colors, fonts, blind mode
+- daily goal + quick tips on the home page
+- branded og image, monkey favicon
 
 **speech (stt)**
 - browser web speech api by default — no key needed
@@ -180,7 +173,6 @@ monkeyspeak/
   public/           sprites, onnx model, audio workers, mascots
   backend/          standalone deepgram websocket proxy (render)
   server.js         prod next + proxy in one node process
-  docs/             dev notes and screenshots
   patches/          patch-package fixes
 ```
 
@@ -188,9 +180,9 @@ touching the live speaking experience? start in [app/page.tsx](app/page.tsx), [c
 
 touching scoring? [lib/alignTranscriptToPrompt.ts](lib/alignTranscriptToPrompt.ts), [lib/fillers.ts](lib/fillers.ts), [lib/stats/](lib/stats), [lib/diff.ts](lib/diff.ts).
 
-touching the board? [app/api/leaderboard/route.ts](app/api/leaderboard/route.ts), [components/decor/HeroLeaderboard.tsx](components/decor/HeroLeaderboard.tsx).
+touching the board? [app/api/leaderboard/route.ts](app/api/leaderboard/route.ts), [app/leaderboard/page.tsx](app/leaderboard/page.tsx), [components/decor/HeroLeaderboard.tsx](components/decor/HeroLeaderboard.tsx).
 
-touching stats/achievements? [app/stats/page.tsx](app/stats/page.tsx), [lib/achievements.ts](lib/achievements.ts), [lib/stats/streak.ts](lib/stats/streak.ts).
+touching stats/achievements? [app/leaderboard/page.tsx](app/leaderboard/page.tsx) (`#stats`), [lib/achievements.ts](lib/achievements.ts), [lib/stats/streak.ts](lib/stats/streak.ts).
 
 ## env vars (when you care)
 
@@ -232,11 +224,6 @@ npm start
 `npm start` runs [server.js](server.js), which serves next and the deepgram proxy from the same process.
 
 want render setup notes? see [backend/README.md](backend/README.md).
-
-## docs
-
-- [docs/theme-hydration.md](docs/theme-hydration.md) — why theme boot avoids inline styles on `<html>`
-- [docs/stats-profile-and-ui.md](docs/stats-profile-and-ui.md) — stats page and profile hub notes
 
 ## before you open a pr
 

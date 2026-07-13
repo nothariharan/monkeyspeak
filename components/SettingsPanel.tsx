@@ -1,7 +1,6 @@
 'use client'
 
-import { useState } from 'react'
-import { useEffect, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { gsap } from 'gsap'
 import { useTestStore } from '@/store/testStore'
 import { THEMES, THEME_ORDER, applyTheme } from '@/lib/themes'
@@ -14,15 +13,17 @@ interface SettingsPanelProps {
 }
 
 const FONTS: { value: FontChoice; label: string }[] = [
-  { value: 'jetbrains',   label: 'JetBrains Mono' },
-  { value: 'fira',        label: 'Fira Code' },
+  { value: 'jetbrains', label: 'JetBrains Mono' },
+  { value: 'fira', label: 'Fira Code' },
   { value: 'inconsolata', label: 'Inconsolata' },
 ]
+
 const SIZES: { value: FontSize; label: string }[] = [
-  { value: 'small',  label: 'S' },
-  { value: 'medium', label: 'M' },
-  { value: 'large',  label: 'L' },
+  { value: 'small', label: 's' },
+  { value: 'medium', label: 'm' },
+  { value: 'large', label: 'l' },
 ]
+
 const LANGS = [
   { value: 'en-US', label: 'English (US)' },
   { value: 'en-GB', label: 'English (UK)' },
@@ -31,8 +32,8 @@ const LANGS = [
 
 function Toggle({ on, onToggle, id }: { on: boolean; onToggle: () => void; id: string }) {
   return (
-    <button id={id} role="switch" aria-checked={on} onClick={onToggle} className={`toggle-track ${on ? 'on' : ''}`}>
-      <span className="toggle-thumb" />
+    <button id={id} role="switch" aria-checked={on} onClick={onToggle} className={`settings-toggle ${on ? 'on' : ''}`}>
+      <span className="settings-toggle-thumb" />
     </button>
   )
 }
@@ -66,7 +67,7 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
     if (!isOpen || !panelRef.current) return
     const ctx = gsap.context(() => {
       gsap.from(backdropRef.current, { opacity: 0, duration: 0.2 })
-      gsap.from(panelRef.current, { x: '100%', duration: 0.3, ease: 'power3.out' })
+      gsap.from(panelRef.current, { x: '100%', duration: 0.28, ease: 'power3.out' })
     })
     return () => ctx.revert()
   }, [isOpen])
@@ -77,51 +78,37 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
     <>
       <div
         ref={backdropRef}
-        className="fixed inset-0 z-40"
-        style={{ background: 'rgba(0,0,0,0.45)' }}
+        className="settings-backdrop"
         onClick={onClose}
         aria-hidden="true"
       />
 
       <aside
         ref={panelRef}
-        className="fixed top-0 right-0 h-full w-full max-w-[360px] z-50 overflow-y-auto flex flex-col paper-panel"
-        style={{
-          background: 'var(--surface)',
-          borderRight: 'none',
-          borderTop: 'none',
-          borderBottom: 'none',
-          boxShadow: '-8px 0 0 var(--shadow)',
-        }}
+        className="settings-panel"
         role="dialog"
         aria-label="Settings"
         aria-modal="true"
       >
-        <div
-          className="flex items-center justify-between px-5 py-4 shrink-0"
-          style={{ borderBottom: '3px solid var(--border)' }}
-        >
-          <span className="font-display text-sm font-bold tracking-wide" style={{ color: 'var(--text-active)' }}>
-            Settings
-          </span>
+        <div className="settings-panel-head">
+          <span>settings</span>
           <button
             id="btn-close-settings"
             onClick={onClose}
             aria-label="Close settings"
-            className="p-1 transition-opacity hover:opacity-60"
-            style={{ color: 'var(--text-stats)' }}
+            className="settings-close-btn"
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-5 flex flex-col gap-6">
-          {/* Theme */}
-          <section className="flex flex-col gap-3">
-            <p className="stat-label">theme</p>
-            <div className="choice-strip w-full" role="tablist" aria-label="Theme">
+        <div className="settings-panel-body">
+          <section className="settings-section">
+            <p className="settings-label">theme</p>
+            <div className="settings-segment" role="tablist" aria-label="Theme">
               {THEME_ORDER.map((t) => {
                 const def = THEMES[t]
                 const isActive = previewTheme === t
@@ -132,11 +119,7 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                     role="tab"
                     aria-selected={isActive}
                     onClick={() => handleThemeTab(t)}
-                    className="mode-tab flex-1 text-center"
-                    style={{
-                      background: isActive ? 'var(--accent)' : 'var(--surface)',
-                      color: isActive ? '#fff' : 'var(--text-stats)',
-                    }}
+                    className={isActive ? 'active' : ''}
                   >
                     {def.label}
                   </button>
@@ -144,18 +127,15 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
               })}
             </div>
 
-            <div
-              className="note-panel p-3 flex items-center justify-between font-mono text-xs"
-              style={{ background: currentThemeDef.bg }}
-            >
+            <div className="settings-preview" style={{ background: currentThemeDef.bg }}>
               <span style={{ color: currentThemeDef.textStats }}>preview</span>
               <span style={{ color: currentThemeDef.textActive }}>speak</span>
               <span style={{ color: settings.accentHex || currentThemeDef.accents[0].hex }}>fast</span>
               <span style={{ color: currentThemeDef.error }}>err</span>
             </div>
 
-            <p className="stat-label mt-1">accent</p>
-            <div className="grid grid-cols-7 gap-2">
+            <p className="settings-label">accent</p>
+            <div className="settings-accent-grid">
               {currentThemeDef.accents.map(({ name, hex }) => {
                 const isSelected = settings.accentHex === hex && settings.theme === previewTheme
                 return (
@@ -166,66 +146,40 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                     title={name}
                     aria-label={name}
                     aria-pressed={isSelected}
-                    className="w-8 h-8 rounded-full transition-transform"
-                    style={{
-                      background: hex,
-                      border: isSelected
-                        ? '2px solid var(--accent)'
-                        : '1.5px solid color-mix(in srgb, var(--border) 70%, transparent)',
-                      boxShadow: isSelected ? 'var(--shadow-soft-sm)' : 'none',
-                      transform: isSelected ? 'scale(1.08)' : 'scale(1)',
-                    }}
-                  >
-                    {isSelected && (
-                      <span className="flex items-center justify-center h-full">
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="4">
-                          <polyline points="20 6 9 17 4 12"/>
-                        </svg>
-                      </span>
-                    )}
-                  </button>
+                    className={`settings-accent-swatch${isSelected ? ' active' : ''}`}
+                    style={{ background: hex }}
+                  />
                 )
               })}
             </div>
           </section>
 
-          <hr style={{ border: 'none', borderTop: '3px solid var(--border)' }} />
-
-          {/* Font */}
-          <section className="flex flex-col gap-3">
-            <p className="stat-label">font</p>
-            <div className="flex flex-col gap-2">
+          <section className="settings-section">
+            <p className="settings-label">font</p>
+            <div className="settings-stack">
               {FONTS.map(({ value, label }) => (
                 <button
                   key={value}
                   id={`font-${value}`}
                   onClick={() => updateSettings({ font: value })}
                   aria-pressed={settings.font === value}
-                  className="text-left px-3 py-2 font-mono text-sm transition-all note-panel"
-                  style={{
-                    fontFamily: `'${label}', monospace`,
-                    background: settings.font === value ? 'var(--accent)' : 'var(--surface)',
-                    color: settings.font === value ? '#fff' : 'var(--text-stats)',
-                  }}
+                  className={`settings-stack-btn${settings.font === value ? ' active' : ''}`}
+                  style={{ fontFamily: `'${label}', monospace` }}
                 >
                   {label}
                 </button>
               ))}
             </div>
 
-            <p className="stat-label mt-1">size</p>
-            <div className="choice-strip w-full">
+            <p className="settings-label">size</p>
+            <div className="settings-segment">
               {SIZES.map(({ value, label }) => (
                 <button
                   key={value}
                   id={`fontsize-${value}`}
                   onClick={() => updateSettings({ fontSize: value })}
                   aria-pressed={settings.fontSize === value}
-                  className="mode-tab flex-1 text-center"
-                  style={{
-                    background: settings.fontSize === value ? 'var(--accent)' : 'var(--surface)',
-                    color: settings.fontSize === value ? '#fff' : 'var(--text-stats)',
-                  }}
+                  className={settings.fontSize === value ? 'active' : ''}
                 >
                   {label}
                 </button>
@@ -233,39 +187,28 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
             </div>
           </section>
 
-          <hr style={{ border: 'none', borderTop: '3px solid var(--border)' }} />
-
-          {/* Toggles */}
-          <section className="flex flex-col gap-4">
-            <p className="stat-label">behaviour</p>
+          <section className="settings-section">
+            <p className="settings-label">behaviour</p>
             {[
-              { id: 'toggle-filler-flash',    label: 'filler flash',    key: 'fillerFlash' as const },
-              { id: 'toggle-smooth-caret',    label: 'smooth caret',    key: 'smoothCaret' as const },
-              { id: 'toggle-blind-mode',      label: 'blind mode',      key: 'blindMode' as const },
-              { id: 'toggle-skip-vad',        label: 'send all audio (skip VAD)', key: 'skipVad' as const },
+              { id: 'toggle-filler-flash', label: 'filler flash', key: 'fillerFlash' as const },
+              { id: 'toggle-smooth-caret', label: 'smooth caret', key: 'smoothCaret' as const },
+              { id: 'toggle-blind-mode', label: 'blind mode', key: 'blindMode' as const },
+              { id: 'toggle-skip-vad', label: 'send all audio', key: 'skipVad' as const },
             ].map(({ id, label, key }) => (
-              <div key={id} className="flex items-center justify-between">
-                <span className="font-mono text-sm" style={{ color: 'var(--text-active)' }}>{label}</span>
+              <div key={id} className="settings-row">
+                <span>{label}</span>
                 <Toggle id={id} on={settings[key]} onToggle={() => updateSettings({ [key]: !settings[key] })} />
               </div>
             ))}
           </section>
 
-          <hr style={{ border: 'none', borderTop: '3px solid var(--border)' }} />
-
-          {/* Language */}
-          <section className="flex flex-col gap-3">
-            <p className="stat-label">language</p>
+          <section className="settings-section">
+            <p className="settings-label">language</p>
             <select
               id="select-language"
               value={settings.language}
               onChange={(e) => updateSettings({ language: e.target.value as typeof settings.language })}
-              className="note-panel px-3 py-2 font-mono text-sm w-full"
-              style={{
-                background: 'var(--surface)',
-                color: 'var(--text-active)',
-                outline: 'none',
-              }}
+              className="settings-select"
             >
               {LANGS.map(({ value, label }) => (
                 <option key={value} value={value}>{label}</option>

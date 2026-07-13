@@ -2,13 +2,27 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { fetchLeaderboard } from '@/lib/leaderboard/client'
-import type { LeaderboardEntry, PromptType } from '@/store/testStore'
+import { resolveBoardPromptType } from '@/components/leaderboard/leaderboardUtils'
+import type { Duration, LeaderboardEntry, PromptType } from '@/store/testStore'
 import { useTestStore } from '@/store/testStore'
-import { getLocalDateStr } from '@/lib/stats/streak'
 
-export function useLeaderboard(limit = 20) {
-  const duration = useTestStore((s) => s.duration)
-  const promptType = useTestStore((s) => s.promptType)
+type UseLeaderboardOptions = {
+  limit?: number
+  duration?: Duration
+  promptType?: PromptType
+}
+
+// home widget can call useLeaderboard() with no args
+// full page passes its own filters so it doesn't fight the test config bar
+export function useLeaderboard(options: UseLeaderboardOptions | number = {}) {
+  const opts: UseLeaderboardOptions = typeof options === 'number' ? { limit: options } : options
+
+  const storeDuration = useTestStore((s) => s.duration)
+  const storePromptType = useTestStore((s) => s.promptType)
+  const duration = opts.duration ?? storeDuration
+  const promptType = opts.promptType ?? storePromptType
+  const limit = opts.limit ?? 20
+
   const [entries, setEntries] = useState<LeaderboardEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -17,8 +31,8 @@ export function useLeaderboard(limit = 20) {
     setLoading(true)
     setError(null)
     try {
-      const activePromptType = (promptType === 'daily' ? `daily-${getLocalDateStr()}` : promptType) as PromptType
-      const rows = await fetchLeaderboard(duration, activePromptType, limit)
+      const boardPrompt = resolveBoardPromptType(promptType)
+      const rows = await fetchLeaderboard(duration, boardPrompt, limit)
       setEntries(rows)
     } catch (err) {
       setEntries([])
@@ -32,6 +46,7 @@ export function useLeaderboard(limit = 20) {
     void refresh()
   }, [refresh])
 
+  // after someone saves a score we broadcast this from the save prompt
   useEffect(() => {
     const onRefresh = () => { void refresh() }
     window.addEventListener('leaderboard:refresh', onRefresh)

@@ -12,10 +12,10 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 1,
     },
     {
-      url: `${BASE_URL}/stats`,
+      url: `${BASE_URL}/leaderboard`,
       lastModified: now,
-      changeFrequency: 'weekly',
-      priority: 0.6,
+      changeFrequency: 'daily',
+      priority: 0.8,
     },
   ]
 }

@@ -168,9 +168,15 @@ export const THEME_ORDER: ThemeName[] = ['latte', 'frappe', 'macchiato', 'mocha'
  * hex is patched at runtime via #ms-accent so we never attach style="" to <html>.
  */
 export function applyTheme(theme: ThemeDef, accentHex: string) {
+  if (typeof document === 'undefined') return
   const root = document.documentElement
   root.dataset.theme = theme.name
-  if (typeof document === 'undefined') return
-  const el = document.getElementById('ms-accent')
-  if (el) el.textContent = `html{--accent:${accentHex}}`
+  // inject/update a style node React doesn't own — avoids hydration mismatches
+  let el = document.getElementById('ms-accent')
+  if (!el) {
+    el = document.createElement('style')
+    el.id = 'ms-accent'
+    document.head.appendChild(el)
+  }
+  el.textContent = `:root{--accent:${accentHex}}`
 }

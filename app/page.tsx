@@ -27,6 +27,8 @@ import ProfileHub from '@/components/ProfileHub'
 import HeroLeaderboard from '@/components/decor/HeroLeaderboard'
 import HeroMonkey from '@/components/decor/HeroMonkey'
 import HeroTopScore from '@/components/decor/HeroTopScore'
+import HeroDailyGoal from '@/components/decor/HeroDailyGoal'
+import HeroQuickTips from '@/components/decor/HeroQuickTips'
 import LeaderboardSavePrompt from '@/components/decor/LeaderboardSavePrompt'
 import CapabilityBanner from '@/components/CapabilityBanner'
 import Toast from '@/components/Toast'
@@ -490,6 +492,20 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store.testState, store.duration, handleRetry, handleNext, handleStop, handleStart, resetTimer, clearRunScratch, pendingLeaderboardScore, setProfileOpen])
 
+  // dismiss the badge-unlocked modal with Escape
+  useEffect(() => {
+    if (unlockedBadgeNames.length === 0) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        e.stopPropagation()
+        setUnlockedBadgeNames([])
+      }
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [unlockedBadgeNames.length])
+
   // hero entrance
   useEffect(() => {
     if (!heroRef.current || store.testState !== 'idle') return
@@ -556,8 +572,8 @@ export default function Home() {
                         <p className="stats-page-subtitle leading-normal max-w-xs">
                           {"One date, one seed, one attempt. You've already taken today's challenge. Come back tomorrow!"}
                         </p>
-                        <Link href="/stats" className="desk-btn desk-btn-primary text-xs py-2 px-4">
-                          view stats dashboard 📊
+                        <Link href="/leaderboard#stats" className="desk-btn desk-btn-primary text-xs py-2 px-4">
+                          view your stats
                         </Link>
                       </div>
                     ) : (
@@ -568,8 +584,8 @@ export default function Home() {
                               <span className="hero-title-line">
                                 how fast<span className="hero-title-accent">⚡</span>can u
                               </span>
-                              <span className="hero-title-line">
-                                speak <span className="hero-title-emoji">🙊</span>
+                              <span className="hero-title-line hero-title-line--speak">
+                                speak<span className="hero-title-emoji" aria-hidden>🙊</span>
                               </span>
                             </h1>
                             <p className="hero-subtitle font-mono">
@@ -582,7 +598,9 @@ export default function Home() {
                               </div>
                             )}
                             <p className="hero-animate start-hint font-mono mt-3">
-                              {store.promptType === 'daily' ? '⚠️ DAILY CHALLENGE: One date, one seed, one attempt. Are you ready? Hit Start.' : startHint}
+                              {store.promptType === 'daily'
+                                ? 'daily challenge: one attempt per day. read the prompt, hit start, and go.'
+                                : startHint}
                             </p>
                           </div>
 
@@ -618,6 +636,8 @@ export default function Home() {
 
                     <div className="hero-side-stack hero-animate">
                       <HeroTopScore />
+                      <HeroDailyGoal />
+                      <HeroQuickTips />
                     </div>
                   </div>
                 )}
@@ -692,8 +712,16 @@ export default function Home() {
         <div
           className="fixed inset-0 z-[300] flex items-center justify-center p-6"
           style={{ background: 'rgba(0,0,0,0.65)' }}
+          role="presentation"
+          onClick={() => setUnlockedBadgeNames([])}
         >
-          <div className="paper-panel p-6 text-center flex flex-col items-center gap-4 max-w-sm w-full">
+          <div
+            className="paper-panel p-6 text-center flex flex-col items-center gap-4 max-w-sm w-full max-h-[85vh]"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Badge unlocked"
+            onClick={(e) => e.stopPropagation()}
+          >
             <p className="text-2xl animate-bounce">🐵✨</p>
             <h2 className="font-display font-black text-xl" style={{ color: 'var(--text-active)' }}>
               badge unlocked!
@@ -701,7 +729,7 @@ export default function Home() {
             <p className="stats-page-subtitle">
               You unlocked:
             </p>
-            <div className="flex flex-col gap-2 w-full">
+            <div className="flex flex-col gap-2 w-full overflow-y-auto min-h-0">
               {unlockedBadgeNames.map((name) => (
                 <div
                   key={name}

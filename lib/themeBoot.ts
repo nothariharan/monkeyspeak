@@ -42,8 +42,8 @@ export function buildThemeVarsCss(tokens: Record<ThemeName, ThemeTokenMap>): str
 // default accent before localStorage loads
 export const DEFAULT_ACCENT_HEX = '#3b82f6'
 
-// blocking head script — sets data-theme/font and patches #ms-accent
-// we skip root.style.setProperty because that left style="" on html and react yelled
+// blocking head script — sets data-theme/font and injects #ms-accent
+// we create the style node ourselves so React never hydrates its text content
 export function buildThemeBootScript(themeNames: ThemeName[]): string {
   const themeLookup = Object.fromEntries(themeNames.map((name) => [name, 1]))
   return `(function(){try{
@@ -57,15 +57,19 @@ if(s.font)root.dataset.font=s.font;
 if(s.fontSize)root.dataset.fontsize=s.fontSize;
 var accent=s.accentHex||'${DEFAULT_ACCENT_HEX}';
 var el=document.getElementById('ms-accent');
-if(el)el.textContent='html{--accent:'+accent+'}';
+if(!el){el=document.createElement('style');el.id='ms-accent';document.head.appendChild(el)}
+el.textContent=':root{--accent:'+accent+'}';
 }catch(e){}})();`
 }
 
 // runtime accent updates from settings panel or store rehydrate
 export function applyAccentHex(accentHex: string) {
   if (typeof document === 'undefined') return
-  const el = document.getElementById('ms-accent')
-  if (el) {
-    el.textContent = `html{--accent:${accentHex}}`
+  let el = document.getElementById('ms-accent')
+  if (!el) {
+    el = document.createElement('style')
+    el.id = 'ms-accent'
+    document.head.appendChild(el)
   }
+  el.textContent = `:root{--accent:${accentHex}}`
 }

@@ -9,6 +9,24 @@ export type SubmitLeaderboardPayload = {
   promptType: PromptType
 }
 
+type LeaderboardResponse = {
+  entries?: LeaderboardEntry[]
+  entry?: LeaderboardEntry
+  error?: string
+}
+
+async function readLeaderboardResponse(res: Response): Promise<LeaderboardResponse> {
+  const raw = await res.text()
+  if (!raw.trim()) return {}
+
+  try {
+    return JSON.parse(raw) as LeaderboardResponse
+  } catch {
+    // dev server sometimes returns an html error page instead of json
+    throw new Error('leaderboard unavailable right now')
+  }
+}
+
 export async function fetchLeaderboard(
   duration: Duration,
   promptType: PromptType,
@@ -21,10 +39,10 @@ export async function fetchLeaderboard(
   })
 
   const res = await fetch(`/api/leaderboard?${params.toString()}`, { cache: 'no-store' })
-  const data = (await res.json()) as { entries?: LeaderboardEntry[]; error?: string }
+  const data = await readLeaderboardResponse(res)
 
   if (!res.ok) {
-    throw new Error(data.error ?? 'leaderboard fetch failed')
+    throw new Error(data.error ?? 'leaderboard unavailable')
   }
 
   return data.entries ?? []
@@ -37,12 +55,12 @@ export async function submitLeaderboardScore(payload: SubmitLeaderboardPayload):
     body: JSON.stringify(payload),
   })
 
-  const data = (await res.json()) as { entry?: LeaderboardEntry; error?: string }
+  const data = await readLeaderboardResponse(res)
 
   if (!res.ok) {
-    throw new Error(data.error ?? 'leaderboard save failed')
+    throw new Error(data.error ?? 'could not save score')
   }
 
-  if (!data.entry) throw new Error('leaderboard save failed')
+  if (!data.entry) throw new Error('could not save score')
   return data.entry
 }

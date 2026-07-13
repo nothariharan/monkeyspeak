@@ -1,51 +1,17 @@
 'use client'
 
+import Link from 'next/link'
 import { useMemo } from 'react'
+import LeaderboardRow from '@/components/leaderboard/LeaderboardRow'
+import {
+  LEADERBOARD_DURATIONS,
+  promptTypeToUrl,
+  promptLabel,
+  resolveBoardPromptType,
+} from '@/components/leaderboard/leaderboardUtils'
 import { useLeaderboard } from '@/hooks/useLeaderboard'
 import { getLeaderboardBoard } from '@/lib/stats/leaderboard'
-import { useTestStore, type Duration } from '@/store/testStore'
-import { getLocalDateStr } from '@/lib/stats/streak'
-
-const DURATIONS: Duration[] = [15, 30, 60, 120]
-
-const MEDAL_LABEL: Record<string, string> = {
-  gold: '1',
-  silver: '2',
-  bronze: '3',
-}
-
-function LeaderboardRowView({
-  rank,
-  medal,
-  emoji,
-  name,
-  wpm,
-  rankClass = '',
-}: {
-  rank: number | string
-  medal?: string
-  emoji: string
-  name: string
-  wpm: number | null
-  rankClass?: string
-}) {
-  return (
-    <>
-      <span className={`hero-rank hero-rank--${medal ?? (rankClass || 'plain')}`}>
-        {medal ? MEDAL_LABEL[medal] : rank}
-      </span>
-      <span className="hero-player-emoji" aria-hidden>
-        {emoji}
-      </span>
-      <div className="hero-player-copy">
-        <strong>{name}</strong>
-      </div>
-      <span className="hero-player-score tabular-nums">
-        {wpm != null ? `${wpm} wpm` : '-- wpm'}
-      </span>
-    </>
-  )
-}
+import { useTestStore } from '@/store/testStore'
 
 export default function HeroLeaderboard() {
   const duration = useTestStore((s) => s.duration)
@@ -55,12 +21,16 @@ export default function HeroLeaderboard() {
   const savedEmoji = useTestStore((s) => s.settings.leaderboardEmoji)
   const { entries, loading, error } = useLeaderboard()
 
+  const boardPrompt = resolveBoardPromptType(promptType)
+
   const board = useMemo(
-    () => getLeaderboardBoard(entries, duration, promptType === 'daily' ? `daily-${getLocalDateStr()}` : promptType, name),
-    [entries, duration, promptType, name]
+    () => getLeaderboardBoard(entries, duration, boardPrompt, name),
+    [entries, duration, boardPrompt, name]
   )
 
   const userEmoji = board.userRow?.emoji ?? savedEmoji ?? '🐵'
+  const fullBoardHref = `/leaderboard?duration=${duration}&prompt=${encodeURIComponent(promptTypeToUrl(promptType))}`
+  const showMoreLink = !loading && !error && board.topRows.length > 0
 
   return (
     <aside className="hero-leaderboard paper-panel hero-animate" aria-label="Leaderboard">
@@ -75,11 +45,11 @@ export default function HeroLeaderboard() {
           </span>
           <h2>leaderboard</h2>
         </div>
-        <span className="hero-leaderboard-note">{promptType === 'daily' ? 'daily challenge' : promptType}</span>
+        <span className="hero-leaderboard-note">{promptLabel(promptType)}</span>
       </div>
 
       <div className="hero-leaderboard-tabs hero-leaderboard-tabs--duration" role="tablist" aria-label="Leaderboard duration">
-        {DURATIONS.map((value) => (
+        {LEADERBOARD_DURATIONS.map((value) => (
           <button
             key={value}
             type="button"
@@ -106,7 +76,7 @@ export default function HeroLeaderboard() {
               key={row.id}
               className={`hero-leaderboard-row${row.isUser ? ' hero-leaderboard-row--you' : ''}`}
             >
-              <LeaderboardRowView
+              <LeaderboardRow
                 rank={row.rank}
                 medal={row.medal}
                 emoji={row.emoji ?? '🐵'}
@@ -119,10 +89,17 @@ export default function HeroLeaderboard() {
         )}
       </div>
 
+      {showMoreLink && (
+        <p className="hero-leaderboard-more">
+          want to see everyone?{' '}
+          <Link href={fullBoardHref}>peek the full leaderboard →</Link>
+        </p>
+      )}
+
       {!loading && (
         <div className="hero-leaderboard-you">
           {board.userRow ? (
-            <LeaderboardRowView
+            <LeaderboardRow
               rank={board.userRow.rank}
               emoji={board.userRow.emoji ?? userEmoji}
               name="you"
@@ -130,7 +107,7 @@ export default function HeroLeaderboard() {
               rankClass="you"
             />
           ) : (
-            <LeaderboardRowView
+            <LeaderboardRow
               rank="new"
               emoji={userEmoji}
               name={name?.trim() || 'you'}

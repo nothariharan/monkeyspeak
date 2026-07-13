@@ -3,7 +3,6 @@ import {
   buildThemeBootScript,
   buildThemeTokenMap,
   buildThemeVarsCss,
-  DEFAULT_ACCENT_HEX,
 } from '@/lib/themeBoot'
 import { THEME_ORDER } from '@/lib/themes'
 import './globals.css'
@@ -57,8 +56,11 @@ export default function RootLayout({
       <head>
         {/* Palette tokens via data-theme — keeps <html> free of inline style="" */}
         <style id="ms-theme-vars" dangerouslySetInnerHTML={{ __html: THEME_VARS_CSS }} />
-        {/* Accent is user-picked; boot script rewrites this tag from localStorage */}
-        <style id="ms-accent">{`html{--accent:${DEFAULT_ACCENT_HEX}}`}</style>
+        {/*
+          Accent default lives in globals.css :root.
+          Boot script + applyTheme create/update #ms-accent so React never
+          hydrates a localStorage-mutated style tag (that caused the mismatch).
+        */}
         <script dangerouslySetInnerHTML={{ __html: themeBootScript }} />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />

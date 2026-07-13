@@ -12,7 +12,7 @@ export default function HeroTopScore() {
 
   return (
     <div
-      className="hero-top-score paper-panel"
+      className="hero-top-score paper-panel hero-animate"
       role="status"
       aria-live="polite"
       aria-label={hasScore ? `Your top score ${topWpm} words per minute` : 'No top score yet'}
