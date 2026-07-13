@@ -112,11 +112,11 @@ the deepgram api key stays on the server. the browser talks to your proxy or the
 
 | browser | deepgram path |
 | --- | --- |
-| brave / edge | `wss://monkeyspeak.onrender.com/api/deepgram/proxy` |
-| chrome / firefox | same-origin `POST /api/deepgram/live` on vercel |
+| all (when proxy is up) | `wss://monkeyspeak.onrender.com/api/deepgram/proxy` |
+| fallback | same-origin `POST /api/deepgram/live` on vercel |
 | localhost | local ws proxy on `:8080` when backend is running |
 
-health checks go through `/api/deepgram/proxy-health` on vercel so the browser never does a cross-origin fetch at the render url (chrome yelled about cors for weeks).
+the vercel http bridge is fallback-only — duplex request streaming to serverless hangs, which used to show up as a client “connection timed out” error. health checks go through `/api/deepgram/proxy-health` on vercel so the browser never does a cross-origin fetch at the render url.
 
 ### global leaderboard (optional)
 

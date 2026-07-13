@@ -447,21 +447,22 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
 
         void (async () => {
           try {
-            // kick the upload stream so vercel starts the handler before pcm arrives
-            await writer.write(new Uint8Array([0]))
-
             activeRef.current = true
             const audioSetup = _setupAudioWorklet(sink, stream)
 
             let response: Response
             try {
-              response = await fetch(bridgeUrl, {
+              // start fetch before writing — TransformStream backpressure can
+              // deadlock if we enqueue chunks with nobody reading yet
+              const fetchPromise = fetch(bridgeUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/octet-stream' },
                 body: readable,
                 signal: abort.signal,
                 duplex: 'half',
               } as RequestInit)
+              await writer.write(new Uint8Array([0]))
+              response = await fetchPromise
             } catch (fetchErr: unknown) {
               const msg =
                 fetchErr instanceof Error && fetchErr.message.includes('duplex')
@@ -623,24 +624,24 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
         ? await getBrowserSpeechProfile()
         : { isBrave: false, isEdge: false, preferDeepgram: false, onstartTimeoutMs: 3000 }
 
-    // brave/edge half-duplex fetch never streams ndjson back — use render ws proxy
-    // chrome/firefox use vercel http bridge (no render cold start)
-    const preferWsProxy = onLocalhost || profile.isBrave || profile.isEdge
-
-    if (preferWsProxy) {
-      const proxyUrl = buildDeepgramProxyUrl(language)
-      if (proxyUrl) {
-        const probe = await probeProxyBackendReachable()
-        if (probe.ok) {
-          sttDebug(
-            profile.isBrave || profile.isEdge
+    // prefer render ws proxy whenever it is up — vercel's /api/deepgram/live duplex
+    // stream hangs (request never gets headers back), which surfaces as the
+    // "Deepgram connection timed out — check mic access" client watchdog.
+    // http bridge stays as last-resort fallback when the proxy is cold/down.
+    const proxyUrl = buildDeepgramProxyUrl(language)
+    if (proxyUrl) {
+      const probe = await probeProxyBackendReachable()
+      if (probe.ok) {
+        sttDebug(
+          onLocalhost
+            ? 'WS proxy (local)'
+            : profile.isBrave || profile.isEdge
               ? 'WS proxy (Brave/Edge)'
               : 'WS proxy'
-          )
-          return { mode: 'proxy', url: proxyUrl }
-        }
-        sttDebug('WS proxy unavailable', probe.err ?? probe.status)
+        )
+        return { mode: 'proxy', url: proxyUrl }
       }
+      sttDebug('WS proxy unavailable — falling back to HTTP bridge', probe.err ?? probe.status)
     }
 
     return { mode: 'bridge', url: buildDeepgramBridgeUrl(language, duration) }

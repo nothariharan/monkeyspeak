@@ -1,0 +1,257 @@
+/*
+  post-test results screen. styled to match the rest of monkeyspeak:
+  mono font, lowercase, clean white rounded cards + soft shadows, pill buttons,
+  dotted tip boxes, blue/green accents, pixel mascot. no hand-drawn wobble.
+*/
+
+.page {
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--text-active);
+  font-family: var(--font-mono);
+  padding: 0 0 3rem;
+}
+
+.wrap {
+  max-width: 1024px;
+  margin: 0 auto;
+  padding: 0 clamp(0.75rem, 3vw, 1.5rem);
+}
+
+/* ---- header ---- */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.1rem clamp(0.75rem, 3vw, 1.5rem);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  margin-bottom: 1.75rem;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  letter-spacing: -0.5px;
+}
+.brandSpeak { color: var(--accent); }
+.headerBtns { display: flex; gap: 0.6rem; }
+
+/* clean white card, the workhorse surface */
+.card {
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-soft);
+}
+.cardDotted {
+  background: var(--surface);
+  border: 1.5px dotted color-mix(in srgb, var(--text-stats) 55%, transparent);
+  border-radius: var(--radius-lg);
+}
+
+/* little washi-tape accent like the homepage cards */
+.tape { position: relative; }
+.tape::before {
+  content: '';
+  position: absolute;
+  top: -9px;
+  left: 22px;
+  width: 54px;
+  height: 18px;
+  background: color-mix(in srgb, var(--accent) 22%, #fff);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  transform: rotate(-4deg);
+  opacity: 0.9;
+}
+.tapeGreen::before { background: color-mix(in srgb, var(--success) 22%, #fff); border-color: color-mix(in srgb, var(--success) 30%, transparent); left: auto; right: 26px; transform: rotate(3deg); }
+
+/* labels: uppercase mono, like .stat-label */
+.label {
+  color: var(--text-stats);
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  font-weight: 600;
+}
+
+/* ---- hero ---- */
+.heroRow {
+  display: grid;
+  grid-template-columns: minmax(0, 220px) minmax(0, 1fr);
+  gap: 1.25rem;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+@media (max-width: 720px) { .heroRow { grid-template-columns: 1fr; justify-items: center; } }
+
+.mascotWrap { position: relative; display: flex; justify-content: center; }
+.mascotImg {
+  width: 100%;
+  max-width: 210px;
+  height: auto;
+  image-rendering: pixelated; /* keep the sprite crisp */
+  filter: drop-shadow(0 6px 10px rgba(62, 47, 28, 0.14));
+}
+/* clean "nice one!" speech bubble next to the mascot */
+.speechBubble {
+  position: absolute;
+  top: 6%;
+  right: -6px;
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  box-shadow: var(--shadow-soft-sm);
+  border-radius: 12px;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--accent);
+  white-space: nowrap;
+}
+.speechBubble::after {
+  content: '';
+  position: absolute;
+  left: 14px; bottom: -7px;
+  width: 12px; height: 12px;
+  background: var(--surface);
+  border-right: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  transform: rotate(45deg);
+}
+
+.heroCard {
+  position: relative;
+  padding: 1.4rem 1.6rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem 1.5rem;
+  align-items: center;
+  border-color: color-mix(in srgb, var(--success) 50%, var(--border));
+  box-shadow: var(--shadow-soft), inset 0 0 0 1px color-mix(in srgb, var(--success) 22%, transparent);
+}
+@media (max-width: 560px) { .heroCard { grid-template-columns: 1fr; } }
+
+.pbBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0.6rem;
+  background: color-mix(in srgb, var(--success) 12%, var(--surface));
+  color: var(--success);
+  border-radius: 100px;
+  font-weight: 700;
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  width: fit-content;
+  margin-bottom: 0.55rem;
+}
+.wpmLine { display: flex; align-items: flex-end; gap: 0.5rem; }
+.wpmBig {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: clamp(3rem, 10vw, 4.5rem);
+  line-height: 0.85;
+  color: var(--accent);
+}
+.wpmUnit { font-family: var(--font-display); font-size: 1.1rem; color: var(--text-active); margin-bottom: 0.45rem; }
+.deltaLine { color: var(--success); font-weight: 700; margin-top: 0.45rem; font-size: 0.8rem; }
+
+.sessionMini { text-align: right; }
+@media (max-width: 560px) { .sessionMini { text-align: left; } }
+.miniTitle { margin-bottom: 0.6rem; }
+.miniRow { display: flex; gap: 1.2rem; justify-content: flex-end; }
+@media (max-width: 560px) { .miniRow { justify-content: flex-start; } }
+.miniCell { text-align: center; }
+.miniCell + .miniCell { border-left: 1px dashed color-mix(in srgb, var(--text-stats) 30%, transparent); padding-left: 1.2rem; }
+.miniVal { font-family: var(--font-display); font-size: 1.35rem; color: var(--text-active); margin-top: 0.2rem; }
+
+/* ---- metric cards ---- */
+.metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.85rem; margin-bottom: 0.85rem; }
+.metricsSecond { display: grid; grid-template-columns: minmax(0, 200px) minmax(0, 1fr); gap: 0.85rem; margin-bottom: 1.75rem; align-items: stretch; }
+@media (max-width: 720px) { .metrics { grid-template-columns: repeat(2, 1fr); } .metricsSecond { grid-template-columns: 1fr; } }
+
+.metricCard { padding: 0.9rem 1rem; display: flex; flex-direction: column; gap: 0.35rem; }
+.metricHead { display: flex; align-items: center; gap: 0.5rem; }
+.metricIcon { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 9px; }
+.iconAccuracy { color: var(--success); background: color-mix(in srgb, var(--success) 12%, var(--surface)); }
+.iconConsistency, .iconRaw { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
+.iconWords { color: #b8860b; background: color-mix(in srgb, #d4a017 14%, var(--surface)); }
+.iconFillers { color: var(--orange); background: color-mix(in srgb, var(--orange) 14%, var(--surface)); }
+.metricValue { font-family: var(--font-display); font-size: 1.85rem; color: var(--text-active); line-height: 1; margin-top: 0.15rem; }
+.metricHint { font-size: 0.72rem; color: var(--text-stats); }
+
+/* ---- chart ---- */
+.chartCard { padding: 1.2rem 1.3rem; }
+.chartArea { display: block; width: 100%; height: auto; }
+.chartTitle { margin-bottom: 0.7rem; }
+.legend { display: flex; flex-direction: column; gap: 0.7rem; justify-content: center; }
+.legendRow { display: flex; align-items: center; gap: 0.55rem; font-size: 0.75rem; color: var(--text-active); }
+
+.chartNotes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-top: 1rem; padding: 0.85rem 1rem; }
+@media (max-width: 720px) { .chartNotes { grid-template-columns: 1fr; } }
+.noteItem { display: flex; align-items: center; gap: 0.55rem; font-size: 0.72rem; color: var(--text-stats); }
+.noteItem + .noteItem { border-left: 1px solid color-mix(in srgb, var(--border) 40%, transparent); padding-left: 1rem; }
+@media (max-width: 720px) { .noteItem + .noteItem { border-left: none; padding-left: 0; } }
+
+/* ---- breakdown ---- */
+.breakdown { padding: 1.1rem 1.3rem; margin: 1.75rem 0; }
+.breakdownHead { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 0.7rem; }
+.breakdownCount { font-size: 0.72rem; color: var(--text-stats); }
+.segBar { display: flex; gap: 4px; height: 16px; margin-bottom: 0.8rem; }
+.seg { border-radius: 6px; }
+.segCorrect { background: var(--success); }
+.segWrong { background: var(--error); }
+.segMissed { background: color-mix(in srgb, var(--text-stats) 45%, var(--bg)); }
+.legendBreakdown { display: flex; gap: 1.4rem; flex-wrap: wrap; font-size: 0.75rem; color: var(--text-active); }
+.swatchBox { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 0.4rem; vertical-align: -1px; }
+
+/* ---- whats next ---- */
+.nextRow { padding: 1rem 1.3rem; display: flex; align-items: center; gap: 0.9rem; flex-wrap: wrap; margin-bottom: 1.25rem; }
+.nextHeadMascot { width: 52px; height: 52px; object-fit: contain; image-rendering: pixelated; }
+.nextLabel { font-family: var(--font-display); font-size: 1rem; color: var(--text-active); }
+.nextArrow { color: var(--text-stats); }
+.nextBtns { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-left: auto; }
+
+.streakWrap { display: flex; justify-content: center; margin-bottom: 1.5rem; }
+.streak { padding: 0.5rem 1.2rem; display: inline-flex; align-items: center; gap: 0.6rem; font-size: 0.8rem; color: var(--text-active); }
+.streakStrong { color: var(--success); font-weight: 700; }
+.streakChevron { color: var(--text-stats); }
+
+/* ---- tips ---- */
+.tips { padding: 0.9rem 1.3rem; display: flex; align-items: center; gap: 0.75rem; font-size: 0.78rem; color: var(--text-stats); }
+.tipsIcon { font-size: 1.1rem; }
+.tipsMascot { width: 42px; height: 42px; object-fit: contain; image-rendering: pixelated; margin-left: auto; }
+.tipsBold { color: var(--text-active); font-weight: 700; }
+
+/* ---- detailed breakdown (collapsible) + keyboard hint ---- */
+.detailToggle {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.25rem 0 0.25rem;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-stats);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+.detailToggle .caret { display: inline-block; transition: transform 0.2s; }
+.detailToggleOpen .caret { transform: rotate(90deg); }
+.detailGrid { display: grid; grid-template-columns: 1fr; gap: 1rem; margin-bottom: 1.5rem; }
+@media (min-width: 720px) { .detailGrid { grid-template-columns: 1fr 1fr; } }
+.detailBox {
+  padding: 0.9rem 1rem;
+  font-size: 0.85rem;
+  line-height: 1.7;
+  max-height: min(32vh, 22rem);
+  overflow-y: auto;
+}
+.detailWord { display: inline-block; margin-right: 0.35em; }
+.kbdHint { font-size: 0.72rem; color: var(--text-stats); margin-top: 0.4rem; text-align: center; }
