@@ -630,7 +630,13 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
     // http bridge stays as last-resort fallback when the proxy is cold/down.
     const proxyUrl = buildDeepgramProxyUrl(language)
     if (proxyUrl) {
-      const probe = await probeProxyBackendReachable()
+      let probe = await probeProxyBackendReachable()
+      // one more chance — free-tier Render often needs a wake-up GET before the WS upgrade
+      if (!probe.ok) {
+        sttDebug('WS proxy probe failed, retrying once', probe.err ?? probe.status)
+        await new Promise((r) => setTimeout(r, 1000))
+        probe = await probeProxyBackendReachable()
+      }
       if (probe.ok) {
         sttDebug(
           onLocalhost

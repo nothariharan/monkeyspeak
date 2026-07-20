@@ -118,6 +118,16 @@ the deepgram api key stays on the server. the browser talks to your proxy or the
 
 the vercel http bridge is fallback-only — duplex request streaming to serverless hangs, which used to show up as a client “connection timed out” error. health checks go through `/api/deepgram/proxy-health` on vercel so the browser never does a cross-origin fetch at the render url.
 
+**troubleshooting: voice wave moves but no words**
+
+the speaking wave is driven by local mic energy. it can look “alive” even when deepgram never returns `Results`. usual causes:
+
+1. **render proxy cold / unreachable** — `/api/deepgram/proxy-health` fails and the app falls back to `POST /api/deepgram/live` on vercel. that bridge often opens without useful transcripts. proxy-health now retries with a longer timeout so free-tier cold starts can wake up; the client also retries the probe once before falling back.
+2. **stale “listening” session** — if deepgram claimed to connect but produced no words, the 5s failsafe used to no-op. it now force-reconnects.
+3. **local setup** — run both `npm run dev` and `npm run dev:backend`, and set `NEXT_PUBLIC_DEEPGRAM_PROXY_URL=ws://localhost:8080/api/deepgram/proxy` in `.env.local`.
+
+debug: set `NEXT_PUBLIC_DEBUG_STT=true`, then check the network tab for a websocket to the render/local proxy (preferred) vs a long `/api/deepgram/live` post (fragile fallback).
+
 ### global leaderboard (optional)
 
 scores are shared across everyone via supabase postgres. no accounts — just a nickname and emoji after a speed run.
