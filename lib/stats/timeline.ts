@@ -43,11 +43,13 @@ export function buildSessionTimeline(
   const raw: { second: number; wpm: number }[] = []
   const wpm: { second: number; wpm: number }[] = []
   const momentum: { second: number; value: number }[] = []
+  const progress: { second: number; words: number }[] = []
 
   for (let i = 0; i < samples.length; i++) {
     const s = samples[i]!
     wpm.push({ second: s.second, wpm: s.liveWpm })
     momentum.push({ second: s.second, value: s.momentum })
+    progress.push({ second: s.second, words: s.currentIndex })
 
     if (i === 0) {
       raw.push({ second: s.second, wpm: Math.round((s.cumulativeChars / 5) * 60) })
@@ -73,7 +75,7 @@ export function buildSessionTimeline(
 
   const wordWindows = buildWordWindows(samples)
 
-  return { raw, wpm, momentum, errors, wordWindows }
+  return { raw, wpm, momentum, errors, progress, wordWindows }
 }
 
 /** if the live sampler barely ran, fake a flat-ish line so the results graph still renders */

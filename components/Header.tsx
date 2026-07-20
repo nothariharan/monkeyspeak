@@ -57,6 +57,15 @@ export default function Header({ onSettingsOpen, onProfileOpen }: HeaderProps) {
         >
           clarity
         </button>
+        <button
+          id="mode-ghost"
+          role="tab"
+          aria-selected={mode === 'ghost'}
+          className={`mode-tab ${mode === 'ghost' ? 'active' : ''}`}
+          onClick={() => handleMode('ghost')}
+        >
+          ghost race
+        </button>
       </div>
 
       {/* Right controls */}

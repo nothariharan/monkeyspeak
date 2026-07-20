@@ -98,7 +98,8 @@ export default function ConfigBar() {
 
   const isRunning = testState === 'running'
   const currentProvider = settings.sttProvider ?? 'webspeech'
-  const promptOptions = mode === 'speed' ? SPEED_PROMPTS : CLARITY_PROMPTS
+  const isRaceMode = mode === 'speed' || mode === 'ghost'
+  const promptOptions = isRaceMode ? SPEED_PROMPTS : CLARITY_PROMPTS
 
   useEffect(() => {
     void shouldPreferDeepgramStt().then(setRecommendDeepgram)
@@ -115,7 +116,7 @@ export default function ConfigBar() {
   return (
     <div ref={barRef} className="hero-preflight flex flex-col items-center gap-4 py-3 px-6">
       <div className="flex flex-wrap items-start justify-center gap-6">
-        {mode === 'speed' && (
+        {isRaceMode && (
           <SegmentGroup label="duration">
             {SPEED_DURATIONS.map((d) => (
               <SegmentBtn
@@ -149,7 +150,7 @@ export default function ConfigBar() {
           ))}
         </SegmentGroup>
 
-        {mode === 'speed' && (
+        {isRaceMode && (
           <SegmentGroup label="end">
             {END_CONDITIONS.map((ec) => (
               <SegmentBtn
@@ -165,7 +166,7 @@ export default function ConfigBar() {
           </SegmentGroup>
         )}
 
-        {mode === 'speed' && promptType === 'sentences' && (
+        {isRaceMode && promptType === 'sentences' && (
           <SegmentGroup label="difficulty">
             {DIFFICULTIES.map((d) => (
               <SegmentBtn
@@ -181,7 +182,7 @@ export default function ConfigBar() {
           </SegmentGroup>
         )}
 
-        {mode === 'speed' && (
+        {isRaceMode && (
           <SegmentGroup label="stt">
             {PROVIDERS.map((p) => (
               <SegmentBtn
@@ -198,7 +199,7 @@ export default function ConfigBar() {
         )}
       </div>
 
-      {mode === 'speed' && recommendDeepgram && currentProvider === 'webspeech' && !isRunning && (
+      {isRaceMode && recommendDeepgram && currentProvider === 'webspeech' && !isRunning && (
         <p className="text-center text-xs text-[var(--text-stats)] max-w-md">
           if browser speech feels stuck, try deepgram mode or switch to chrome for the quick test.
         </p>
