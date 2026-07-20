@@ -44,6 +44,30 @@ function pickWords(pool: string[], count: number): string[] {
   return result
 }
 
+const CLARITY_BENCHMARKS = [
+  'At 9:45 a.m., Maya confirmed that the API v2.1 rollout is 87% complete; however, the EU-West fallback still needs a 30-minute smoke test. “Ship only after the checksum matches,” she said.',
+  'Please send the Q3 forecast to dev-team@northstar.io, then tag it: priority-high, owner: Priya, and budget: $48,750. If the total changes by more than 2.5%, call me first!',
+  'Dr. Chen’s note reads: “Patient B-14 has a temperature of 38.6°C, takes 0.25 mg daily, and reports no allergy to amoxicillin.” Double-check every decimal before saving.',
+  'For the launch, pronounce “Nguyễn,” “O’Malley,” and “São Paulo” carefully. The meeting begins at 08:05 IST on Tuesday, July 21st, not Thursday, July 31st.',
+]
+
+function clarityBenchmark(mode: PromptMode): string {
+  const base = CLARITY_BENCHMARKS[Math.floor(Math.random() * CLARITY_BENCHMARKS.length)]
+  if (mode === 'tongue-twisters') {
+    return `Six sleek switches switched silently; then, surprisingly, the system said: “success, success, success!” At 6:06, Sasha shipped six samples to Sheffield.`
+  }
+  if (mode === 'sentences') {
+    return `Before you leave, please check the blue folder, the 4:30 calendar invite, and the note marked “final draft.” If anything is unclear, ask: “Should we revise it now, or wait until tomorrow?”`
+  }
+  return base
+}
+
+/** Production-style passages used only by the external-tool clarity benchmark. */
+export function generateClarityPrompt(mode: PromptMode, customText?: string): string {
+  if (mode === 'custom' && customText?.trim()) return customText.trim()
+  return clarityBenchmark(mode)
+}
+
 export function generatePrompt(
   mode: PromptMode,
   duration: number,
@@ -55,6 +79,8 @@ export function generatePrompt(
   }
 
   const wordCount = WORD_COUNTS[duration] ?? 90
+
+  if (mode === 'technical' || mode === 'tongue-twisters') return clarityBenchmark(mode)
 
   const sentencesPool =
     difficulty === 'easy' ? EASY_WORDS :
