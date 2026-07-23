@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, type MutableRefObject } from 'react'
+import { useEffect, useRef, type MutableRefObject } from 'react'
 import type { SpeakingGameState } from '@/hooks/useSpeakingGame'
 import { useVoiceActivity } from '@/hooks/useVoiceActivity'
 import { useSpeakingMomentum } from '@/hooks/useSpeakingMomentum'
@@ -9,8 +9,9 @@ import GameHUD from '@/components/game/GameHUD'
 import DissolveText from '@/components/game/DissolveText'
 import VoiceWave from '@/components/game/VoiceWave'
 import MonkeyDisplay from '@/components/game/MonkeyDisplay'
-import type { ProviderType, } from '@/hooks/useSpeechProvider'
+import type { ProviderType } from '@/hooks/useSpeechProvider'
 import type { EndCondition } from '@/store/testStore'
+import { useTestStore } from '@/store/testStore'
 
 function cumulativeCharsFromDissolved(words: string[], dissolvedCount: number): number {
   let chars = 0
@@ -36,6 +37,7 @@ interface SpeakingGameProps {
   sttError?: string | null
   endCondition?: EndCondition
   elapsedMs?: number
+  fillerFlashTick?: number
 }
 
 export default function SpeakingGame({
@@ -54,8 +56,10 @@ export default function SpeakingGame({
   sttError,
   endCondition = 'timer',
   elapsedMs = 0,
+  fillerFlashTick = 0,
 }: SpeakingGameProps) {
   const active = !isEnding
+  const settings = useTestStore((s) => s.settings)
   const voice = useVoiceActivity({ micStream, isActive: active, isEnding })
   const energy = micStream ? Math.max(voice.energy, waveActivity * 0.5) : waveActivity
   const isSpeaking = micStream ? voice.isSpeaking || waveActivity > 0.12 : waveActivity > 0.08 || speechActive
@@ -67,26 +71,55 @@ export default function SpeakingGame({
     isSpeaking,
   })
 
+  const sampleRef = useRef({
+    words,
+    dissolvedCount,
+    liveWpm: game.liveWpm,
+    currentIndex: game.currentIndex,
+    momentum,
+  })
+  sampleRef.current = {
+    words,
+    dissolvedCount,
+    liveWpm: game.liveWpm,
+    currentIndex: game.currentIndex,
+    momentum,
+  }
+
+  // Stable 1s sampler — do not reset when live metrics change.
   useEffect(() => {
     if (!active) return
 
     let second = 0
     const id = window.setInterval(() => {
       second++
+      const snap = sampleRef.current
       timelineRef.current.push({
         second,
-        cumulativeChars: cumulativeCharsFromDissolved(words, dissolvedCount),
-        liveWpm: game.liveWpm,
-        momentum,
-        currentIndex: game.currentIndex,
+        cumulativeChars: cumulativeCharsFromDissolved(snap.words, snap.currentIndex),
+        liveWpm: snap.liveWpm,
+        momentum: snap.momentum,
+        currentIndex: snap.currentIndex,
       })
     }, 1000)
 
     return () => clearInterval(id)
-  }, [active, words, dissolvedCount, game.liveWpm, game.currentIndex, momentum, timelineRef])
+  }, [active, timelineRef])
+
+  useEffect(() => {
+    if (!settings.fillerFlash || !fillerFlashTick) return
+    const root = document.documentElement
+    root.classList.add('filler-flash')
+    const t = window.setTimeout(() => root.classList.remove('filler-flash'), 220)
+    return () => clearTimeout(t)
+  }, [fillerFlashTick, settings.fillerFlash])
 
   return (
-    <div className="game-focus-mode" role="main" aria-label="Speaking test">
+    <div
+      className={`game-focus-mode${settings.blindMode ? ' game-focus-mode--blind' : ''}`}
+      role="main"
+      aria-label="Speaking test"
+    >
       <div className="game-focus-card">
         <GameHUD
           timeRemainingMs={timeRemainingMs}
@@ -104,7 +137,12 @@ export default function SpeakingGame({
 
         <div className="game-stage">
           <div className="game-reading-zone">
-            <DissolveText words={words} dissolvedCount={dissolvedCount} />
+            <DissolveText
+              words={words}
+              dissolvedCount={dissolvedCount}
+              blindMode={settings.blindMode}
+              smoothCaret={settings.smoothCaret}
+            />
           </div>
 
           <div className="game-lower-zone">

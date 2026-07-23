@@ -35,7 +35,7 @@ export function buildDeepgramListenUrl(language: string): string {
   return url.toString()
 }
 
-export function buildDeepgramProxyUrl(language: string): string | null {
+export function buildDeepgramProxyUrl(language: string, session?: string): string | null {
   const base = process.env.NEXT_PUBLIC_DEEPGRAM_PROXY_URL
   if (!base || base === 'direct') return null
 
@@ -57,15 +57,17 @@ export function buildDeepgramProxyUrl(language: string): string | null {
   url.searchParams.set('lang', language)
   url.searchParams.set('interim_results', 'true')
   url.searchParams.set('vad_events', 'true')
+  if (session) url.searchParams.set('session', session)
   // utterance_end_ms lives on the proxy server not the query string
   return url.toString()
 }
 
 // same-origin http bridge — chrome/firefox prod path
-export function buildDeepgramBridgeUrl(language: string, duration?: number): string {
+export function buildDeepgramBridgeUrl(language: string, duration?: number, session?: string): string {
   const url = new URL('/api/deepgram/live', typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000')
   url.searchParams.set('lang', language)
   if (duration) url.searchParams.set('duration', String(duration))
+  if (session) url.searchParams.set('session', session)
   return url.toString()
 }
 
@@ -102,9 +104,13 @@ export async function probeProxyBackendReachable(): Promise<{ ok: boolean; statu
   }
 }
 
-export async function fetchDeepgramAccessToken(): Promise<{ token: string } | { error: string }> {
+export async function fetchDeepgramAccessToken(session?: string): Promise<{ token: string } | { error: string }> {
   try {
-    const r = await fetch('/api/deepgram/token', { method: 'POST', cache: 'no-store' })
+    const r = await fetch('/api/deepgram/token', {
+      method: 'POST',
+      cache: 'no-store',
+      headers: session ? { 'X-MS-Session': session } : undefined,
+    })
     if (!r.ok) {
       const body = (await r.json().catch(() => ({}))) as { error?: string }
       return { error: body.error ?? `Deepgram token unavailable (${r.status})` }
@@ -112,6 +118,23 @@ export async function fetchDeepgramAccessToken(): Promise<{ token: string } | { 
     const data = (await r.json()) as { token?: string }
     if (!data.token) return { error: 'Deepgram token missing from server response' }
     return { token: data.token }
+  } catch (e) {
+    return { error: String(e) }
+  }
+}
+
+export async function fetchDeepgramSession(duration: number): Promise<{ session: string } | { error: string }> {
+  try {
+    const r = await fetch('/api/deepgram/session', {
+      method: 'POST',
+      cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ duration }),
+    })
+    const data = (await r.json().catch(() => ({}))) as { session?: string; error?: string }
+    if (!r.ok) return { error: data.error ?? `Deepgram session unavailable (${r.status})` }
+    if (!data.session) return { error: 'Deepgram session missing from server response' }
+    return { session: data.session }
   } catch (e) {
     return { error: String(e) }
   }

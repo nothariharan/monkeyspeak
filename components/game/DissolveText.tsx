@@ -6,9 +6,16 @@ import { gsap } from 'gsap'
 interface DissolveTextProps {
   words: string[]
   dissolvedCount: number
+  blindMode?: boolean
+  smoothCaret?: boolean
 }
 
-export default function DissolveText({ words, dissolvedCount }: DissolveTextProps) {
+export default function DissolveText({
+  words,
+  dissolvedCount,
+  blindMode = false,
+  smoothCaret = true,
+}: DissolveTextProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const wordRefsMap = useRef<Map<number, HTMLSpanElement>>(new Map())
   const lineOfIndexRef = useRef<number[]>([])
@@ -96,6 +103,7 @@ export default function DissolveText({ words, dissolvedCount }: DissolveTextProp
         {words.map((word, i) => {
           const isDissolved = i < dissolvedCount
           const isCurrent = i === dissolvedCount
+          const isUpcoming = i > dissolvedCount
 
           let color = 'var(--text-muted)'
           let fontWeight = 400
@@ -108,6 +116,8 @@ export default function DissolveText({ words, dissolvedCount }: DissolveTextProp
           } else if (isCurrent) {
             color = 'var(--accent)'
             fontWeight = 700
+          } else if (blindMode && isUpcoming) {
+            opacity = 0
           }
 
           return (
@@ -118,7 +128,12 @@ export default function DissolveText({ words, dissolvedCount }: DissolveTextProp
               style={{ color, fontWeight, opacity }}
             >
               {word}
-              <span className={`dissolve-word-underline${isCurrent ? ' dissolve-word-underline--active' : ''}`} aria-hidden />
+              <span
+                className={`dissolve-word-underline${isCurrent ? ' dissolve-word-underline--active' : ''}${
+                  isCurrent && !smoothCaret ? ' dissolve-word-underline--instant' : ''
+                }`}
+                aria-hidden
+              />
             </span>
           )
         })}

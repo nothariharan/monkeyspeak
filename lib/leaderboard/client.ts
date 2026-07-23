@@ -7,6 +7,8 @@ export type SubmitLeaderboardPayload = {
   accuracy: number
   duration: Duration
   promptType: PromptType
+  elapsedSec: number
+  runToken: string
 }
 
 type LeaderboardResponse = {

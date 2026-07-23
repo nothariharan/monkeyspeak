@@ -2,16 +2,14 @@ import { createClient, LiveTranscriptionEvents } from '@deepgram/sdk'
 import { checkAndReserveDeepgramSeconds } from '@/lib/deepgramRateLimit'
 import { DEEPGRAM_UTTERANCE_END_MS } from '@/lib/deepgramConnection'
 import { buildDeepgramListenUrlFromParams } from '@/lib/deepgramServerBridge'
+import { clientIp } from '@/lib/security/clientIp'
+import { verifySessionGrant } from '@/lib/security/sessionGrant'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
-function clientIp(req: Request): string {
-  const forwarded = req.headers.get('x-forwarded-for')
-  if (forwarded) return forwarded.split(',')[0]?.trim() || 'unknown'
-  return req.headers.get('x-real-ip') ?? 'unknown'
-}
+const MAX_QUEUED_CHUNKS = 40
 
 function resolveLanguage(params: URLSearchParams): string {
   return params.get('lang') ?? params.get('language') ?? 'en-US'
@@ -39,6 +37,13 @@ export async function POST(req: Request) {
 
   const incoming = new URL(req.url)
   const duration = resolveDuration(incoming.searchParams)
+  const session =
+    req.headers.get('x-ms-session') ?? incoming.searchParams.get('session')
+  const sessionCheck = verifySessionGrant(session, 'deepgram', { duration })
+  if (!sessionCheck.ok) {
+    return Response.json({ error: sessionCheck.error }, { status: 401 })
+  }
+
   const ip = clientIp(req)
   const rateCheck = checkAndReserveDeepgramSeconds(ip, duration)
   if (!rateCheck.ok) {
@@ -160,7 +165,7 @@ export async function POST(req: Request) {
         if (done) break
         if (value.length <= 1) continue
         if (upstreamOpen) live.send(toSocketData(value))
-        else audioQueue.push(value)
+        else if (audioQueue.length < MAX_QUEUED_CHUNKS) audioQueue.push(value)
       }
 
       live.requestClose()

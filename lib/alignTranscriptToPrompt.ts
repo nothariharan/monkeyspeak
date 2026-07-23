@@ -1,6 +1,5 @@
 import { smithWatermanAlign } from '@/lib/dpAlign'
-import { normalizeWordToken } from '@/lib/wordMatch'
-import { isFiller } from '@/lib/fillers'
+import { stripFillers } from '@/lib/fillers'
 import type { DiffWord } from '@/store/testStore'
 import type { EnrichedWord } from '@/hooks/useSpeechProvider'
 
@@ -18,10 +17,9 @@ export function alignTranscriptToPrompt(
     .split(/\s+/)
     .filter(Boolean)
 
-  // strip fillers before alignment — ums dont count as spoken words
-  const spokenTokens: EnrichedWord[] = rawTokens
-    .filter((w) => !isFiller(w))
-    .map((w) => ({ word: w }))
+  // strip fillers before alignment — but keep fillers that are real prompt words
+  const { kept } = stripFillers(rawTokens, prompt)
+  const spokenTokens: EnrichedWord[] = kept.map((w) => ({ word: w }))
 
   if (spokenTokens.length === 0) {
     return prompt.map((w) => ({ word: w, tag: 'missed' as const }))
@@ -54,11 +52,12 @@ export function alignTranscriptToPrompt(
   })
 }
 
-// filler count on raw transcript before stripping
-export function countFillers(transcript: string): number {
-  return transcript
+/** filler count on raw transcript (phrase-aware, prompt-preserving) */
+export function countFillers(transcript: string, prompt: string[] = []): number {
+  const rawTokens = transcript
     .toLowerCase()
+    .replace(/[^\w\s']/g, '')
     .split(/\s+/)
     .filter(Boolean)
-    .filter((w) => isFiller(w)).length
+  return stripFillers(rawTokens, prompt).fillerCount
 }

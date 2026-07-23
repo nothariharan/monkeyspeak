@@ -24,19 +24,15 @@ export default function Toast({ message, onDismiss, durationMs = 3500 }: ToastPr
     <div
       role="status"
       aria-live="polite"
-      className="font-mono"
+      className="font-mono app-toast"
       style={{
-        position: 'fixed',
-        bottom: '1.5rem',
-        right: '1.5rem',
-        zIndex: 100,
         background: 'var(--surface)',
         border: '1px solid var(--border)',
         color: 'var(--text-muted)',
         fontSize: '0.78rem',
         padding: '0.55rem 1rem',
         borderRadius: '0.5rem',
-        boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
+        boxShadow: 'var(--shadow-soft)',
         maxWidth: 'min(22rem, calc(100vw - 2rem))',
       }}
     >

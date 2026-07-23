@@ -1,10 +1,13 @@
 import { createClient } from '@deepgram/sdk'
 import { NextResponse } from 'next/server'
+import { clientIp } from '@/lib/security/clientIp'
+import { hitRateLimit } from '@/lib/security/rateLimit'
+import { verifySessionGrant } from '@/lib/security/sessionGrant'
 
 /** Avoid stale compiled handler + CDN-ish caching. */
 export const dynamic = 'force-dynamic'
 
-const EPHEMERAL_TTL_SECONDS = 120
+const EPHEMERAL_TTL_SECONDS = 60
 
 type IssuedVia = 'ephemeral' | 'jwt' | 'none'
 
@@ -30,8 +33,18 @@ function formatGrantError(err: unknown): string {
   return String(err)
 }
 
+function readSession(request: Request): string | null {
+  const header = request.headers.get('x-ms-session')
+  if (header) return header
+  try {
+    return new URL(request.url).searchParams.get('session')
+  } catch {
+    return null
+  }
+}
+
 /**
- * Short-lived project key (~40 chars) for browser WebSocket subprotocol auth.
+ * Short-lived project key for browser WebSocket subprotocol auth.
  * JWTs from grantToken() are too long for Sec-WebSocket-Protocol and fail in browsers.
  */
 async function issueEphemeralListenKey(
@@ -69,9 +82,19 @@ async function issueEphemeralListenKey(
 
 /**
  * Issues a short-lived Deepgram credential for browser live listen.
- * Prefers ephemeral API keys (browser-safe); falls back to grantToken JWT for SDK paths.
+ * Requires a prior /api/deepgram/session grant.
  */
-export async function POST() {
+export async function POST(request: Request) {
+  const ip = clientIp(request)
+  if (!hitRateLimit(`dg-token:${ip}`, { windowMs: 60_000, max: 8 })) {
+    return NextResponse.json({ error: 'slow down — too many token requests' }, { status: 429 })
+  }
+
+  const sessionCheck = verifySessionGrant(readSession(request), 'deepgram')
+  if (!sessionCheck.ok) {
+    return NextResponse.json({ error: sessionCheck.error }, { status: 401 })
+  }
+
   const apiKey = process.env.DEEPGRAM_API_KEY
   const projectId = process.env.DEEPGRAM_PROJECT_ID
 
@@ -121,6 +144,10 @@ export async function POST() {
   }
 }
 
+/** GET minting removed — use POST with a session grant. */
 export async function GET() {
-  return POST()
+  return NextResponse.json(
+    { error: 'use POST /api/deepgram/token with an x-ms-session header' },
+    { status: 405 }
+  )
 }

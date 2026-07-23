@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { isSupabaseConfigured } from '@/lib/supabase/admin'
 import { fetchClarityLeaderboard, saveClarityBenchmark, validateClaritySubmission } from '@/lib/clarityLeaderboard/server'
+import { clientIp } from '@/lib/security/clientIp'
+import { hitRateLimit } from '@/lib/security/rateLimit'
 
 export const dynamic = 'force-dynamic'
 
@@ -12,6 +14,12 @@ export async function GET() {
 
 export async function POST(request: Request) {
   if (!isSupabaseConfigured()) return NextResponse.json({ error: 'clarity benchmark is not configured' }, { status: 503 })
+
+  const ip = clientIp(request)
+  if (!hitRateLimit(`clarity:${ip}`, { windowMs: 30_000, max: 1 })) {
+    return NextResponse.json({ error: 'slow down — try again in a bit' }, { status: 429 })
+  }
+
   let body: unknown
   try { body = await request.json() } catch { return NextResponse.json({ error: 'invalid json' }, { status: 400 }) }
   const submission = validateClaritySubmission(body)

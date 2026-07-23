@@ -3,17 +3,18 @@ import {
   LEADERBOARD_EMOJI_OPTIONS,
 } from '@/lib/stats/leaderboard'
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
+import { verifySessionGrant } from '@/lib/security/sessionGrant'
+import { checkCooldown } from '@/lib/security/rateLimit'
 import type { Duration, LeaderboardEntry, PromptType } from '@/store/testStore'
 
 const DURATIONS: Duration[] = [15, 30, 60, 120]
 const PROMPT_TYPES: PromptType[] = ['sentences', 'numbers', 'custom', 'technical', 'tongue-twisters']
 const EMOJI_SET = new Set<string>(LEADERBOARD_EMOJI_OPTIONS)
 
-const rateLimit = new Map<string, number>()
 const RATE_WINDOW_MS = 30_000
+/** Early-stop runs must reach this fraction of the configured duration to post. */
+export const MIN_ELAPSED_RATIO = 0.9
 
-// rough wpm ceilings per duration — defense in depth not anti-cheat
-// signed run tokens are the real fix when we get there
 const MAX_WPM_BY_DURATION: Record<Duration, number> = {
   15: 260,
   30: 240,
@@ -39,6 +40,8 @@ export type SubmitPayload = {
   accuracy: number
   duration: Duration
   promptType: PromptType
+  elapsedSec: number
+  runToken: string
 }
 
 function cleanName(value: string) {
@@ -87,33 +90,40 @@ export function validateSubmitPayload(body: unknown): SubmitPayload | { error: s
   const accuracy = Number(raw.accuracy)
   const duration = parseDuration(String(raw.duration ?? ''))
   const promptType = parsePromptType(String(raw.promptType ?? ''))
+  const elapsedSec = Number(raw.elapsedSec)
+  const runToken = typeof raw.runToken === 'string' ? raw.runToken : ''
 
   if (name.length < 2 || name.length > 18) return { error: 'name needs 2 to 18 characters' }
-  if (/[%_]/.test(name)) return { error: 'name has invalid characters' }
+  if (!/^[A-Za-z0-9 _-]+$/.test(name)) return { error: 'name has invalid characters' }
   if (!EMOJI_SET.has(emoji)) return { error: 'pick an icon from the list' }
   if (!Number.isFinite(wpm) || wpm < 1 || wpm > 250) return { error: 'wpm looks suspicious' }
   if (!Number.isFinite(accuracy) || accuracy < 0 || accuracy > 100) return { error: 'accuracy out of range' }
   if (!duration) return { error: 'invalid duration' }
   if (wpm > MAX_WPM_BY_DURATION[duration]) return { error: 'wpm looks suspicious' }
   if (!promptType) return { error: 'invalid prompt type' }
+  if (!Number.isFinite(elapsedSec) || elapsedSec <= 0) return { error: 'missing elapsed time' }
+  if (elapsedSec < duration * MIN_ELAPSED_RATIO) {
+    return { error: 'finish the full timed run before posting to the board' }
+  }
+  if (elapsedSec > duration + 15) return { error: 'elapsed time looks suspicious' }
 
-  return { name, emoji, wpm: Math.round(wpm), accuracy: Math.round(accuracy), duration, promptType }
+  const grant = verifySessionGrant(runToken, 'run', { duration, promptType })
+  if (!grant.ok) return { error: grant.error }
+
+  return {
+    name,
+    emoji,
+    wpm: Math.round(wpm),
+    accuracy: Math.round(accuracy),
+    duration,
+    promptType,
+    elapsedSec,
+    runToken,
+  }
 }
 
 export function checkRateLimit(ip: string) {
-  const now = Date.now()
-  const last = rateLimit.get(ip) ?? 0
-  if (now - last < RATE_WINDOW_MS) return false
-  rateLimit.set(ip, now)
-
-  // trim stale rate limit entries
-  if (rateLimit.size > 500) {
-    rateLimit.forEach((ts, key) => {
-      if (now - ts > RATE_WINDOW_MS * 2) rateLimit.delete(key)
-    })
-  }
-
-  return true
+  return checkCooldown(`leaderboard:${ip}`, RATE_WINDOW_MS)
 }
 
 export async function fetchLeaderboardEntries(

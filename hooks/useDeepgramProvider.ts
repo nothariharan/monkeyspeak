@@ -6,6 +6,7 @@ import { isFiller } from '@/lib/fillers'
 import {
   buildDeepgramBridgeUrl,
   buildDeepgramProxyUrl,
+  fetchDeepgramSession,
   parseDeepgramWireMessage,
   probeProxyBackendReachable,
 } from '@/lib/deepgramConnection'
@@ -624,11 +625,17 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
         ? await getBrowserSpeechProfile()
         : { isBrave: false, isEdge: false, preferDeepgram: false, onstartTimeoutMs: 3000 }
 
+    const sessionRes = await fetchDeepgramSession(duration)
+    if ('error' in sessionRes) {
+      return { mode: 'none', error: sessionRes.error }
+    }
+    const { session } = sessionRes
+
     // prefer render ws proxy whenever it is up — vercel's /api/deepgram/live duplex
     // stream hangs (request never gets headers back), which surfaces as the
     // "Deepgram connection timed out — check mic access" client watchdog.
     // http bridge stays as last-resort fallback when the proxy is cold/down.
-    const proxyUrl = buildDeepgramProxyUrl(language)
+    const proxyUrl = buildDeepgramProxyUrl(language, session)
     if (proxyUrl) {
       let probe = await probeProxyBackendReachable()
       // one more chance — free-tier Render often needs a wake-up GET before the WS upgrade
@@ -650,7 +657,7 @@ export function useDeepgramProvider(_enabled = true): SpeechProvider {
       sttDebug('WS proxy unavailable — falling back to HTTP bridge', probe.err ?? probe.status)
     }
 
-    return { mode: 'bridge', url: buildDeepgramBridgeUrl(language, duration) }
+    return { mode: 'bridge', url: buildDeepgramBridgeUrl(language, duration, session) }
   }, [])
 
   // pick ws proxy or http bridge then open the session

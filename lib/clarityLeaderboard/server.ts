@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
+import { diffWords, calcClarityScore, calcPunctuationScore } from '@/lib/diff'
 import type { ClarityLeaderboardRow, ClaritySubmission } from './client'
 
 type DbRow = { tool_id: string; tool_name: string; clarity_score: number; punctuation_score: number; run_count: number }
@@ -14,13 +15,29 @@ export function validateClaritySubmission(body: unknown): ClaritySubmission | { 
   const promptType = text('promptType', 32)
   const promptText = text('promptText', 1600)
   const transcript = text('transcript', 6000)
-  const clarityScore = Number(value.clarityScore)
-  const punctuationScore = Number(value.punctuationScore)
-  if (toolId.length < 2 || toolName.length < 2 || !allowedPromptTypes.has(promptType)) return { error: 'invalid tool or prompt' }
-  if (promptText.length < 10 || transcript.length < 1) return { error: 'prompt and transcript are required' }
-  if (!Number.isInteger(clarityScore) || clarityScore < 0 || clarityScore > 100) return { error: 'invalid clarity score' }
-  if (!Number.isInteger(punctuationScore) || punctuationScore < 0 || punctuationScore > 100) return { error: 'invalid punctuation score' }
-  return { toolId, toolName, promptType, promptText, transcript, clarityScore, punctuationScore }
+
+  if (toolId.length < 2 || toolName.length < 2 || !allowedPromptTypes.has(promptType)) {
+    return { error: 'invalid tool or prompt' }
+  }
+  if (promptText.length < 10 || transcript.length < 1) {
+    return { error: 'prompt and transcript are required' }
+  }
+
+  // Always recompute — never trust client-chosen scores.
+  const promptWordCount = promptText.trim().split(/\s+/).filter(Boolean).length
+  const diff = diffWords(promptText, transcript)
+  const { score: clarityScore } = calcClarityScore(diff, promptWordCount)
+  const punctuationScore = calcPunctuationScore(promptText, transcript)
+
+  return {
+    toolId,
+    toolName,
+    promptType,
+    promptText,
+    transcript,
+    clarityScore,
+    punctuationScore,
+  }
 }
 
 export async function fetchClarityLeaderboard(): Promise<ClarityLeaderboardRow[]> {

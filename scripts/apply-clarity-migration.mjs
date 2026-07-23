@@ -12,11 +12,22 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-const PROJECT_REF = 'zpaykwaqhiwpmpjvtqrj'
+const PROJECT_REF = process.env.SUPABASE_PROJECT_REF || process.env.SUPABASE_URL?.match(/https:\/\/([^.]+)\.supabase\.co/)?.[1]
 const token = process.env.SUPABASE_ACCESS_TOKEN
+const confirm = process.env.CONFIRM_MIGRATION === '1'
 
 if (!token) {
   console.error('Missing SUPABASE_ACCESS_TOKEN. Create one at https://supabase.com/dashboard/account/tokens')
+  process.exit(1)
+}
+
+if (!PROJECT_REF) {
+  console.error('Set SUPABASE_PROJECT_REF (or SUPABASE_URL) before applying migrations.')
+  process.exit(1)
+}
+
+if (!confirm) {
+  console.error(`Refusing to apply without CONFIRM_MIGRATION=1 (target project: ${PROJECT_REF})`)
   process.exit(1)
 }
 

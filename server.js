@@ -1,8 +1,14 @@
 const { createServer } = require('http')
 const { parse } = require('url')
+const path = require('path')
 const next = require('next')
 const WebSocket = require('ws')
 const { createClient: createDgClient } = require('@deepgram/sdk')
+const {
+  verifySessionGrant,
+  buildDeepgramListenUrl,
+  MAX_BUFFERED_FRAMES,
+} = require('./lib/security/sessionGrantCompat.cjs')
 
 const dev = process.env.NODE_ENV !== 'production'
 const hostname = 'localhost'
@@ -10,42 +16,6 @@ const port = parseInt(process.env.PORT || '3000', 10)
 
 const app = next({ dev, hostname, port })
 const handle = app.getRequestHandler()
-
-// merge browser query params into deepgram /v1/listen (lang → language etc)
-function buildDeepgramListenUrl(reqUrl) {
-  const incoming = new URL(reqUrl, 'http://127.0.0.1')
-  const p = incoming.searchParams
-
-  if (p.has('lang') && !p.has('language')) {
-    p.set('language', p.get('lang'))
-    p.delete('lang')
-  }
-
-  if (p.has('utterance_end_ms')) {
-    const ms = parseInt(p.get('utterance_end_ms'), 10)
-    if (!Number.isFinite(ms) || ms < 1000) p.set('utterance_end_ms', '1000')
-  }
-
-  const defaults = {
-    model: 'nova-3',
-    language: 'en-US',
-    encoding: 'linear16',
-    sample_rate: '16000',
-    channels: '1',
-    smart_format: 'false',
-    interim_results: 'true',
-    vad_events: 'true',
-    endpointing: '10',
-    no_delay: 'true',
-    filler_words: 'true',
-    utterance_end_ms: '1000',
-  }
-  for (const [k, v] of Object.entries(defaults)) {
-    if (!p.has(k)) p.set(k, v)
-  }
-
-  return `wss://api.deepgram.com/v1/listen?${p.toString()}`
-}
 
 app.prepare().then(async () => {
   const server = createServer((req, res) => {
@@ -61,7 +31,7 @@ app.prepare().then(async () => {
   }
 
   server.on('upgrade', (req, socket, head) => {
-    const { pathname } = parse(req.url, true)
+    const { pathname, query } = parse(req.url, true)
 
     if (pathname !== '/api/deepgram/proxy') {
       if (nextUpgradeHandler) {
@@ -69,6 +39,14 @@ app.prepare().then(async () => {
       } else {
         socket.destroy()
       }
+      return
+    }
+
+    const session = (query && query.session) || req.headers['x-ms-session']
+    const sessionCheck = verifySessionGrant(session, 'deepgram')
+    if (!sessionCheck.ok) {
+      socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n')
+      socket.destroy()
       return
     }
 
@@ -101,15 +79,17 @@ app.prepare().then(async () => {
         headers: { Authorization: `Token ${wsToken}` },
       })
 
-      // mic may send pcm before deepgram finishes handshaking — buffer instead of drop
       const bufferedMessages = []
       let isDgOpen = false
 
       browserWs.on('message', (data) => {
         if (isDgOpen && dgWs.readyState === WebSocket.OPEN) {
           dgWs.send(data)
-        } else {
+        } else if (bufferedMessages.length < MAX_BUFFERED_FRAMES) {
           bufferedMessages.push(data)
+        } else {
+          browserWs.close(1008, 'buffer overflow')
+          dgWs.close()
         }
       })
 
@@ -122,7 +102,6 @@ app.prepare().then(async () => {
         }
       })
 
-      // deepgram sometimes sends json as binary frames — normalize to utf-8 text
       dgWs.on('message', (data) => {
         if (browserWs.readyState !== WebSocket.OPEN) return
         const text = typeof data === 'string' ? data : data.toString('utf8')

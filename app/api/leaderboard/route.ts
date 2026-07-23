@@ -9,14 +9,9 @@ import {
   validateSubmitPayload,
 } from '@/lib/leaderboard/server'
 import { isSupabaseConfigured } from '@/lib/supabase/admin'
+import { clientIp } from '@/lib/security/clientIp'
 
 export const dynamic = 'force-dynamic'
-
-function clientIp(request: Request) {
-  const forwarded = request.headers.get('x-forwarded-for')
-  if (forwarded) return forwarded.split(',')[0]?.trim() || 'unknown'
-  return request.headers.get('x-real-ip') ?? 'unknown'
-}
 
 export async function GET(request: Request) {
   if (!isSupabaseConfigured()) {

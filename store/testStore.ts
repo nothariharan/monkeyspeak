@@ -335,7 +335,12 @@ export const useTestStore = create<TestStore>()(
               ...s.settings,
               personalBests: {
                 ...(s.settings.personalBests ?? {}),
-                [key]: { wpm, date: new Date().toISOString(), timeline },
+                [key]: {
+                  wpm,
+                  date: new Date().toISOString(),
+                  // keep prior ghost replay if the new PB has no usable timeline
+                  timeline: timeline ?? current?.timeline,
+                },
               },
             },
           }))

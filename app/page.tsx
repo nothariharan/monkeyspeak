@@ -41,6 +41,8 @@ type PendingLeaderboardScore = {
   accuracy: number
   duration: Duration
   promptType: PromptType
+  elapsedSec: number
+  runToken: string
 }
 
 function splitPrompt(text: string): string[] {
@@ -66,6 +68,11 @@ export default function Home() {
   const testStartedAtRef = useRef<number | null>(null)
   const confirmedWordsRef = useRef<string[]>([])
   const interimTextRef = useRef('')
+  const finalizingRef = useRef(false)
+  const runTokenRef = useRef<string | null>(null)
+  const prevFillerCountRef = useRef(0)
+  const [fillerFlashTick, setFillerFlashTick] = useState(0)
+  const [claritySaveError, setClaritySaveError] = useState<string | null>(null)
 
   const sttProvider = store.settings.sttProvider ?? 'webspeech'
   const endCondition = store.settings.endCondition ?? 'timer'
@@ -73,6 +80,7 @@ export default function Home() {
     interimText,
     previewWords,
     confirmedWords,
+    fillerCount: liveFillerCount,
     isListening,
     error: sttError,
     micStream,
@@ -96,12 +104,19 @@ export default function Home() {
     if (audioActive) return 0.9
     if (previewWords.length > 0 || interimText.trim().length > 0) return 0.72
     if (isListening && confirmedWords.length > 0) return 0.55
-    if (isListening) return 0.32
+    // don't fake a "live" wave from isListening alone — that lied when STT was silent
     return 0
   })()
 
   useEffect(() => { confirmedWordsRef.current = confirmedWords }, [confirmedWords])
   useEffect(() => { interimTextRef.current = interimText }, [interimText])
+
+  useEffect(() => {
+    if (liveFillerCount > prevFillerCountRef.current) {
+      setFillerFlashTick((n) => n + 1)
+    }
+    prevFillerCountRef.current = liveFillerCount
+  }, [liveFillerCount])
 
   const isSpeedRunning = store.testState === 'running' && store.mode !== 'clarity'
 
@@ -154,6 +169,11 @@ export default function Home() {
   }, [])
 
   const finalizeSpeed = useCallback((elapsedSec: number) => {
+    if (finalizingRef.current) return
+    const state = useTestStore.getState()
+    if (state.testState !== 'running') return
+    finalizingRef.current = true
+
     stopSession()
 
     const s = useTestStore.getState()
@@ -166,16 +186,17 @@ export default function Home() {
     }
     const fullTranscript = fullTranscriptParts.join(' ')
 
+    const safeElapsed = Math.max(1, Math.min(elapsedSec, resultDuration + 2))
     const diff = alignTranscriptToPrompt(fullTranscript, s.prompt)
-    const fillerCount = countFillers(fullTranscript)
+    const fillerCount = Math.max(liveFillerCount, countFillers(fullTranscript, s.prompt))
 
     const correctWords = diff.filter((w) => w.tag === 'correct')
     const correctChars = correctWords.reduce((sum, w) => sum + w.word.length + 1, 0)
     const allSpokenWords = diff.filter((w) => w.tag !== 'missed')
     const allSpokenChars = allSpokenWords.reduce((sum, w) => sum + w.word.length + 1, 0)
 
-    const netWpm = netWpmFromChars(correctChars, elapsedSec)
-    const rawWpm = rawWpmFromChars(allSpokenChars, elapsedSec)
+    const netWpm = netWpmFromChars(correctChars, safeElapsed)
+    const rawWpm = rawWpmFromChars(allSpokenChars, safeElapsed)
     const accuracy = s.prompt.length > 0
       ? Math.round((correctWords.length / s.prompt.length) * 100)
       : 0
@@ -208,7 +229,7 @@ export default function Home() {
         fillerCount,
         accuracy,
         diff,
-        elapsedSec,
+        elapsedSec: safeElapsed,
         transcript: fullTranscript,
         deltaWpm,
         consistency,
@@ -227,19 +248,29 @@ export default function Home() {
         wordsSpoken: allSpokenWords.length,
       })
       s.setTestState('ended')
-      setPendingLeaderboardScore({
-        wpm: netWpm,
-        accuracy,
-        duration: resultDuration,
-        promptType: activeDailyKey as PromptType,
-      })
+      const runToken = runTokenRef.current
+      if (runToken && safeElapsed >= resultDuration * 0.9) {
+        setPendingLeaderboardScore({
+          wpm: netWpm,
+          accuracy,
+          duration: resultDuration,
+          promptType: activeDailyKey as PromptType,
+          elapsedSec: safeElapsed,
+          runToken,
+        })
+      } else {
+        setPendingLeaderboardScore(null)
+      }
       setIsEnding(false)
     }, 1200)
-  }, [stopSession])
+  }, [stopSession, liveFillerCount])
 
   const handleTimerEnd = useCallback(() => {
     if (useTestStore.getState().settings.endCondition === 'passage') return
-    finalizeSpeed(store.duration)
+    const elapsed = testStartedAtRef.current
+      ? (Date.now() - testStartedAtRef.current) / 1000
+      : store.duration
+    finalizeSpeed(Math.min(elapsed, store.duration))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [finalizeSpeed, store.duration])
 
@@ -308,7 +339,11 @@ export default function Home() {
 
   const handleStart = useCallback(async () => {
     setStartError(null)
+    setClaritySaveError(null)
     setPendingLeaderboardScore(null)
+    finalizingRef.current = false
+    runTokenRef.current = null
+    prevFillerCountRef.current = 0
 
     const sStore = useTestStore.getState()
     const todayStr = getLocalDateStr()
@@ -322,6 +357,23 @@ export default function Home() {
     if (store.mode !== 'clarity') {
       resetProvider()
       store.setMicState('requesting')
+
+      try {
+        const tokenRes = await fetch('/api/run-token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            duration: sStore.duration,
+            promptType: sStore.promptType === 'daily' ? `daily-${todayStr}` : sStore.promptType,
+          }),
+        })
+        const tokenData = (await tokenRes.json().catch(() => ({}))) as { runToken?: string; error?: string }
+        if (tokenRes.ok && tokenData.runToken) {
+          runTokenRef.current = tokenData.runToken
+        }
+      } catch {
+        /* board save will simply be skipped without a token */
+      }
 
       const didStart = await startSession()
       if (!didStart.ok) {
@@ -352,7 +404,7 @@ export default function Home() {
       testStartedAtRef.current = now
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store.mode, store.prompt.length, loadPrompt, startSession, resetProvider, startTimer])
+  }, [store.mode, store.prompt.length, loadPrompt, startSession, resetProvider, startTimer, activeSource])
 
   const handleStop = useCallback(() => {
     const s = useTestStore.getState()
@@ -378,10 +430,15 @@ export default function Home() {
       const spokenWordCount = s.clarityTranscript.trim().split(/\s+/).filter(Boolean).length
 
       s.setDiffResult(diff, score, grade)
+      setClaritySaveError(null)
       void submitClarityBenchmark({
         toolId: s.clarityToolId, toolName: s.clarityToolName, promptType: s.promptType,
         promptText: promptStr, transcript: s.clarityTranscript, clarityScore: score, punctuationScore,
-      }).then(() => window.dispatchEvent(new Event('clarity-benchmark:refresh'))).catch(() => undefined)
+      }).then(() => {
+        window.dispatchEvent(new Event('clarity-benchmark:refresh'))
+      }).catch((err: unknown) => {
+        setClaritySaveError(err instanceof Error ? err.message : 'could not save clarity result')
+      })
       s.pushSessionHistory({
         date: new Date().toISOString(),
         mode: 'clarity',
@@ -403,9 +460,13 @@ export default function Home() {
   const clearRunScratch = useCallback(() => {
     setIsPersonalBest(false)
     setStartError(null)
+    setClaritySaveError(null)
     setPendingLeaderboardScore(null)
     setDissolvedCount(0)
     setIsEnding(false)
+    finalizingRef.current = false
+    runTokenRef.current = null
+    prevFillerCountRef.current = 0
     gameMetricsRef.current = { rawWpms: [] }
     timelineRef.current = []
     setTestStartedAt(null)
@@ -462,9 +523,9 @@ export default function Home() {
   useEffect(() => {
     if (store.testState !== 'running' || store.mode === 'clarity') return
     if ((store.settings.endCondition ?? 'timer') !== 'passage') return
-    if (store.prompt.length === 0 || dissolvedCount < store.prompt.length) return
+    if (store.prompt.length === 0 || speakingGame.currentIndex < store.prompt.length) return
     handleStopRef.current()
-  }, [dissolvedCount, store.testState, store.mode, store.prompt.length, store.settings.endCondition])
+  }, [speakingGame.currentIndex, store.testState, store.mode, store.prompt.length, store.settings.endCondition])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -540,9 +601,10 @@ export default function Home() {
   const ghostBest = store.settings.personalBests[`speed-${store.duration}s-${store.promptType}`]
   const ghostProgressAt = (elapsedSeconds: number) => {
     const points = ghostBest?.timeline?.progress ?? []
-    if (!points.length || !store.prompt.length) return Math.min(100, (elapsedSeconds / store.duration) * 100)
+    if (!points.length) return Math.min(100, (elapsedSeconds / store.duration) * 100)
+    const maxWords = Math.max(...points.map((p) => p.words), 1)
     const prior = [...points].reverse().find((point) => point.second <= elapsedSeconds) ?? points[0]
-    return Math.min(100, ((prior?.words ?? 0) / store.prompt.length) * 100)
+    return Math.min(100, ((prior?.words ?? 0) / maxWords) * 100)
   }
   const startHint = store.settings.sttProvider === 'deepgram'
     ? 'before you start: allow the mic, read the text out loud, and keep a steady pace.'
@@ -640,6 +702,21 @@ export default function Home() {
                               </button>
                             </div>
                           )}
+                          {claritySaveError && (
+                            <div
+                              role="alert"
+                              className="hero-animate note-panel alert-note px-4 py-3 flex items-center justify-between gap-4 w-full max-w-md"
+                            >
+                              <span className="font-mono">{claritySaveError}</span>
+                              <button
+                                onClick={() => setClaritySaveError(null)}
+                                aria-label="Dismiss error"
+                                className="plain-icon-btn"
+                              >
+                                x
+                              </button>
+                            </div>
+                          )}
                         </div>
 
                         <div className="hero-cta-zone hero-animate">
@@ -692,9 +769,12 @@ export default function Home() {
                       sttError={sttError}
                       endCondition={endCondition}
                       elapsedMs={elapsedMs}
+                      fillerFlashTick={fillerFlashTick}
                     />
                     {store.mode === 'ghost' && (() => {
-                      const playerProgress = store.prompt.length ? (dissolvedCount / store.prompt.length) * 100 : 0
+                      const playerProgress = store.prompt.length
+                        ? (speakingGame.currentIndex / store.prompt.length) * 100
+                        : 0
                       const ghostProgress = ghostProgressAt(elapsedMs / 1000)
                       return <GhostRace phase="running" playerProgress={playerProgress} ghostProgress={ghostProgress} playerWpm={Math.round(speakingGame.liveWpm)} ghostWpm={ghostBest?.wpm ?? 0} duration={store.duration} />
                     })()}

@@ -13,6 +13,8 @@ interface PendingLeaderboardScore {
   accuracy: number
   duration: Duration
   promptType: PromptType
+  elapsedSec: number
+  runToken: string
 }
 
 interface LeaderboardSavePromptProps {
@@ -70,6 +72,8 @@ export default function LeaderboardSavePrompt({ score, onClose, onSaved }: Leade
         accuracy: score.accuracy,
         duration: score.duration,
         promptType: score.promptType,
+        elapsedSec: score.elapsedSec,
+        runToken: score.runToken,
       })
       setLeaderboardName(nextName)
       setLeaderboardEmoji(emoji)
