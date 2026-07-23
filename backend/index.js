@@ -114,6 +114,7 @@ function buildDeepgramListenUrl(browserReqUrl) {
     channels: '1',
     smart_format: 'false',
     interim_results: 'true',
+    vad_events: 'true',
     endpointing: '10',
     no_delay: 'true',
     filler_words: 'true',

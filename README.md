@@ -23,15 +23,23 @@ works out of the box with browser speech recognition. no api key, no signup, jus
 - session graph with per-word timing windows
 - personal bests per duration + prompt type (local)
 
-**clarity mode**
-- paste a transcript, get a word diff against the prompt
+**clarity mode (stt tool benchmark)**
+- pick a transcription tool (wispr, chatgpt voice, apple, deepgram, chrome, or custom)
+- read a precision prompt, paste that tool's transcript, get word + punctuation scores
 - letter grades from s down to needs work
+- shared tool leaderboard via supabase (rolling 30-day averages)
 - practice mode rebuilds a prompt from words you missed
+
+**ghost race**
+- race a visual ghost that replays the pace of your saved speed personal best
+- needs at least one speed pb first (new bests store a timeline for the ghost)
+- same mic + duration controls as speed mode
 
 **leaderboard + social**
 - home page shows a top-5 preview with a link to the full board
 - `/leaderboard` has the full rankings (filters + scroll) plus your local stats/charts
-- global leaderboard via supabase — nickname + emoji after a run, no signup
+- global speed leaderboard via supabase — nickname + emoji after a run, no signup
+- clarity mode has its own per-tool board (separate from speed)
 - top score card shows your personal best for the current duration, not whoever is #1 globally
 - `/stats` redirects to `/leaderboard#stats`
 
@@ -118,12 +126,24 @@ the deepgram api key stays on the server. the browser talks to your proxy or the
 
 the vercel http bridge is fallback-only — duplex request streaming to serverless hangs, which used to show up as a client “connection timed out” error. health checks go through `/api/deepgram/proxy-health` on vercel so the browser never does a cross-origin fetch at the render url.
 
+**troubleshooting: voice wave moves but no words**
+
+the speaking wave is driven by local mic energy. it can look “alive” even when deepgram never returns `Results`. usual causes:
+
+1. **render proxy cold / unreachable** — `/api/deepgram/proxy-health` fails and the app falls back to `POST /api/deepgram/live` on vercel. that bridge often opens without useful transcripts. proxy-health now retries with a longer timeout so free-tier cold starts can wake up; the client also retries the probe once before falling back.
+2. **stale “listening” session** — if deepgram claimed to connect but produced no words, the 5s failsafe used to no-op. it now force-reconnects.
+3. **local setup** — run both `npm run dev` and `npm run dev:backend`, and set `NEXT_PUBLIC_DEEPGRAM_PROXY_URL=ws://localhost:8080/api/deepgram/proxy` in `.env.local`.
+
+debug: set `NEXT_PUBLIC_DEBUG_STT=true`, then check the network tab for a websocket to the render/local proxy (preferred) vs a long `/api/deepgram/live` post (fragile fallback).
+
 ### global leaderboard (optional)
 
 scores are shared across everyone via supabase postgres. no accounts — just a nickname and emoji after a speed run.
 
 1. create a [Supabase](https://supabase.com) project
-2. run the migration in [supabase/migrations/001_leaderboard_entries.sql](supabase/migrations/001_leaderboard_entries.sql)
+2. run the migrations in order:
+   - [supabase/migrations/001_leaderboard_entries.sql](supabase/migrations/001_leaderboard_entries.sql) — speed board
+   - [supabase/migrations/002_clarity_benchmark.sql](supabase/migrations/002_clarity_benchmark.sql) — clarity tool board
 3. add to `.env.local`:
 
 ```env
@@ -131,9 +151,11 @@ SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
 ```
 
-without those vars the app still runs; the board just shows a friendly error until you wire it up.
+without those vars the app still runs; the boards just stay empty / show a friendly message until you wire them up.
 
-writes go through `POST /api/leaderboard` with the service role key. same name + board + higher wpm updates your row, lower wpm gets ignored.
+speed writes go through `POST /api/leaderboard` with the service role key. same name + board + higher wpm updates your row, lower wpm gets ignored.
+
+clarity writes go through `POST /api/clarity-benchmark` after you score a paste-in transcript.
 
 ## scripts
 
@@ -155,6 +177,7 @@ npm test                 # jest unit tests (scoring, streak, achievements)
 - `Escape` — bail on a running test early
 - `Ctrl + ,` — open settings
 - `Ctrl + 1` / `Ctrl + 2` — speed mode / clarity mode
+- ghost race is in the header tabs (same controls as speed once you have a pb)
 
 ## where stuff lives
 
@@ -168,9 +191,9 @@ monkeyspeak/
   lib/              prompts, scoring, diff, themes, achievements, streak
   lib/supabase/     server-only supabase admin client
   lib/stats/        wpm, timeline, personal bests, consistency
-  supabase/         migration sql for leaderboard_entries
+  supabase/         migration sql (speed + clarity boards)
   store/            zustand state + persisted settings
-  public/           sprites, onnx model, audio workers, mascots
+  public/           sprites, onnx model, audio workers, mascots, ghost-race art
   backend/          standalone deepgram websocket proxy (render)
   server.js         prod next + proxy in one node process
   patches/          patch-package fixes
@@ -178,9 +201,13 @@ monkeyspeak/
 
 touching the live speaking experience? start in [app/page.tsx](app/page.tsx), [components/game/SpeakingGame.tsx](components/game/SpeakingGame.tsx), and [hooks/](hooks).
 
+touching ghost race? [components/game/GhostRace.tsx](components/game/GhostRace.tsx), [lib/stats/timeline.ts](lib/stats/timeline.ts), and the `ghost` mode bits in [store/testStore.ts](store/testStore.ts).
+
 touching scoring? [lib/alignTranscriptToPrompt.ts](lib/alignTranscriptToPrompt.ts), [lib/fillers.ts](lib/fillers.ts), [lib/stats/](lib/stats), [lib/diff.ts](lib/diff.ts).
 
-touching the board? [app/api/leaderboard/route.ts](app/api/leaderboard/route.ts), [app/leaderboard/page.tsx](app/leaderboard/page.tsx), [components/decor/HeroLeaderboard.tsx](components/decor/HeroLeaderboard.tsx).
+touching the speed board? [app/api/leaderboard/route.ts](app/api/leaderboard/route.ts), [app/leaderboard/page.tsx](app/leaderboard/page.tsx), [components/decor/HeroLeaderboard.tsx](components/decor/HeroLeaderboard.tsx).
+
+touching the clarity board? [app/api/clarity-benchmark/route.ts](app/api/clarity-benchmark/route.ts), [lib/clarityLeaderboard/](lib/clarityLeaderboard), [components/ClarityInput.tsx](components/ClarityInput.tsx).
 
 touching stats/achievements? [app/leaderboard/page.tsx](app/leaderboard/page.tsx) (`#stats`), [lib/achievements.ts](lib/achievements.ts), [lib/stats/streak.ts](lib/stats/streak.ts).
 

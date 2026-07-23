@@ -74,16 +74,17 @@ export function useActiveSpeechProvider(provider: ProviderType): ActiveSpeechPro
   }, [provider, deepgram, webSpeech, startDeepgramSession])
 
   const retryWithDeepgram = useCallback(async (): Promise<SessionStartResult> => {
-    // mic hot but no words — retry deepgram
-    if (usingDeepgramRef.current && activeSource === 'deepgram') return { ok: true }
+    // mic hot but no words — force a fresh Deepgram session even if one already
+    // claims to be listening (common when the fragile HTTP bridge "opens" with no Results)
     deepgram.stopSession()
     webSpeech.stopSession()
+    usingDeepgramRef.current = false
     const result = await startDeepgramSession()
     if (result.ok) {
       useTestStore.getState().setSttProvider('deepgram')
     }
     return result
-  }, [deepgram, webSpeech, startDeepgramSession, activeSource])
+  }, [deepgram, webSpeech, startDeepgramSession])
 
   const stopSession = useCallback(() => {
     usingDeepgramRef.current = false

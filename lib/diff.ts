@@ -121,3 +121,17 @@ export function calcClarityScore(diff: DiffWord[], promptLength: number): {
 
   return { score, grade }
 }
+
+/** Compare punctuation tokens separately so formatting-quality can be tracked on the benchmark board. */
+export function calcPunctuationScore(promptText: string, transcriptText: string) {
+  const prompt = promptText.match(/[,.!?;:]/g) ?? []
+  if (prompt.length === 0) return 100
+  const transcript = transcriptText.match(/[,.!?;:]/g) ?? []
+  const expected = new Map<string, number>()
+  const actual = new Map<string, number>()
+  prompt.forEach((mark) => expected.set(mark, (expected.get(mark) ?? 0) + 1))
+  transcript.forEach((mark) => actual.set(mark, (actual.get(mark) ?? 0) + 1))
+  let matches = 0
+  expected.forEach((count, mark) => { matches += Math.min(count, actual.get(mark) ?? 0) })
+  return Math.round((matches / prompt.length) * 100)
+}

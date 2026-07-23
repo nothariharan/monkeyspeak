@@ -5,7 +5,7 @@ import { evaluateAchievements } from '@/lib/achievements'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type Mode = 'speed' | 'clarity'
+export type Mode = 'speed' | 'clarity' | 'ghost'
 export type TestState = 'idle' | 'running' | 'ended'
 export type Duration = 15 | 30 | 60 | 120
 export type PromptType = 'sentences' | 'numbers' | 'custom' | 'technical' | 'tongue-twisters' | 'daily' | `daily-${string}`
@@ -24,6 +24,8 @@ export interface DiffWord {
 export interface PersonalBestEntry {
   wpm: number
   date: string
+  /** Per-second progress of the performance, used by Ghost Race replays. */
+  timeline?: SessionTimeline
 }
 
 export interface LeaderboardEntry {
@@ -83,6 +85,7 @@ export interface SessionTimeline {
   wpm: { second: number; wpm: number }[]
   momentum: { second: number; value: number }[]
   errors: { second: number; wpm: number }[]
+  progress?: { second: number; words: number }[]
   wordWindows?: { startSecond: number; endSecond: number; label: string }[]
 }
 
@@ -137,6 +140,8 @@ interface TestStore {
   diffResult: DiffWord[]
   clarityScore: number
   clarityGrade: 'S' | 'A' | 'B' | 'C' | 'needs work'
+  clarityToolId: string
+  clarityToolName: string
 
   // ── Settings (persisted)
   settings: Settings
@@ -154,13 +159,14 @@ interface TestStore {
   setResults: (r: SpeedResults | null) => void
   setClarityTranscript: (t: string) => void
   setDiffResult: (result: DiffWord[], score: number, grade: TestStore['clarityGrade']) => void
+  setClarityTool: (id: string, name: string) => void
   updateSettings: (patch: Partial<Settings>) => void
   setMicState: (s: TestStore['micState']) => void
   setSttProvider: (p: ProviderType) => void
   setLeaderboardName: (name: string) => void
   setLeaderboardEmoji: (emoji: string) => void
   /** Returns true if this was a new personal best. */
-  checkAndUpdatePersonalBest: (key: string, wpm: number) => boolean
+  checkAndUpdatePersonalBest: (key: string, wpm: number, timeline?: SessionTimeline) => boolean
   pushSessionHistory: (entry: SessionHistoryEntry) => void
   resetTest: () => void
   startTest: () => void
@@ -213,6 +219,8 @@ export const useTestStore = create<TestStore>()(
       diffResult: [],
       clarityScore: 0,
       clarityGrade: 'needs work',
+      clarityToolId: 'wispr',
+      clarityToolName: 'Wispr Flow',
       settings: DEFAULT_SETTINGS,
       micState: 'idle',
 
@@ -228,6 +236,7 @@ export const useTestStore = create<TestStore>()(
 
       setDiffResult: (diffResult, clarityScore, clarityGrade) =>
         set({ diffResult, clarityScore, clarityGrade }),
+      setClarityTool: (clarityToolId, clarityToolName) => set({ clarityToolId, clarityToolName }),
 
       updateSettings: (patch) => {
         const newSettings = { ...get().settings, ...patch }
@@ -317,7 +326,7 @@ export const useTestStore = create<TestStore>()(
           }
         }),
 
-      checkAndUpdatePersonalBest: (key, wpm) => {
+      checkAndUpdatePersonalBest: (key, wpm, timeline) => {
         const bests = get().settings.personalBests ?? {}
         const current = bests[key]
         if (!current || wpm > current.wpm) {
@@ -326,7 +335,7 @@ export const useTestStore = create<TestStore>()(
               ...s.settings,
               personalBests: {
                 ...(s.settings.personalBests ?? {}),
-                [key]: { wpm, date: new Date().toISOString() },
+                [key]: { wpm, date: new Date().toISOString(), timeline },
               },
             },
           }))

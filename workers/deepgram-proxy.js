@@ -69,13 +69,27 @@ export default {
 
     const dgUrl = buildDeepgramUrl(url.searchParams)
     let dgWs
+    const buffered = []
+    let dgOpen = false
 
     dgWs = new WebSocket(dgUrl, {
       headers: { Authorization: `Token ${apiKey}` },
     })
 
     server.addEventListener('message', (event) => {
-      if (dgWs.readyState === WebSocket.OPEN) dgWs.send(event.data)
+      if (dgOpen && dgWs.readyState === WebSocket.OPEN) {
+        dgWs.send(event.data)
+      } else {
+        buffered.push(event.data)
+      }
+    })
+
+    dgWs.addEventListener('open', () => {
+      dgOpen = true
+      while (buffered.length > 0) {
+        const msg = buffered.shift()
+        if (dgWs.readyState === WebSocket.OPEN) dgWs.send(msg)
+      }
     })
 
     dgWs.addEventListener('message', (event) => {

@@ -7,9 +7,10 @@ import Link from 'next/link'
 import { useTestStore } from '@/store/testStore'
 import { useTimer } from '@/hooks/useTimer'
 import { useActiveSpeechProvider } from '@/hooks/useActiveSpeechProvider'
-import { generatePrompt, regeneratePrompt, generatePracticePrompt, generateDailyPrompt, type PromptMode } from '@/lib/prompts'
+import { generatePrompt, generateClarityPrompt, regeneratePrompt, generatePracticePrompt, generateDailyPrompt, type PromptMode } from '@/lib/prompts'
 import { getLocalDateStr, calculateSpeakingStreak } from '@/lib/stats/streak'
-import { diffWords, calcClarityScore } from '@/lib/diff'
+import { diffWords, calcClarityScore, calcPunctuationScore } from '@/lib/diff'
+import { submitClarityBenchmark } from '@/lib/clarityLeaderboard/client'
 import { alignTranscriptToPrompt, countFillers } from '@/lib/alignTranscriptToPrompt'
 import { netWpmFromChars, rawWpmFromChars } from '@/lib/stats/wpm'
 import { computeConsistency } from '@/lib/stats/consistency'
@@ -20,6 +21,7 @@ import Header from '@/components/Header'
 import ConfigBar from '@/components/ConfigBar'
 import StatsBar from '@/components/StatsBar'
 import SpeakingGame from '@/components/game/SpeakingGame'
+import GhostRace from '@/components/game/GhostRace'
 import ClarityInput from '@/components/ClarityInput'
 import ResultsPanel from '@/components/ResultsPanel'
 import SettingsPanel from '@/components/SettingsPanel'
@@ -101,7 +103,7 @@ export default function Home() {
   useEffect(() => { confirmedWordsRef.current = confirmedWords }, [confirmedWords])
   useEffect(() => { interimTextRef.current = interimText }, [interimText])
 
-  const isSpeedRunning = store.testState === 'running' && store.mode === 'speed'
+  const isSpeedRunning = store.testState === 'running' && store.mode !== 'clarity'
 
   const speakingGame = useSpeakingGame({
     prompt: store.prompt,
@@ -112,7 +114,7 @@ export default function Home() {
   })
 
   useEffect(() => {
-    if (store.testState !== 'running' || store.mode !== 'speed') return
+    if (store.testState !== 'running' || store.mode === 'clarity') return
     setDissolvedCount(Math.min(speakingGame.displayIndex, store.prompt.length))
   }, [store.testState, store.mode, store.prompt.length, speakingGame.displayIndex])
 
@@ -178,8 +180,9 @@ export default function Home() {
       ? Math.round((correctWords.length / s.prompt.length) * 100)
       : 0
 
+    const timeline = buildSessionTimeline(timelineRef.current, diff)
     const pbKey = `speed-${s.duration}s-${s.promptType}`
-    const newBest = s.checkAndUpdatePersonalBest(pbKey, netWpm)
+    const newBest = s.checkAndUpdatePersonalBest(pbKey, netWpm, timeline)
     setIsPersonalBest(newBest)
 
     const prevWpm = s.settings.lastSpeedWpm
@@ -188,8 +191,6 @@ export default function Home() {
 
     const metrics = gameMetricsRef.current
     const consistency = computeConsistency(metrics.rawWpms)
-    const timeline = buildSessionTimeline(timelineRef.current, diff)
-
     const todayStr = getLocalDateStr()
     const activeDailyKey = resultPromptType === 'daily' ? `daily-${todayStr}` : resultPromptType
 
@@ -254,7 +255,7 @@ export default function Home() {
 
   // runtime failsafe
   useEffect(() => {
-    if (store.testState !== 'running' || store.mode !== 'speed') return
+    if (store.testState !== 'running' || store.mode === 'clarity') return
     if (!retryWithDeepgram) return
 
     const timer = window.setTimeout(() => {
@@ -287,7 +288,9 @@ export default function Home() {
       s.setPrompt(splitPrompt(text))
     } else {
       const difficulty = s.settings.promptDifficulty ?? 'normal'
-      const text = generatePrompt(s.promptType as PromptMode, s.duration, s.customPromptText, difficulty)
+      const text = s.mode === 'clarity'
+        ? generateClarityPrompt(s.promptType as PromptMode, s.customPromptText)
+        : generatePrompt(s.promptType as PromptMode, s.duration, s.customPromptText, difficulty)
       s.setPrompt(splitPrompt(text))
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -316,7 +319,7 @@ export default function Home() {
 
     if (store.prompt.length === 0) loadPrompt()
 
-    if (store.mode === 'speed') {
+    if (store.mode !== 'clarity') {
       resetProvider()
       store.setMicState('requesting')
 
@@ -353,7 +356,7 @@ export default function Home() {
 
   const handleStop = useCallback(() => {
     const s = useTestStore.getState()
-    if (s.mode === 'speed') {
+    if (s.mode !== 'clarity') {
       stopTimer()
       const elapsed = testStartedAtRef.current
         ? (Date.now() - testStartedAtRef.current) / 1000
@@ -364,6 +367,7 @@ export default function Home() {
       const diff = diffWords(promptStr, s.clarityTranscript)
       const promptWordCount = promptStr.trim().split(/\s+/).filter(Boolean).length
       const { score, grade } = calcClarityScore(diff, promptWordCount)
+      const punctuationScore = calcPunctuationScore(promptStr, s.clarityTranscript)
       
       const missedWordsList = diff
         .filter((w) => w.tag === 'missed' || w.tag === 'substituted')
@@ -374,6 +378,10 @@ export default function Home() {
       const spokenWordCount = s.clarityTranscript.trim().split(/\s+/).filter(Boolean).length
 
       s.setDiffResult(diff, score, grade)
+      void submitClarityBenchmark({
+        toolId: s.clarityToolId, toolName: s.clarityToolName, promptType: s.promptType,
+        promptText: promptStr, transcript: s.clarityTranscript, clarityScore: score, punctuationScore,
+      }).then(() => window.dispatchEvent(new Event('clarity-benchmark:refresh'))).catch(() => undefined)
       s.pushSessionHistory({
         date: new Date().toISOString(),
         mode: 'clarity',
@@ -412,7 +420,9 @@ export default function Home() {
     s.resetTest()
     resetTimer(s.duration)
     const last = s.prompt.join(' ')
-    const text = regeneratePrompt(s.promptType as PromptMode, s.duration, last, s.customPromptText, s.settings.promptDifficulty ?? 'normal')
+    const text = s.mode === 'clarity'
+      ? generateClarityPrompt(s.promptType as PromptMode, s.customPromptText)
+      : regeneratePrompt(s.promptType as PromptMode, s.duration, last, s.customPromptText, s.settings.promptDifficulty ?? 'normal')
     useTestStore.getState().setPrompt(splitPrompt(text))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clearRunScratch, resetTimer, pendingLeaderboardScore])
@@ -425,7 +435,9 @@ export default function Home() {
     s.resetTest()
     resetTimer(s.duration)
     const s2 = useTestStore.getState()
-    const text = regeneratePrompt(s2.promptType as PromptMode, s2.duration, last, s2.customPromptText, s2.settings.promptDifficulty ?? 'normal')
+    const text = s2.mode === 'clarity'
+      ? generateClarityPrompt(s2.promptType as PromptMode, s2.customPromptText)
+      : regeneratePrompt(s2.promptType as PromptMode, s2.duration, last, s2.customPromptText, s2.settings.promptDifficulty ?? 'normal')
     s2.setPrompt(splitPrompt(text))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clearRunScratch, resetTimer, pendingLeaderboardScore])
@@ -448,7 +460,7 @@ export default function Home() {
   useEffect(() => { handleStopRef.current = handleStop }, [handleStop])
 
   useEffect(() => {
-    if (store.testState !== 'running' || store.mode !== 'speed') return
+    if (store.testState !== 'running' || store.mode === 'clarity') return
     if ((store.settings.endCondition ?? 'timer') !== 'passage') return
     if (store.prompt.length === 0 || dissolvedCount < store.prompt.length) return
     handleStopRef.current()
@@ -525,6 +537,13 @@ export default function Home() {
   const isEnded   = store.testState === 'ended'
   const isIdle    = store.testState === 'idle'
   const elapsedMs = store.duration * 1000 - timeRemaining
+  const ghostBest = store.settings.personalBests[`speed-${store.duration}s-${store.promptType}`]
+  const ghostProgressAt = (elapsedSeconds: number) => {
+    const points = ghostBest?.timeline?.progress ?? []
+    if (!points.length || !store.prompt.length) return Math.min(100, (elapsedSeconds / store.duration) * 100)
+    const prior = [...points].reverse().find((point) => point.second <= elapsedSeconds) ?? points[0]
+    return Math.min(100, ((prior?.words ?? 0) / store.prompt.length) * 100)
+  }
   const startHint = store.settings.sttProvider === 'deepgram'
     ? 'before you start: allow the mic, read the text out loud, and keep a steady pace.'
     : 'before you start: allow the mic, read the text out loud, and speak naturally. chrome usually works best for browser speech.'
@@ -547,15 +566,15 @@ export default function Home() {
 
       <main
         className={`flex-1 flex flex-col items-center px-6 py-8 mx-auto w-full ${
-          store.mode === 'speed' ? (isIdle ? 'max-w-[1320px]' : 'max-w-[900px]') : 'max-w-3xl'
+          store.mode !== 'clarity' ? (isIdle ? 'max-w-[1320px]' : 'max-w-[900px]') : 'max-w-none'
         } ${isIdle ? 'justify-start' : 'justify-center'}`}
       >
         {!isEnded ? (
           <div className="relative w-full flex flex-col items-stretch">
-            {store.mode === 'speed' ? (
+            {store.mode !== 'clarity' ? (
               <div className="flex flex-col w-full gap-8">
                 {/* idle hero */}
-                {isIdle && (
+                {isIdle && store.mode === 'speed' && (
                   <div
                     ref={heroRef}
                     className="hero-shell hero-stage"
@@ -642,6 +661,10 @@ export default function Home() {
                   </div>
                 )}
 
+                {isIdle && store.mode === 'ghost' && (() => {
+                  return <GhostRace phase="idle" playerProgress={0} ghostProgress={0} playerWpm={0} ghostWpm={ghostBest?.wpm ?? 0} duration={store.duration} onStart={handleStart} />
+                })()}
+
                 {/* running live test */}
                 {(isRunning || isEnding) && (
                   <>
@@ -670,6 +693,11 @@ export default function Home() {
                       endCondition={endCondition}
                       elapsedMs={elapsedMs}
                     />
+                    {store.mode === 'ghost' && (() => {
+                      const playerProgress = store.prompt.length ? (dissolvedCount / store.prompt.length) * 100 : 0
+                      const ghostProgress = ghostProgressAt(elapsedMs / 1000)
+                      return <GhostRace phase="running" playerProgress={playerProgress} ghostProgress={ghostProgress} playerWpm={Math.round(speakingGame.liveWpm)} ghostWpm={ghostBest?.wpm ?? 0} duration={store.duration} />
+                    })()}
                   </>
                 )}
               </div>
@@ -681,13 +709,13 @@ export default function Home() {
                 prompt={store.prompt}
                 onChange={(val) => store.setClarityTranscript(val)}
                 onStop={handleStop}
-                onStart={handleStart}
+                onStart={(tool) => { store.setClarityTool(tool.id, tool.name); void handleStart() }}
               />
             )}
           </div>
         ) : (
           <ResultsPanel
-            mode={store.mode}
+            mode={store.mode === 'clarity' ? 'clarity' : 'speed'}
             results={store.results}
             duration={store.duration}
             promptType={store.promptType}

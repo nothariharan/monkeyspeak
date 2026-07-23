@@ -32,11 +32,12 @@ function buildDeepgramListenUrl(reqUrl) {
     encoding: 'linear16',
     sample_rate: '16000',
     channels: '1',
-    smart_format: 'true',
+    smart_format: 'false',
     interim_results: 'true',
-    filler_words: 'true',
     vad_events: 'true',
-    endpointing: '200',
+    endpointing: '10',
+    no_delay: 'true',
+    filler_words: 'true',
     utterance_end_ms: '1000',
   }
   for (const [k, v] of Object.entries(defaults)) {
@@ -100,15 +101,32 @@ app.prepare().then(async () => {
         headers: { Authorization: `Token ${wsToken}` },
       })
 
-      dgWs.on('open', () => {
-        console.log('[deepgram proxy] upstream connected')
-        browserWs.on('message', (data) => {
-          if (dgWs.readyState === WebSocket.OPEN) dgWs.send(data)
-        })
+      // mic may send pcm before deepgram finishes handshaking — buffer instead of drop
+      const bufferedMessages = []
+      let isDgOpen = false
+
+      browserWs.on('message', (data) => {
+        if (isDgOpen && dgWs.readyState === WebSocket.OPEN) {
+          dgWs.send(data)
+        } else {
+          bufferedMessages.push(data)
+        }
       })
 
+      dgWs.on('open', () => {
+        console.log('[deepgram proxy] upstream connected')
+        isDgOpen = true
+        while (bufferedMessages.length > 0) {
+          const msg = bufferedMessages.shift()
+          if (dgWs.readyState === WebSocket.OPEN) dgWs.send(msg)
+        }
+      })
+
+      // deepgram sometimes sends json as binary frames — normalize to utf-8 text
       dgWs.on('message', (data) => {
-        if (browserWs.readyState === WebSocket.OPEN) browserWs.send(data)
+        if (browserWs.readyState !== WebSocket.OPEN) return
+        const text = typeof data === 'string' ? data : data.toString('utf8')
+        browserWs.send(text)
       })
 
       function cleanup() {

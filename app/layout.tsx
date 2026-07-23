@@ -24,11 +24,20 @@ export const metadata: Metadata = {
     type: 'website',
     url: '/',
     siteName: 'MonkeySpeak',
+    images: [
+      {
+        url: '/banner.png',
+        width: 1983,
+        height: 793,
+        alt: 'MonkeySpeak — speak fast, think faster',
+      },
+    ],
   },
   twitter: {
     card: 'summary_large_image',
     title: 'MonkeySpeak',
     description: 'The voice benchmark. How fast and clearly do you speak?',
+    images: ['/banner.png'],
   },
 }
 
