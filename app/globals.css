@@ -2098,6 +2098,17 @@ html.filler-flash .game-focus-card {
   line-height: 1;
 }
 
+.clarity-board-toolicon {
+  display: block;
+  width: 1.45rem;
+  height: 1.45rem;
+  padding: 0.15rem;
+  object-fit: contain;
+  border: 1px solid color-mix(in srgb, var(--border) 68%, transparent);
+  border-radius: 0.4rem;
+  background: var(--surface);
+}
+
 .hero-player-copy {
   display: flex;
   flex-direction: column;

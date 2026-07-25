@@ -183,16 +183,26 @@ function StatsBarChart({
   )
 }
 
+function clarityGradeFor(score: number): string {
+  if (score >= 98) return 'S'
+  if (score >= 90) return 'A'
+  if (score >= 75) return 'B'
+  if (score >= 60) return 'C'
+  return 'needs work'
+}
+
 export default function PersonalStatsSection() {
-  const { settings } = useTestStore()
+  const { settings, mode } = useTestStore()
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => setMounted(true), [])
 
   const history = useMemo(() => [...(settings.sessionHistory ?? [])].reverse(), [settings.sessionHistory])
   const activeColor = settings.accentHex || '#3b82f6'
+  const isClarity = mode === 'clarity'
 
   const speedHistory = useMemo(() => history.filter((h) => h.mode === 'speed'), [history])
+  const clarityHistory = useMemo(() => history.filter((h) => h.mode === 'clarity'), [history])
 
   const weeklyFillers = useMemo(() => {
     const speedRuns = history.filter((h) => h.mode === 'speed')
@@ -228,11 +238,13 @@ export default function PersonalStatsSection() {
       }))
   }, [history])
 
+  const missedWordsSource = isClarity ? clarityHistory : history
+
   const mostMissedWords = useMemo(() => {
     const freq: Record<string, number> = {}
     let hasData = false
 
-    for (const run of history) {
+    for (const run of missedWordsSource) {
       if (run.missedWords && run.missedWords.length > 0) {
         hasData = true
         for (const w of run.missedWords) {
@@ -248,7 +260,7 @@ export default function PersonalStatsSection() {
     return Object.entries(freq)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5)
-  }, [history])
+  }, [missedWordsSource])
 
   const maxWpm = Object.values(settings.personalBests ?? {}).reduce(
     (max, pb) => Math.max(max, pb.wpm),
@@ -264,6 +276,13 @@ export default function PersonalStatsSection() {
     ? Math.round(history.reduce((sum, h) => sum + h.accuracy, 0) / history.length)
     : 0
 
+  // clarity runs store their clarity score in the accuracy field
+  const clarityRunsCount = clarityHistory.length
+  const avgClarity = clarityRunsCount > 0
+    ? Math.round(clarityHistory.reduce((sum, h) => sum + h.accuracy, 0) / clarityRunsCount)
+    : 0
+  const maxClarity = clarityHistory.reduce((max, h) => Math.max(max, h.accuracy), 0)
+
   if (!mounted) {
     return <p className="stats-page-subtitle animate-pulse">loading your stats...</p>
   }
@@ -271,12 +290,20 @@ export default function PersonalStatsSection() {
   return (
     <div className="personal-stats-section flex flex-col gap-5">
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {[
-          { label: 'total runs', value: settings.lifetimeStats?.totalRuns ?? history.length },
-          { label: 'avg wpm', value: `${avgWpm} wpm` },
-          { label: 'max wpm', value: `${maxWpm > 0 ? maxWpm : '—'} wpm` },
-          { label: 'avg accuracy', value: `${avgAccuracy}%` },
-        ].map(({ label, value }) => (
+        {(isClarity
+          ? [
+              { label: 'clarity runs', value: clarityRunsCount },
+              { label: 'avg clarity', value: `${avgClarity}%` },
+              { label: 'max clarity', value: maxClarity > 0 ? `${maxClarity}%` : '—' },
+              { label: 'best grade', value: clarityRunsCount > 0 ? clarityGradeFor(maxClarity) : '—' },
+            ]
+          : [
+              { label: 'total runs', value: settings.lifetimeStats?.totalRuns ?? history.length },
+              { label: 'avg wpm', value: `${avgWpm} wpm` },
+              { label: 'max wpm', value: `${maxWpm > 0 ? maxWpm : '—'} wpm` },
+              { label: 'avg accuracy', value: `${avgAccuracy}%` },
+            ]
+        ).map(({ label, value }) => (
           <div key={label} className="stats-metric">
             <p className="stat-label">{label}</p>
             <p className="stat-value text-base">{value}</p>
@@ -285,29 +312,42 @@ export default function PersonalStatsSection() {
       </div>
 
       <div className="flex flex-col md:grid md:grid-cols-2 gap-4">
-        <StatsLineChart
-          data={speedHistory}
-          valueKey="netWpm"
-          label="wpm trend line (speed runs)"
-          accentColor={activeColor}
-          yMin={40}
-          yMaxDefault={120}
-        />
+        {isClarity ? (
+          <StatsLineChart
+            data={clarityHistory}
+            valueKey="accuracy"
+            label="clarity trend line (benchmark runs)"
+            accentColor={activeColor}
+            yMin={0}
+            yMaxDefault={100}
+          />
+        ) : (
+          <>
+            <StatsLineChart
+              data={speedHistory}
+              valueKey="netWpm"
+              label="wpm trend line (speed runs)"
+              accentColor={activeColor}
+              yMin={40}
+              yMaxDefault={120}
+            />
 
-        <StatsLineChart
-          data={speedHistory.filter((h) => typeof h.consistency === 'number')}
-          valueKey="consistency"
-          label="consistency curve (%)"
-          accentColor={activeColor}
-          yMin={50}
-          yMaxDefault={100}
-        />
+            <StatsLineChart
+              data={speedHistory.filter((h) => typeof h.consistency === 'number')}
+              valueKey="consistency"
+              label="consistency curve (%)"
+              accentColor={activeColor}
+              yMin={50}
+              yMaxDefault={100}
+            />
 
-        <StatsBarChart
-          data={weeklyFillers}
-          accentColor={activeColor}
-          label="weekly filler frequency (avg fillers / session)"
-        />
+            <StatsBarChart
+              data={weeklyFillers}
+              accentColor={activeColor}
+              label="weekly filler frequency (avg fillers / session)"
+            />
+          </>
+        )}
 
         <div className="stats-card flex flex-col gap-2">
           <p className="stat-label">most commonly missed words</p>

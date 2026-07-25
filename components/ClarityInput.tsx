@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import Image from 'next/image'
 import type { DiffWord } from '@/store/testStore'
 import { useClarityLeaderboard } from '@/hooks/useClarityLeaderboard'
+import { CLARITY_TOOLS } from '@/lib/clarityLeaderboard/tools'
 
 interface ClarityInputProps {
   testState: 'idle' | 'running' | 'ended'
@@ -15,13 +16,7 @@ interface ClarityInputProps {
   onStart: (tool: { id: string; name: string }) => void
 }
 
-const TOOLS = [
-  { id: 'wispr', name: 'Wispr Flow', icon: 'https://cdn.prod.website-files.com/682f84b3838c89f8ff7667db/68d427c7c5f98194a1c53c61_logo-symbol-dark.png' },
-  { id: 'chatgpt', name: 'ChatGPT Voice', icon: null },
-  { id: 'apple', name: 'Apple Dictation', icon: 'https://cdn.simpleicons.org/apple/111111' },
-  { id: 'deepgram', name: 'Deepgram', icon: 'https://cdn.simpleicons.org/deepgram/13EF93' },
-  { id: 'browser', name: 'Chrome Speech', icon: 'https://cdn.simpleicons.org/googlechrome/4285F4' },
-]
+const TOOLS = CLARITY_TOOLS
 
 export default function ClarityInput({ testState, transcript, prompt, onChange, onStop, onStart }: ClarityInputProps) {
   const [tool, setTool] = useState(TOOLS[0].id)
@@ -67,7 +62,7 @@ export default function ClarityInput({ testState, transcript, prompt, onChange, 
             {TOOLS.map((item) => (
               <button key={item.id} type="button" className={tool === item.id ? 'tool-choice is-active' : 'tool-choice'} onClick={() => setTool(item.id)} disabled={testState !== 'idle'} aria-pressed={tool === item.id}>
                 {item.icon ? <img src={item.icon} alt="" className="tool-logo" /> : <span className="chatgpt-voice-icon" aria-hidden />}
-                <span><strong>{item.name}</strong><small>{item.id === 'wispr' ? 'desktop dictation' : item.id === 'chatgpt' ? 'voice transcription' : item.id === 'apple' ? 'system dictation' : item.id === 'deepgram' ? 'Nova speech API' : 'Web Speech API'}</small></span>
+                <span><strong>{item.name}</strong><small>{item.blurb}</small></span>
               </button>
             ))}
             <button type="button" className={tool === 'custom' ? 'tool-choice is-active' : 'tool-choice'} onClick={() => setTool('custom')} disabled={testState !== 'idle'}>

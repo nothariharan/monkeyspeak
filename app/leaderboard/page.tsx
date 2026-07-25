@@ -8,6 +8,7 @@ import ProfileHub from '@/components/ProfileHub'
 import SettingsPanel from '@/components/SettingsPanel'
 import LeaderboardRow from '@/components/leaderboard/LeaderboardRow'
 import LeaderboardFilters from '@/components/leaderboard/LeaderboardFilters'
+import ClarityLeaderboardSection from '@/components/leaderboard/ClarityLeaderboardSection'
 import PersonalStatsSection from '@/components/leaderboard/PersonalStatsSection'
 import {
   formatBoardDate,
@@ -26,6 +27,8 @@ function LeaderboardPageContent() {
   const searchParams = useSearchParams()
   const name = useTestStore((s) => s.settings.leaderboardName)
   const savedEmoji = useTestStore((s) => s.settings.leaderboardEmoji)
+  const mode = useTestStore((s) => s.mode)
+  const isClarity = mode === 'clarity'
 
   const [profileOpen, setProfileOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -99,7 +102,9 @@ function LeaderboardPageContent() {
           <div className="flex flex-col">
             <h1 className="stats-page-title">leaderboard</h1>
             <p className="stats-page-subtitle">
-              global rankings plus your local speaking stats in one place.
+              {isClarity
+                ? 'speech-to-text tools ranked by verified clarity benchmarks.'
+                : 'global rankings plus your local speaking stats in one place.'}
             </p>
           </div>
           <Link href="/">
@@ -109,6 +114,9 @@ function LeaderboardPageContent() {
           </Link>
         </section>
 
+        {isClarity ? (
+          <ClarityLeaderboardSection />
+        ) : (
         <section className="hero-widget leaderboard-section" aria-label="Global leaderboard">
           <div className="hero-widget-head">
             <span className="hero-widget-icon" aria-hidden>
@@ -180,6 +188,7 @@ function LeaderboardPageContent() {
             </p>
           )}
         </section>
+        )}
 
         <section id="stats" className="hero-widget leaderboard-section" aria-label="Your stats">
           <div className="hero-widget-head">
