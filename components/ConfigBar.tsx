@@ -71,9 +71,9 @@ function SegmentBtn({
       onClick={onClick}
       disabled={disabled}
       aria-pressed={active}
-      className="choice-chip"
+      className="mode-tab"
       style={{
-        background: active ? 'var(--accent)' : 'var(--surface)',
+        background: active ? 'var(--accent)' : 'transparent',
         color: active ? '#fff' : 'var(--text-stats)',
         opacity: disabled ? 0.4 : 1,
         cursor: disabled ? 'not-allowed' : 'pointer',

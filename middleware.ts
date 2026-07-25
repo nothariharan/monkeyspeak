@@ -7,9 +7,21 @@ export function middleware(_request: NextRequest) {
   res.headers.set('X-Content-Type-Options', 'nosniff')
   res.headers.set('X-Frame-Options', 'DENY')
   res.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin')
+  // Allow Google Fonts — layout loads Archivo / JetBrains from fonts.googleapis.com.
+  // A too-strict font-src made the UI fall back to clunky system fonts.
   res.headers.set(
     'Content-Security-Policy',
-    "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https: wss: ws:; media-src 'self' blob:; worker-src 'self' blob:; frame-ancestors 'none'"
+    [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      "img-src 'self' data: blob: https:",
+      "font-src 'self' data: https://fonts.gstatic.com",
+      "connect-src 'self' https: wss: ws:",
+      "media-src 'self' blob:",
+      "worker-src 'self' blob:",
+      "frame-ancestors 'none'",
+    ].join('; ')
   )
   return res
 }
