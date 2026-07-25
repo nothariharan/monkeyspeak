@@ -22,8 +22,18 @@ async function readResponse(response: Response) {
   catch { throw new Error('clarity benchmark is unavailable') }
 }
 
-export async function fetchClarityLeaderboard() {
-  const response = await fetch('/api/clarity-benchmark', { cache: 'no-store' })
+export type ClarityBoardQuery = {
+  /** Server aggregates only entries of this prompt type; omit for the all-prompts board. */
+  promptType?: string
+  limit?: number
+}
+
+export async function fetchClarityLeaderboard(query: ClarityBoardQuery = {}) {
+  const params = new URLSearchParams()
+  if (query.promptType) params.set('promptType', query.promptType)
+  if (query.limit) params.set('limit', String(query.limit))
+  const qs = params.toString()
+  const response = await fetch(`/api/clarity-benchmark${qs ? `?${qs}` : ''}`, { cache: 'no-store' })
   const data = await readResponse(response)
   if (!response.ok) throw new Error(data.error ?? 'could not load clarity board')
   return data.rows ?? []

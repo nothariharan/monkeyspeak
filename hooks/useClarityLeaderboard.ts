@@ -1,18 +1,19 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { fetchClarityLeaderboard, type ClarityLeaderboardRow } from '@/lib/clarityLeaderboard/client'
+import { fetchClarityLeaderboard, type ClarityBoardQuery, type ClarityLeaderboardRow } from '@/lib/clarityLeaderboard/client'
 
-export function useClarityLeaderboard() {
+export function useClarityLeaderboard(query: ClarityBoardQuery = {}) {
+  const { promptType, limit } = query
   const [rows, setRows] = useState<ClarityLeaderboardRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const refresh = useCallback(async () => {
     setLoading(true); setError(null)
-    try { setRows(await fetchClarityLeaderboard()) }
+    try { setRows(await fetchClarityLeaderboard({ promptType, limit })) }
     catch (reason) { setRows([]); setError(reason instanceof Error ? reason.message : 'could not load clarity board') }
     finally { setLoading(false) }
-  }, [])
+  }, [promptType, limit])
   useEffect(() => { void refresh() }, [refresh])
   useEffect(() => {
     const onRefresh = () => { void refresh() }
