@@ -9,6 +9,7 @@ import SettingsPanel from '@/components/SettingsPanel'
 import LeaderboardRow from '@/components/leaderboard/LeaderboardRow'
 import LeaderboardFilters from '@/components/leaderboard/LeaderboardFilters'
 import ClarityLeaderboardSection from '@/components/leaderboard/ClarityLeaderboardSection'
+import GhostLeaderboardSection from '@/components/leaderboard/GhostLeaderboardSection'
 import PersonalStatsSection from '@/components/leaderboard/PersonalStatsSection'
 import {
   formatBoardDate,
@@ -29,6 +30,7 @@ function LeaderboardPageContent() {
   const savedEmoji = useTestStore((s) => s.settings.leaderboardEmoji)
   const mode = useTestStore((s) => s.mode)
   const isClarity = mode === 'clarity'
+  const isGhost = mode === 'ghost'
 
   const [profileOpen, setProfileOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -104,6 +106,8 @@ function LeaderboardPageContent() {
             <p className="stats-page-subtitle">
               {isClarity
                 ? 'speech-to-text tools ranked by verified clarity benchmarks.'
+                : isGhost
+                ? 'your ghost race record plus local speaking stats in one place.'
                 : 'global rankings plus your local speaking stats in one place.'}
             </p>
           </div>
@@ -116,6 +120,8 @@ function LeaderboardPageContent() {
 
         {isClarity ? (
           <ClarityLeaderboardSection />
+        ) : isGhost ? (
+          <GhostLeaderboardSection />
         ) : (
         <section className="hero-widget leaderboard-section" aria-label="Global leaderboard">
           <div className="hero-widget-head">

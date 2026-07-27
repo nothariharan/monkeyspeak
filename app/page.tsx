@@ -203,6 +203,8 @@ export default function Home() {
 
     const timeline = buildSessionTimeline(timelineRef.current, diff)
     const pbKey = `speed-${s.duration}s-${s.promptType}`
+    // Capture the ghost's pace (your prior best for this board) before the PB is updated.
+    const ghostWpmBefore = s.settings.personalBests[pbKey]?.wpm ?? 0
     const newBest = s.checkAndUpdatePersonalBest(pbKey, netWpm, timeline)
     setIsPersonalBest(newBest)
 
@@ -247,6 +249,17 @@ export default function Home() {
         consistency,
         wordsSpoken: allSpokenWords.length,
       })
+      if (s.mode === 'ghost') {
+        s.pushGhostRace({
+          date: new Date().toISOString(),
+          duration: resultDuration,
+          promptType: activeDailyKey,
+          playerWpm: netWpm,
+          ghostWpm: ghostWpmBefore,
+          won: ghostWpmBefore > 0 && netWpm >= ghostWpmBefore,
+          marginWpm: netWpm - ghostWpmBefore,
+        })
+      }
       s.setTestState('ended')
       const runToken = runTokenRef.current
       if (runToken && safeElapsed >= resultDuration * 0.9) {
@@ -628,7 +641,7 @@ export default function Home() {
 
       <main
         className={`flex-1 flex flex-col items-center px-6 py-8 mx-auto w-full ${
-          store.mode !== 'clarity' ? (isIdle ? 'max-w-[1320px]' : 'max-w-[900px]') : 'max-w-none'
+          store.mode !== 'clarity' ? (isIdle ? 'max-w-[1320px]' : 'max-w-[900px]') : 'max-w-[1320px]'
         } ${isIdle ? 'justify-start' : 'justify-center'}`}
       >
         {!isEnded ? (

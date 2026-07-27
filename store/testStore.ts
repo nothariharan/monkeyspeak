@@ -58,6 +58,8 @@ export interface Settings {
   lastSpeedWpm?: number
   /** Last 20 completed test runs, newest first. */
   sessionHistory: SessionHistoryEntry[]
+  /** Completed Ghost Races (you vs your best), newest first. Local only. */
+  ghostRaces: GhostRaceEntry[]
   /** Whether the test ends on timer expiry or when all prompt words are spoken. */
   endCondition: EndCondition
   /** Difficulty for sentences mode: easy = simple short words, normal = common, hard = complex. */
@@ -101,6 +103,21 @@ export interface SessionHistoryEntry {
   consistency?: number
   /** Actual number of words spoken this run. When absent, lifetime stats fall back to a WPM estimate. */
   wordsSpoken?: number
+}
+
+/** One completed Ghost Race: you vs the replay of your own best pace. */
+export interface GhostRaceEntry {
+  date: string
+  duration: number
+  promptType: string
+  /** Your net WPM this race. */
+  playerWpm: number
+  /** The ghost's WPM (your prior best for this board). 0 means there was no ghost to beat yet. */
+  ghostWpm: number
+  /** True when you had a ghost to race and matched or beat it. */
+  won: boolean
+  /** playerWpm - ghostWpm (positive = you were faster). */
+  marginWpm: number
 }
 
 export interface SpeedResults {
@@ -168,6 +185,7 @@ interface TestStore {
   /** Returns true if this was a new personal best. */
   checkAndUpdatePersonalBest: (key: string, wpm: number, timeline?: SessionTimeline) => boolean
   pushSessionHistory: (entry: SessionHistoryEntry) => void
+  pushGhostRace: (entry: GhostRaceEntry) => void
   resetTest: () => void
   startTest: () => void
 }
@@ -188,6 +206,7 @@ const DEFAULT_SETTINGS: Settings = {
   skipVad: true,
   personalBests: {},
   sessionHistory: [],
+  ghostRaces: [],
   endCondition: 'timer',
   promptDifficulty: 'normal',
   speakingActivity: {},
@@ -326,6 +345,14 @@ export const useTestStore = create<TestStore>()(
           }
         }),
 
+      pushGhostRace: (entry) =>
+        set((s) => ({
+          settings: {
+            ...s.settings,
+            ghostRaces: [entry, ...(s.settings.ghostRaces ?? [])].slice(0, 50),
+          },
+        })),
+
       checkAndUpdatePersonalBest: (key, wpm, timeline) => {
         const bests = get().settings.personalBests ?? {}
         const current = bests[key]
@@ -387,6 +414,7 @@ export const useTestStore = create<TestStore>()(
               ...(p?.settings?.personalBests ?? {}),
             },
             sessionHistory: p?.settings?.sessionHistory ?? [],
+            ghostRaces: p?.settings?.ghostRaces ?? [],
             endCondition: p?.settings?.endCondition ?? 'timer',
             promptDifficulty: p?.settings?.promptDifficulty ?? 'normal',
             speakingActivity: p?.settings?.speakingActivity ?? {},
