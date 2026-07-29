@@ -206,7 +206,7 @@ export default function ConfigBar() {
       )}
 
       {promptType === 'custom' && (
-        <div className="w-full max-w-2xl">
+        <div key={`custom-prompt-${mode}`} className="w-full max-w-2xl">
           <textarea
             id="custom-text-input"
             className="clarity-input mt-2"

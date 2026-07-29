@@ -243,7 +243,32 @@ export const useTestStore = create<TestStore>()(
       settings: DEFAULT_SETTINGS,
       micState: 'idle',
 
-      setMode: (mode) => set({ mode }),
+      setMode: (mode) =>
+        set((s) => {
+          if (mode === s.mode) return s
+
+          // Prompt options differ by mode (and custom's textarea should not linger
+          // as a stale writing section when hopping ghost ↔ speed ↔ clarity).
+          let promptType = s.promptType
+          const isDaily = promptType === 'daily' || promptType.startsWith('daily-')
+          const racePrompts = new Set(['sentences', 'numbers', 'custom'])
+          const clarityPrompts = new Set(['sentences', 'technical', 'tongue-twisters', 'custom'])
+
+          if (mode === 'clarity') {
+            if (isDaily || promptType === 'numbers' || !clarityPrompts.has(promptType)) {
+              promptType = 'sentences'
+            }
+          } else if (promptType === 'technical' || promptType === 'tongue-twisters' || (!racePrompts.has(promptType) && !isDaily)) {
+            promptType = 'sentences'
+          }
+
+          // Always drop custom when changing modes so the paste box doesn't stick around.
+          if (s.promptType === 'custom') {
+            promptType = 'sentences'
+          }
+
+          return { mode, promptType }
+        }),
       setTestState: (testState) => set({ testState }),
       setDuration: (duration) => set({ duration }),
       setPromptType: (promptType) => set({ promptType }),
