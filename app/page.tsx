@@ -452,6 +452,7 @@ export default function Home() {
       }).catch((err: unknown) => {
         setClaritySaveError(err instanceof Error ? err.message : 'could not save clarity result')
       })
+      const promptMarks = promptStr.match(/[,.!?;:—'"]/g)?.length ?? 0
       s.pushSessionHistory({
         date: new Date().toISOString(),
         mode: 'clarity',
@@ -462,7 +463,9 @@ export default function Home() {
         fillerCount: 0,
         missedWords: missedWordsList,
         consistency: 0,
-        wordsSpoken: spokenWordCount,
+        wordsSpoken: spokenWordCount || promptWordCount,
+        toolName: s.clarityToolName || undefined,
+        promptMarks,
       })
       s.setTestState('ended')
     }
@@ -640,7 +643,9 @@ export default function Home() {
       )}
 
       <main
-        className={`flex-1 flex flex-col items-center px-6 py-8 mx-auto w-full ${
+        className={`flex-1 flex flex-col items-center px-6 mx-auto w-full ${
+          store.mode === 'clarity' ? 'py-4' : 'py-8'
+        } ${
           store.mode !== 'clarity' ? (isIdle ? 'max-w-[1320px]' : 'max-w-[900px]') : 'max-w-[1320px]'
         } ${isIdle ? 'justify-start' : 'justify-center'}`}
       >
@@ -803,6 +808,14 @@ export default function Home() {
                 onChange={(val) => store.setClarityTranscript(val)}
                 onStop={handleStop}
                 onStart={(tool) => { store.setClarityTool(tool.id, tool.name); void handleStart() }}
+                onShuffle={() => {
+                  const s = useTestStore.getState()
+                  if (s.testState !== 'idle') return
+                  const last = s.prompt.join(' ')
+                  const text = generateClarityPrompt(s.promptType as PromptMode, s.customPromptText)
+                  // Prefer a different prompt when the generator can give one.
+                  s.setPrompt(splitPrompt(text === last ? generateClarityPrompt(s.promptType as PromptMode, s.customPromptText) : text))
+                }}
               />
             )}
           </div>

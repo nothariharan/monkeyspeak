@@ -103,6 +103,10 @@ export interface SessionHistoryEntry {
   consistency?: number
   /** Actual number of words spoken this run. When absent, lifetime stats fall back to a WPM estimate. */
   wordsSpoken?: number
+  /** Clarity-only: speech engine tested (e.g. Wispr Flow). */
+  toolName?: string
+  /** Clarity-only: punctuation / mark count in the prompt that was scored. */
+  promptMarks?: number
 }
 
 /** One completed Ghost Race: you vs the replay of your own best pace. */
