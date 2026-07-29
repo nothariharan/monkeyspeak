@@ -2,9 +2,12 @@
 
 import { useMemo, useState } from 'react'
 import Image from 'next/image'
+import Link from 'next/link'
 import type { DiffWord } from '@/store/testStore'
+import { useTestStore } from '@/store/testStore'
 import { useClarityLeaderboard } from '@/hooks/useClarityLeaderboard'
 import { CLARITY_TOOLS } from '@/lib/clarityLeaderboard/tools'
+import { getLocalDateStr } from '@/lib/stats/streak'
 
 interface ClarityInputProps {
   testState: 'idle' | 'running' | 'ended'
@@ -14,117 +17,351 @@ interface ClarityInputProps {
   onChange: (val: string) => void
   onStop: () => void
   onStart: (tool: { id: string; name: string }) => void
+  onShuffle: () => void
 }
 
 const TOOLS = CLARITY_TOOLS
+const DAILY_CLARITY_GOAL = 3
 
-export default function ClarityInput({ testState, transcript, prompt, onChange, onStop, onStart }: ClarityInputProps) {
+const CLARITY_TIPS = [
+  'read at a steady pace',
+  'articulate your words',
+  'avoid background noise',
+  'speak as you would naturally',
+]
+
+function MicIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <rect x="9" y="2" width="6" height="11" rx="3" stroke="currentColor" strokeWidth="2" />
+      <path d="M5 11a7 7 0 0 0 14 0" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M12 18v3M9 21h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function ShuffleIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M21 12a9 9 0 1 1-2.64-6.36" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M21 3v6h-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function CheckMark() {
+  return (
+    <svg className="clarity-check-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <circle cx="12" cy="12" r="10" fill="currentColor" opacity="0.14" />
+      <path d="M7.5 12.5 10.5 15.5 16.5 9" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function CrownDoodle() {
+  return (
+    <svg className="clarity-crown-doodle" width="52" height="36" viewBox="0 0 52 36" fill="none" aria-hidden>
+      <path d="M6 28 L10 12 L20 22 L26 8 L32 22 L42 12 L46 28 Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+      <path d="M8 28 H44" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <circle cx="26" cy="6" r="1.5" fill="currentColor" />
+    </svg>
+  )
+}
+
+function StarDoodle() {
+  return (
+    <svg className="clarity-star-doodle" width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden>
+      <path
+        d="M14 3 L16.2 10.2 L24 11 L18 15.8 L19.8 24 L14 19.8 L8.2 24 L10 15.8 L4 11 L11.8 10.2 Z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+export default function ClarityInput({
+  testState,
+  transcript,
+  prompt,
+  onChange,
+  onStop,
+  onStart,
+  onShuffle,
+}: ClarityInputProps) {
   const [tool, setTool] = useState(TOOLS[0].id)
   const [customToolName, setCustomToolName] = useState('')
   const { rows: leaders, loading: leadersLoading, error: leadersError } = useClarityLeaderboard()
-  const selectedTool = useMemo(() => tool === 'custom'
-    ? { id: 'custom', name: customToolName.trim() || 'Your transcription tool', icon: null }
-    : TOOLS.find((item) => item.id === tool) ?? TOOLS[0], [tool, customToolName])
+  const sessionHistory = useTestStore((s) => s.settings.sessionHistory)
+
+  const selectedTool = useMemo(
+    () =>
+      tool === 'custom'
+        ? { id: 'custom', name: customToolName.trim() || 'Custom Engine', icon: null }
+        : TOOLS.find((item) => item.id === tool) ?? TOOLS[0],
+    [tool, customToolName]
+  )
+
   const wordCount = prompt.length
-  const punctuationCount = prompt.join(' ').match(/[,.!?;:—']/g)?.length ?? 0
+  const punctuationCount = prompt.join(' ').match(/[,.!?;:—'"]/g)?.length ?? 0
+
+  const bestClarity = useMemo(() => {
+    const runs = sessionHistory.filter((entry) => entry.mode === 'clarity')
+    if (runs.length === 0) return null
+    return runs.reduce((best, entry) => (entry.accuracy > best.accuracy ? entry : best))
+  }, [sessionHistory])
+
+  const todayClarityRuns = useMemo(() => {
+    const today = getLocalDateStr()
+    return sessionHistory.filter(
+      (entry) => entry.mode === 'clarity' && entry.date.slice(0, 10) === today
+    ).length
+  }, [sessionHistory])
+
+  const dailyProgress = Math.min(1, todayClarityRuns / DAILY_CLARITY_GOAL)
+  const isNewBest =
+    bestClarity != null &&
+    bestClarity.date.slice(0, 10) === getLocalDateStr() &&
+    bestClarity.accuracy > 0
 
   const startTool = () => {
-    const id = selectedTool.id === 'custom'
-      ? `custom-${selectedTool.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'tool'}`
-      : selectedTool.id
+    const id =
+      selectedTool.id === 'custom'
+        ? `custom-${selectedTool.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'tool'}`
+        : selectedTool.id
     onStart({ id, name: selectedTool.name })
   }
 
   return (
-    <section className="clarity-benchmark" aria-label="Speech-to-text clarity benchmark">
-      <header className="clarity-intro">
-        <div className="clarity-intro-copy">
-          <p className="clarity-eyebrow">speech-to-text check</p>
-          <h1>how clear can it <span>hear?</span></h1>
-          <p>
-            pick a tool, read the prompt out loud, paste what it wrote — then see if it caught the whole thought.
-          </p>
-          <p className="start-hint clarity-intro-hint">
-            your mic stays with the tool. monkeyspeak only scores the paste.
-          </p>
-        </div>
-        <div className="clarity-mascot-wrap" aria-hidden="true">
-          <Image src="/speak_mon.png" alt="" width={220} height={220} priority className="clarity-mascot" />
-          <span className="clarity-scribble">say it<br />exactly!</span>
-        </div>
-      </header>
-
-      <div className="clarity-workspace">
-        <div className="clarity-main-card paper-panel">
-          <div className="clarity-card-header">
+    <section className="clarity-benchmark hero-shell" aria-label="Speech-to-text clarity benchmark">
+      <div className="clarity-stage hero-stage">
+        <aside className="clarity-board paper-panel hero-animate" aria-label="Engine leaderboard">
+          <span className="hero-paper-tape hero-paper-tape--blue" aria-hidden />
+          <div className="clarity-board-head">
             <div>
-              <p className="clarity-step">01 · pick a tool</p>
-              <h2>which engine are you testing?</h2>
+              <p className="clarity-step">engine board</p>
+              <h2>leaderboard</h2>
             </div>
-            <label className="tool-select-label">
-              {selectedTool.icon ? <img src={selectedTool.icon} alt="" className="tool-logo tool-logo--select" /> : <span className="chatgpt-voice-icon" aria-hidden />}
-              <select value={tool} onChange={(event) => setTool(event.target.value)} disabled={testState !== 'idle'} aria-label="Speech-to-text tool">
-                {TOOLS.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                <option value="custom">Your transcription tool</option>
-              </select>
-            </label>
+            <span className="leaderboard-period">30d</span>
           </div>
-
-          <div className="tool-roster" aria-label="Available benchmark tools">
-            {TOOLS.map((item) => (
-              <button key={item.id} type="button" className={tool === item.id ? 'tool-choice is-active' : 'tool-choice'} onClick={() => setTool(item.id)} disabled={testState !== 'idle'} aria-pressed={tool === item.id}>
-                {item.icon ? <img src={item.icon} alt="" className="tool-logo" /> : <span className="chatgpt-voice-icon" aria-hidden />}
-                <span><strong>{item.name}</strong><small>{item.blurb}</small></span>
-              </button>
-            ))}
-            <button type="button" className={tool === 'custom' ? 'tool-choice is-active' : 'tool-choice'} onClick={() => setTool('custom')} disabled={testState !== 'idle'}>
-              <span className="tool-add-icon">+</span><span><strong>add your own</strong><small>otter, assembly, …</small></span>
-            </button>
+          <ol>
+            {leadersLoading ? (
+              <li className="leaderboard-empty">loading verified runs…</li>
+            ) : leadersError ? (
+              <li className="leaderboard-empty">{leadersError}</li>
+            ) : leaders.length === 0 ? (
+              <li className="leaderboard-empty leaderboard-empty--soft">
+                <span className="leaderboard-empty-mark" aria-hidden>
+                  ✦
+                </span>
+                <strong>board is open</strong>
+                <span>no verified runs yet — finish a clarity test to plant the first score.</span>
+              </li>
+            ) : (
+              leaders.slice(0, 5).map((leader, index) => (
+                <li key={leader.toolId} className={index === 0 ? 'leader-row is-first' : 'leader-row'}>
+                  <span className="leader-rank">{String(index + 1).padStart(2, '0')}</span>
+                  <div>
+                    <strong>{leader.toolName}</strong>
+                    <small>
+                      punct {leader.punctuationScore}% · {leader.runCount} runs
+                    </small>
+                  </div>
+                  <b>
+                    {leader.clarityScore}
+                    <small>%</small>
+                  </b>
+                </li>
+              ))
+            )}
+          </ol>
+          <div className="clarity-board-foot">
+            <Link href="/leaderboard" className="clarity-score-link">
+              how is this scored?
+            </Link>
           </div>
-          {tool === 'custom' && (
-            <label className="custom-tool-field">
-              tool name
-              <input value={customToolName} onChange={(event) => setCustomToolName(event.target.value)} maxLength={48} placeholder="e.g. Otter, AssemblyAI, or my own model" />
-            </label>
-          )}
+          <div className="clarity-board-doodle" aria-hidden>
+            <CrownDoodle />
+            <StarDoodle />
+            <p>different engines, different strengths!</p>
+          </div>
+        </aside>
 
-          <div className="clarity-prompt-section note-panel">
-            <div className="clarity-prompt-head">
-              <div>
-                <p className="clarity-step">02 · read this aloud</p>
-                <h2>precision prompt</h2>
+        <section className="clarity-center" aria-label="Clarity check">
+          <header className="clarity-intro hero-animate">
+            <div className="clarity-intro-copy">
+              <p className="clarity-eyebrow">clarity check</p>
+              <h1>
+                how clear can it <span className="clarity-hear">hear?</span>
+              </h1>
+              <p className="clarity-lede">
+                test any speech engine. read it aloud and see how well it understood.
+              </p>
+              <div className="clarity-privacy-note">
+                <Image
+                  src="/clarity-privacy-monkey.png"
+                  alt=""
+                  width={28}
+                  height={28}
+                  className="clarity-privacy-icon"
+                />
+                <span>your mic stays with the tool. monkeyspeak only scores the paste.</span>
               </div>
-              <div className="prompt-facts"><span>{wordCount} words</span><span>{punctuationCount} marks</span></div>
             </div>
-            <blockquote className="clarity-prompt-text">{prompt.join(' ') || 'choose a prompt style above to begin.'}</blockquote>
-            <div className="prompt-signal-row">
-              <span>names &amp; tech terms</span>
-              <span>numbers &amp; symbols</span>
-              <span>punctuation &amp; pauses</span>
-            </div>
-          </div>
-
-          <div className="clarity-transcript-section">
-            <div className="clarity-transcript-head">
-              <div>
-                <p className="clarity-step">03 · paste the result</p>
-                <h2>{testState === 'running' ? `paste ${selectedTool.name}'s transcript` : 'ready when you are'}</h2>
-              </div>
-              <span className={testState === 'running' ? 'run-status is-live' : 'run-status'}>
-                {testState === 'running' ? 'listening for paste' : 'awaiting start'}
+            <div className="clarity-mascot-wrap" aria-hidden="true">
+              <Image
+                src="/clarity-inspector-monkey.png"
+                alt=""
+                width={220}
+                height={220}
+                priority
+                className="clarity-mascot"
+              />
+              <span className="clarity-scribble">
+                let&apos;s inspect
+                <br />
+                your clarity!
               </span>
             </div>
-            <textarea
-              id="clarity-transcript-input"
-              className="clarity-input clarity-transcript-input"
-              rows={4}
-              placeholder="paste the transcript from your speech-to-text tool…"
-              value={transcript}
-              onChange={(event) => onChange(event.target.value)}
-              readOnly={testState === 'idle'}
-              aria-label="Transcription input"
-            />
-            <div className="clarity-actions">
+          </header>
+
+          <div className="clarity-main-card paper-panel hero-animate">
+            <div className="clarity-card-header">
+              <div>
+                <p className="clarity-step">01 · pick an engine</p>
+                <h2>which engine are you testing?</h2>
+              </div>
+            </div>
+
+            <div className="tool-roster" aria-label="Available benchmark tools">
+              {TOOLS.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={tool === item.id ? 'tool-choice is-active' : 'tool-choice'}
+                  onClick={() => setTool(item.id)}
+                  disabled={testState !== 'idle'}
+                  aria-pressed={tool === item.id}
+                >
+                  {tool === item.id && (
+                    <span className="tool-choice-check" aria-hidden>
+                      <CheckMark />
+                    </span>
+                  )}
+                  {item.icon ? (
+                    <img src={item.icon} alt="" className="tool-logo" />
+                  ) : (
+                    <span className="chatgpt-voice-icon" aria-hidden />
+                  )}
+                  <span>
+                    <strong>{item.name}</strong>
+                    <small>{item.blurb}</small>
+                  </span>
+                </button>
+              ))}
+              <button
+                type="button"
+                className={tool === 'custom' ? 'tool-choice is-active' : 'tool-choice'}
+                onClick={() => setTool('custom')}
+                disabled={testState !== 'idle'}
+                aria-pressed={tool === 'custom'}
+              >
+                {tool === 'custom' && (
+                  <span className="tool-choice-check" aria-hidden>
+                    <CheckMark />
+                  </span>
+                )}
+                <span className="tool-add-icon">+</span>
+                <span>
+                  <strong>Custom Engine</strong>
+                  <small>enter api / url</small>
+                </span>
+              </button>
+            </div>
+
+            {tool === 'custom' && (
+              <label className="custom-tool-field">
+                tool name
+                <input
+                  value={customToolName}
+                  onChange={(event) => setCustomToolName(event.target.value)}
+                  maxLength={48}
+                  placeholder="e.g. Otter, AssemblyAI, or my own model"
+                  disabled={testState !== 'idle'}
+                />
+              </label>
+            )}
+
+            <div className="clarity-prompt-section">
+              <div className="clarity-prompt-head">
+                <div>
+                  <p className="clarity-step">02 · read this out loud</p>
+                  <h2>precision prompt</h2>
+                </div>
+                <div className="prompt-facts">
+                  <span>{wordCount} words</span>
+                  <span>{punctuationCount} marks</span>
+                </div>
+              </div>
+
+              <div className="clarity-legal-pad">
+                <span className="clarity-paperclip" aria-hidden />
+                <blockquote className="clarity-prompt-text">
+                  {prompt.join(' ') || 'choose a prompt style above to begin.'}
+                </blockquote>
+              </div>
+
+              <div className="prompt-signal-row">
+                <span>
+                  <CheckMark /> names &amp; terms
+                </span>
+                <span>
+                  <CheckMark /> numbers &amp; symbols
+                </span>
+                <span>
+                  <CheckMark /> punctuation
+                </span>
+                <span>
+                  <CheckMark /> pauses
+                </span>
+              </div>
+
+              <div className="clarity-prompt-actions">
+                <button
+                  type="button"
+                  className="clarity-shuffle-btn"
+                  onClick={onShuffle}
+                  disabled={testState !== 'idle'}
+                >
+                  <ShuffleIcon />
+                  shuffle prompt
+                </button>
+              </div>
+            </div>
+
+            {testState === 'running' && (
+              <div className="clarity-transcript-section">
+                <div className="clarity-transcript-head">
+                  <div>
+                    <p className="clarity-step">03 · paste the result</p>
+                    <h2>paste {selectedTool.name}&apos;s transcript</h2>
+                  </div>
+                  <span className="run-status is-live">listening for paste</span>
+                </div>
+                <textarea
+                  id="clarity-transcript-input"
+                  className="clarity-input clarity-transcript-input"
+                  rows={4}
+                  placeholder="paste the transcript from your speech-to-text tool…"
+                  value={transcript}
+                  onChange={(event) => onChange(event.target.value)}
+                  aria-label="Transcription input"
+                />
+              </div>
+            )}
+
+            <div className="clarity-cta">
               {testState === 'idle' ? (
                 <button
                   id="btn-clarity-start"
@@ -132,7 +369,8 @@ export default function ClarityInput({ testState, transcript, prompt, onChange, 
                   className="hero-start-btn clarity-start-button"
                   disabled={tool === 'custom' && !customToolName.trim()}
                 >
-                  start benchmark
+                  <MicIcon />
+                  start clarity test
                 </button>
               ) : (
                 <button
@@ -144,46 +382,129 @@ export default function ClarityInput({ testState, transcript, prompt, onChange, 
                   score transcript <span>→</span>
                 </button>
               )}
-              <p>{testState === 'idle' ? 'mic stays with your tool — we only score the paste.' : 'paste or type the output, then score it against the prompt.'}</p>
+              <p className="clarity-cta-note">
+                {testState === 'idle'
+                  ? 'no signup, no account. just a clarity check ❤️'
+                  : 'paste or type the output, then score it against the prompt.'}
+              </p>
             </div>
           </div>
-        </div>
+        </section>
 
-        <aside className="clarity-leaderboard paper-panel" aria-label="Current benchmark leaderboard">
-          <span className="hero-paper-tape hero-paper-tape--blue" aria-hidden>board</span>
-          <div className="leaderboard-card-head">
-            <div>
-              <p className="clarity-step">clarity leaders</p>
-              <h2>top tools</h2>
+        <div className="hero-side-stack clarity-side-stack hero-animate">
+          <div
+            className={`hero-top-score paper-panel${bestClarity ? '' : ' hero-top-score--empty'}`}
+            role="status"
+            aria-live="polite"
+            aria-label={
+              bestClarity
+                ? `Your best clarity ${bestClarity.accuracy} percent`
+                : 'No clarity score yet'
+            }
+          >
+            <span className="hero-paper-tape hero-paper-tape--orange" aria-hidden />
+            <span className="momentum-fire-label">your best clarity</span>
+            <div className="hero-top-score-core">
+              <span className="hero-top-score-icon" aria-hidden>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M8 4h8v3a4 4 0 0 1-8 0V4Z"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinejoin="round"
+                  />
+                  <path
+                    d="M8 6H5a3 3 0 0 0 3 3M16 6h3a3 3 0 0 1-3 3M12 11v5M8 20h8M10 16h4"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </span>
+              <span className="hero-top-score-value tabular-nums">
+                {bestClarity ? `${bestClarity.accuracy}` : '—'}
+                {bestClarity ? <small className="clarity-best-unit">%</small> : null}
+              </span>
+              {isNewBest && <span className="clarity-new-best">new best!</span>}
             </div>
-            <span className="leaderboard-period">last 30 days</span>
+            <span className="hero-top-score-foot">
+              {bestClarity
+                ? [
+                    bestClarity.toolName ? `with ${bestClarity.toolName}` : null,
+                    `${bestClarity.wordsSpoken ?? wordCount} words`,
+                    `${bestClarity.promptMarks ?? punctuationCount} marks`,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')
+                : 'finish a test to pin your best here'}
+            </span>
           </div>
-          <p className="leaderboard-caption">rolling average from verified benchmark pastes.</p>
-          <ol>
-            {leadersLoading ? (
-              <li className="leaderboard-empty">loading verified runs…</li>
-            ) : leadersError ? (
-              <li className="leaderboard-empty">{leadersError}</li>
-            ) : leaders.length === 0 ? (
-              <li className="leaderboard-empty">no verified runs yet — be the first to set a pace.</li>
-            ) : (
-              leaders.slice(0, 5).map((leader, index) => (
-                <li key={leader.toolId} className={index === 0 ? 'leader-row is-first' : 'leader-row'}>
-                  <span className="leader-rank">{String(index + 1).padStart(2, '0')}</span>
-                  <div>
-                    <strong>{leader.toolName}</strong>
-                    <small>punctuation {leader.punctuationScore}% · {leader.runCount} runs</small>
-                  </div>
-                  <b>{leader.clarityScore}<small>%</small></b>
+
+          <section className="hero-sticky-note hero-sticky-note--goal" aria-label="Daily challenge">
+            <span className="hero-paper-tape hero-paper-tape--blue" aria-hidden />
+            <div className="hero-sticky-note-head">
+              <span className="hero-sticky-note-icon" aria-hidden>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polygon points="12 2 15 9 22 9 17 14 19 21 12 17 5 21 7 14 2 9 9 9" />
+                </svg>
+              </span>
+              <div>
+                <h3>daily challenge</h3>
+                <p>
+                  {Math.min(todayClarityRuns, DAILY_CLARITY_GOAL)} / {DAILY_CLARITY_GOAL} clarity
+                  tests
+                </p>
+              </div>
+            </div>
+            <div className="hero-goal-track" aria-hidden>
+              {Array.from({ length: DAILY_CLARITY_GOAL }, (_, index) => (
+                <span
+                  key={index}
+                  className={`hero-goal-segment${index < todayClarityRuns ? ' hero-goal-segment--done' : ''}`}
+                />
+              ))}
+              <span className="hero-goal-fill" style={{ width: `${dailyProgress * 100}%` }} />
+            </div>
+            <p className="hero-sticky-note-foot">hit 3 clarity checks for today&apos;s badge</p>
+          </section>
+
+          <section className="hero-sticky-note hero-sticky-note--tips" aria-label="Quick tips">
+            <span className="hero-paper-tape hero-paper-tape--purple" aria-hidden />
+            <div className="hero-sticky-note-head">
+              <span className="hero-sticky-note-icon" aria-hidden>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 18h6" />
+                  <path d="M10 22h4" />
+                  <path d="M12 2a7 7 0 0 0-4 12v2h8v-2a7 7 0 0 0-4-12z" />
+                </svg>
+              </span>
+              <h3>quick tips</h3>
+            </div>
+            <ul className="hero-tips-list">
+              {CLARITY_TIPS.map((tip) => (
+                <li key={tip}>
+                  <span className="hero-tips-check" aria-hidden />
+                  <span>{tip}</span>
                 </li>
-              ))
-            )}
-          </ol>
-          <div className="leaderboard-foot">
-            <span>scored on word fidelity and punctuation.</span>
-            <span className="leaderboard-line" />
-          </div>
-        </aside>
+              ))}
+            </ul>
+          </section>
+        </div>
+      </div>
+
+      <div className="clarity-floor" aria-hidden>
+        <div className="clarity-paste-hint">
+          <Image
+            src="/clarity-paste-bubble-monkey.png"
+            alt=""
+            width={48}
+            height={48}
+            className="clarity-paste-monkey"
+          />
+          <span className="clarity-paste-bubble">paste your result after you speak!</span>
+        </div>
+        <p className="clarity-slogan">beat your score. beat the day. beat yourself.</p>
       </div>
     </section>
   )

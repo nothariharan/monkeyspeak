@@ -75,7 +75,7 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link
           rel="stylesheet"
-          href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Archivo:wght@400;500;600;700;800&family=JetBrains+Mono:ital,wght@0,100..800%3B1,100..800&family=Fira+Code:wght@300..700&family=Inconsolata:wdth,wght@50..200,200..900&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Archivo:wght@400;500;600;700;800&family=Caveat:wght@500;600;700&family=JetBrains+Mono:ital,wght@0,100..800%3B1,100..800&family=Fira+Code:wght@300..700&family=Inconsolata:wdth,wght@50..200,200..900&display=swap"
         />
       </head>
       <body className="min-h-[100dvh]" style={{ background: 'var(--bg)', color: 'var(--text-active)' }}>
