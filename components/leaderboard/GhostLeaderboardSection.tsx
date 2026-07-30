@@ -56,7 +56,7 @@ export default function GhostLeaderboardSection() {
 
   if (!mounted) {
     return (
-      <section className="hero-widget leaderboard-section" aria-label="Ghost race history">
+      <section className="hero-widget leaderboard-section" aria-label="Ghost trace history">
         <p className="hero-leaderboard-empty font-mono">loading your races...</p>
       </section>
     )
@@ -65,15 +65,14 @@ export default function GhostLeaderboardSection() {
   const list = races ?? []
 
   return (
-    <section className="hero-widget leaderboard-section" aria-label="Ghost race history">
+    <section className="hero-widget leaderboard-section" aria-label="Ghost trace history">
       <div className="hero-widget-head">
         <span className="hero-widget-icon" aria-hidden>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M9 10h.01M15 10h.01M12 2a7 7 0 0 0-7 7v9.5a1.5 1.5 0 0 0 2.6 1l1.4-1.4 1.5 1.5 1.5-1.5 1.5 1.5 1.5-1.5 1.4 1.4a1.5 1.5 0 0 0 2.6-1V9a7 7 0 0 0-7-7z" />
-          </svg>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/ghost-race/ghost-trace-badge.png" alt="" width={16} height={16} style={{ borderRadius: 4, objectFit: 'cover' }} />
         </span>
         <div className="hero-widget-copy">
-          <h2>ghost race record</h2>
+          <h2>ghost trace record</h2>
           <p>you vs the replay of your own best pace</p>
         </div>
       </div>
@@ -94,10 +93,10 @@ export default function GhostLeaderboardSection() {
         ))}
       </div>
 
-      <div className="leaderboard-full-list" tabIndex={0} aria-label="Recent ghost races">
+      <div className="leaderboard-full-list" tabIndex={0} aria-label="Recent ghost traces">
         {list.length === 0 ? (
           <p className="hero-leaderboard-empty font-mono">
-            no races yet — set a speed best, then race your ghost to fill this board
+            no traces yet — set a speed best, then race your ghost to fill this board
           </p>
         ) : (
           list.map((race, index) => {

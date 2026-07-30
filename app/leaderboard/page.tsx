@@ -107,7 +107,7 @@ function LeaderboardPageContent() {
               {isClarity
                 ? 'speech-to-text tools ranked by verified clarity benchmarks.'
                 : isGhost
-                ? 'your ghost race record plus local speaking stats in one place.'
+                ? 'your ghost trace record plus local speaking stats in one place.'
                 : 'global rankings plus your local speaking stats in one place.'}
             </p>
           </div>

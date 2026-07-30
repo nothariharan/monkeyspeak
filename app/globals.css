@@ -158,7 +158,7 @@ html.filler-flash .game-focus-card {
 .desk-btn:focus-visible,
 .choice-chip:focus-visible,
 .mode-tab:focus-visible,
-.ghost-start:focus-visible,
+.ghost-trace-start:focus-visible,
 .header-icon-btn:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -1064,6 +1064,78 @@ html.filler-flash .game-focus-card {
   min-height: 1.7rem;
   padding: 0.2rem 0.55rem;
   font-size: 0.68rem;
+}
+
+.hero-preflight--ghost {
+  gap: 0.55rem;
+  padding-block: 0.45rem;
+}
+
+.hero-preflight--ghost .hero-preflight-groups {
+  gap: 0.65rem 1rem;
+}
+
+.hero-preflight--ghost .stat-label {
+  font-size: 0.58rem;
+}
+
+.hero-preflight--ghost .mode-tab {
+  padding-inline: 0.55rem;
+  font-size: 0.72rem;
+}
+
+.hero-preflight-more {
+  width: min(100%, 34rem);
+  align-self: stretch;
+}
+
+.hero-preflight-more > summary {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  text-align: center;
+  color: var(--text-stats);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: lowercase;
+  padding: 0.35rem 0.5rem;
+  border: 1px dashed color-mix(in srgb, var(--border) 75%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 80%, var(--bg));
+}
+
+.hero-preflight-more > summary::-webkit-details-marker {
+  display: none;
+}
+
+.hero-preflight-more-body {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.65rem 1rem;
+  margin-top: 0.65rem;
+}
+
+@media (min-width: 721px) {
+  .hero-preflight-more {
+    display: contents;
+  }
+
+  .hero-preflight-more > summary {
+    display: none;
+  }
+
+  .hero-preflight-more-body {
+    display: contents;
+    margin-top: 0;
+  }
+}
+
+@media (max-width: 720px) {
+  .hero-preflight--ghost .hero-preflight-tip {
+    display: none;
+  }
 }
 
 .start-hint {
@@ -3404,11 +3476,14 @@ html.filler-flash .game-focus-card {
 /* ─── Ghost race record (local-only board) ─────────────────────────────── */
 .ghost-record-metrics {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.6rem;
   margin-bottom: 0.35rem;
 }
-@media (min-width: 640px) {
+@media (min-width: 520px) {
+  .ghost-record-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (min-width: 960px) {
   .ghost-record-metrics { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 }
 .ghost-record-metric {
@@ -3420,8 +3495,19 @@ html.filler-flash .game-focus-card {
   border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
   border-radius: var(--radius);
   box-shadow: var(--shadow-soft-sm);
+  min-width: 0;
 }
-.ghost-record-metric .stat-value { font-size: 1.05rem; }
+.ghost-record-metric .stat-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ghost-record-metric .stat-value {
+  font-size: 1.05rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .ghost-record-row { align-items: center; gap: 0.75rem; }
 .ghost-result-badge {
   flex: 0 0 auto;
@@ -3537,282 +3623,570 @@ html.filler-flash .game-focus-card {
   background: transparent;
 }
 
-/* Ghost Race — atmospheric stage + dual progress loaders with circular emoji markers. */
-.ghost-race {
-  position: relative;
-  width: min(100%, 980px);
+/* Ghost Trace — desk language shared with speed + clarity (no CSS gradients). */
+.ghost-trace {
+  width: min(100%, 1320px);
   margin: 0 auto;
+  padding: 0.35rem 0 3rem;
   color: var(--text-active);
 }
 
-.ghost-race-intro {
-  text-align: center;
-  margin: 1.35rem auto 1.1rem;
+.ghost-trace-intro {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  align-items: end;
+  gap: clamp(1.25rem, 3vw, 2.5rem);
+  margin: 0 0 clamp(1.25rem, 3vw, 2rem);
+  animation: ghost-trace-rise .55s var(--ease-snappy) both;
 }
 
-.ghost-race-kicker {
-  margin: 0 0 .3rem;
+.ghost-trace-eyebrow,
+.ghost-trace-step {
+  margin: 0 0 .4rem;
   color: var(--accent);
-  font-size: .63rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: .14em;
-}
-
-.ghost-race-intro h1 {
-  margin: 0;
-  font: 900 clamp(2.7rem, 7vw, 4.8rem)/.9 var(--font-display);
-  letter-spacing: -.055em;
+  font-family: var(--font-mono);
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: .02em;
   text-transform: lowercase;
 }
 
-.ghost-race-intro p:not(.ghost-race-kicker) {
-  margin: .55rem auto 0;
-  max-width: 28rem;
-  font-size: .9rem;
-  color: var(--text-stats);
-}
-
-.ghost-race-intro p span {
-  color: var(--accent);
+.ghost-trace-intro h1 {
+  max-width: 14ch;
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(2.2rem, 5vw, 4.4rem);
   font-weight: 900;
+  letter-spacing: -.03em;
+  line-height: .95;
+  text-transform: lowercase;
+  text-wrap: balance;
 }
 
-.ghost-race-stage {
+.ghost-trace-intro h1 span { color: var(--accent); }
+
+.ghost-trace-intro-copy > p.ghost-trace-lede {
+  max-width: 42ch;
+  margin: .85rem 0 0;
+  color: var(--text-stats);
+  font-family: var(--font-mono);
+  font-size: .84rem;
+  line-height: 1.65;
+}
+
+.ghost-trace-intro-copy > p:not(.ghost-trace-eyebrow):not(.ghost-trace-intro-hint):not(.ghost-trace-lede) {
+  max-width: 42ch;
+  margin: .85rem 0 0;
+  color: var(--text-stats);
+  font-family: var(--font-mono);
+  font-size: .84rem;
+  line-height: 1.65;
+}
+
+.ghost-trace-intro-hint {
+  width: min(100%, 40ch) !important;
+  margin: 1rem 0 0 !important;
+  text-align: left;
+}
+
+.ghost-trace-mascot-wrap {
   position: relative;
-  overflow: hidden;
-  border: 1.5px solid color-mix(in srgb, var(--text-active) 55%, transparent);
-  border-radius: 1.15rem;
-  background: color-mix(in srgb, var(--bg-surface) 88%, var(--surface));
-  box-shadow: var(--shadow-soft);
-  min-height: clamp(280px, 42vw, 420px);
+  align-self: center;
+  justify-self: center;
+  width: 180px;
 }
 
-.ghost-race-stage-bg {
-  position: absolute;
-  inset: 0;
+.ghost-trace-mascot {
+  display: block;
   width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: center;
-  filter: saturate(1.05) contrast(1.02);
+  height: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 8px 16px color-mix(in srgb, var(--border) 35%, transparent));
 }
 
-.ghost-race-stage-veil {
+.ghost-trace-scribble {
   position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--surface) 18%, transparent),
-      color-mix(in srgb, var(--surface) 72%, transparent) 55%,
-      color-mix(in srgb, var(--bg) 90%, transparent)
-    ),
-    radial-gradient(ellipse at 50% 20%, transparent 20%, color-mix(in srgb, var(--text-active) 12%, transparent) 100%);
-  pointer-events: none;
+  right: -1.2rem;
+  top: .2rem;
+  color: var(--accent);
+  font-family: var(--font-display);
+  font-size: .78rem;
+  font-weight: 900;
+  line-height: .9;
+  text-align: center;
+  transform: rotate(10deg);
 }
 
-.ghost-race-stage-content {
+.ghost-trace-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 2.15fr) minmax(280px, .85fr);
+  gap: clamp(1rem, 2.5vw, 1.5rem);
+  align-items: start;
+  animation: ghost-trace-rise .65s .08s var(--ease-snappy) both;
+}
+
+.ghost-trace-main,
+.ghost-trace-side {
+  position: relative;
+  border-radius: var(--radius-lg);
+}
+
+.ghost-trace-main {
+  overflow: visible;
+  margin-top: .35rem;
+}
+
+.ghost-trace-main .hero-paper-tape {
+  position: absolute;
+  top: -.35rem;
+  left: 50%;
+  transform: translateX(-50%) rotate(-2deg);
+  z-index: 2;
+}
+
+.ghost-trace-main .ghost-trace-card-header {
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: var(--surface);
+}
+
+.ghost-trace-main .ghost-trace-actions {
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  background: var(--surface);
+}
+
+@media (max-width: 720px) {
+  .ghost-trace-main .ghost-trace-actions {
+    border-radius: var(--radius-lg);
+  }
+}
+
+.ghost-trace-main .ghost-trace-stage {
+  overflow: hidden;
+}
+
+.ghost-trace-card-header,
+.ghost-trace-actions,
+.ghost-trace-side-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 1rem;
+  padding: clamp(1.1rem, 2.5vw, 1.5rem);
+}
+
+.ghost-trace-main h2,
+.ghost-trace-side h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 900;
+  letter-spacing: -.025em;
+  text-transform: lowercase;
+}
+
+.ghost-trace-duration-chip {
+  flex-shrink: 0;
+  padding: .35rem .7rem;
+  border: 1.5px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-stats);
+  font-family: var(--font-mono);
+  font-size: .62rem;
+  font-weight: 700;
+  text-transform: lowercase;
+}
+
+.ghost-trace-stage {
+  position: relative;
+  margin: 0 clamp(1.1rem, 2.5vw, 1.5rem);
+  min-height: clamp(240px, 32vw, 340px);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-md, .9rem);
+  background: color-mix(in srgb, var(--bg) 22%, var(--bg-surface));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 55%, transparent);
+  overflow: hidden;
+}
+
+.ghost-trace-stage.is-empty {
+  background: color-mix(in srgb, var(--bg) 40%, var(--bg-surface));
+  box-shadow: none;
+}
+
+.ghost-trace-stage-content {
   position: relative;
   z-index: 1;
   display: flex;
   flex-direction: column;
-  gap: 1.15rem;
+  gap: 1.1rem;
   justify-content: center;
   min-height: inherit;
-  padding: clamp(1.25rem, 4vw, 2.25rem);
+  padding: clamp(1.1rem, 3vw, 1.75rem);
 }
 
-.ghost-race-stage-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  color: var(--text-stats);
-  font-size: .68rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: .12em;
-}
-
-.ghost-loader {
+.ghost-trace-lane {
   --race-progress: 0%;
   display: grid;
-  gap: .55rem;
+  gap: .5rem;
 }
 
-.ghost-loader-meta {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  grid-template-areas:
-    "label wpm"
-    "hint wpm";
-  gap: .15rem .85rem;
+.ghost-trace-lane-meta {
+  display: flex;
+  justify-content: space-between;
   align-items: end;
+  gap: .85rem;
 }
 
-.ghost-loader-label {
-  grid-area: label;
-  font: 800 .72rem/1 var(--font-display);
+.ghost-trace-lane-copy {
+  display: grid;
+  gap: .12rem;
+  min-width: 0;
+}
+
+.ghost-trace-lane-label {
+  font-family: var(--font-display);
+  font-size: .74rem;
+  font-weight: 900;
   text-transform: lowercase;
+  letter-spacing: -.01em;
 }
 
-.ghost-loader-hint {
-  grid-area: hint;
+.ghost-trace-lane-hint {
   color: var(--text-stats);
-  font-size: .65rem;
+  font-family: var(--font-mono);
+  font-size: .62rem;
 }
 
-.ghost-loader-wpm {
-  grid-area: wpm;
+.ghost-trace-lane-wpm {
   color: var(--accent);
-  font: 900 1.55rem/.85 var(--font-display);
+  font-family: var(--font-display);
+  font-size: 1.45rem;
+  font-weight: 900;
+  line-height: .85;
 }
 
-.ghost-loader--you .ghost-loader-wpm { color: var(--success); }
+.ghost-trace-lane--you .ghost-trace-lane-wpm { color: var(--success); }
 
-.ghost-loader-wpm small {
-  font-size: .55em;
-  letter-spacing: 0;
+.ghost-trace-lane-wpm small {
+  font-size: .5em;
   font-weight: 800;
 }
 
-.ghost-loader-track {
+/* Stable track: fill + marker share one transform origin; no bob animation. */
+.ghost-trace-track {
   position: relative;
-  height: 1.15rem;
+  height: 1.2rem;
   border-radius: 999px;
-  border: 1.5px solid color-mix(in srgb, var(--text-active) 28%, transparent);
-  background:
-    linear-gradient(90deg, transparent 0, transparent calc(100% - 1px), color-mix(in srgb, var(--text-active) 14%, transparent) calc(100% - 1px)),
-    color-mix(in srgb, var(--surface) 88%, var(--bg));
-  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--text-active) 8%, transparent);
+  border: 1.5px solid color-mix(in srgb, var(--text-active) 18%, var(--border));
+  background: color-mix(in srgb, var(--bg) 50%, var(--surface));
   overflow: visible;
+  contain: layout paint;
 }
 
-.ghost-loader-fill {
+.ghost-trace-fill {
   position: absolute;
-  inset: 2px auto 2px 2px;
-  width: max(0.75rem, calc(var(--race-progress) - 0.15rem));
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: max(0px, calc(var(--race-progress) - 4px));
   border-radius: inherit;
-  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 55%, var(--surface)), var(--accent));
-  box-shadow: 0 0 18px color-mix(in srgb, var(--accent) 35%, transparent);
-  transition: width .55s cubic-bezier(.16, 1, .3, 1);
+  background: var(--accent);
+  transform: translateZ(0);
+  transition: width .48s cubic-bezier(.22, 1, .36, 1);
 }
 
-.ghost-loader--you .ghost-loader-fill {
-  background: linear-gradient(90deg, color-mix(in srgb, var(--success) 45%, var(--surface)), var(--success));
-  box-shadow: 0 0 18px color-mix(in srgb, var(--success) 32%, transparent);
+.ghost-trace-lane--you .ghost-trace-fill { background: var(--success); }
+
+/* Parked idle lanes: no stub fill when progress is 0. */
+.ghost-trace-lane:not(.is-live) .ghost-trace-fill {
+  opacity: 0;
 }
 
-.ghost-loader-marker {
+.ghost-trace-lane:not(.is-live) .ghost-trace-marker {
+  left: 0;
+  transform: translate(0, -50%);
+}
+
+.ghost-trace-lane.is-locked .ghost-trace-track {
+  border-style: dashed;
+}
+
+.ghost-trace-lane.is-locked .ghost-trace-fill {
+  width: 0;
+  opacity: 0;
+}
+
+.ghost-trace-lane.is-locked .ghost-trace-marker {
+  left: 0;
+  transform: translate(0, -50%);
+  opacity: .5;
+  filter: grayscale(.25);
+}
+
+.ghost-trace-side-metric.is-empty b { color: var(--text-stats); }
+
+.ghost-trace-marker {
   position: absolute;
   top: 50%;
   left: var(--race-progress);
-  transform: translate(-50%, -50%);
-  transition: left .55s cubic-bezier(.16, 1, .3, 1);
+  transform: translate3d(-50%, -50%, 0);
+  z-index: 2;
+  width: 2.45rem;
+  height: 2.45rem;
+  border-radius: 999px;
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow-soft-sm);
+  overflow: hidden;
+  will-change: left;
+  transition: left .48s cubic-bezier(.22, 1, .36, 1);
+}
+
+.ghost-trace-lane--ghost .ghost-trace-marker {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+}
+
+.ghost-trace-lane--you .ghost-trace-marker {
+  border-color: color-mix(in srgb, var(--success) 50%, var(--border));
+}
+
+.ghost-trace-lane.is-live .ghost-trace-fill,
+.ghost-trace-lane.is-live .ghost-trace-marker {
+  transition-duration: .28s;
+  transition-timing-function: cubic-bezier(.33, 1, .68, 1);
+}
+
+.ghost-trace-marker-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center;
+  padding: 0.15rem;
+  background: transparent;
+}
+
+.ghost-trace-ticks {
+  display: flex;
+  justify-content: space-between;
+  color: var(--text-stats);
+  font-family: var(--font-mono);
+  font-size: .62rem;
+  font-weight: 700;
+}
+
+.ghost-trace-actions {
+  align-items: center;
+}
+
+.ghost-trace-actions p {
+  margin: 0;
+  max-width: 22ch;
+  color: var(--text-stats);
+  font-family: var(--font-mono);
+  font-size: .65rem;
+  line-height: 1.5;
+  text-align: right;
+}
+
+.ghost-trace-start {
+  min-width: 11rem;
+}
+
+.ghost-trace-action-stack {
+  display: grid;
+  gap: .55rem;
+  min-width: min(16rem, 100%);
+}
+
+.ghost-trace-start-quiet {
+  width: 100%;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-weight: 800;
+  text-transform: lowercase;
+}
+
+.ghost-trace-side {
+  position: relative;
+  padding-bottom: .5rem;
+}
+
+.ghost-trace-side .hero-paper-tape {
+  position: absolute;
+  top: -.35rem;
+  left: 50%;
+  transform: translateX(-50%) rotate(-2deg);
   z-index: 2;
 }
 
-.ghost-loader-orb {
+.ghost-trace-side-badge {
+  width: 2.4rem;
+  height: 2.4rem;
+  object-fit: contain;
+  padding: .2rem;
+  border-radius: .65rem;
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+}
+
+.ghost-trace-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0 clamp(1.1rem, 2.5vw, 1.5rem) 1rem;
   display: grid;
-  place-items: center;
-  width: 2.55rem;
-  height: 2.55rem;
-  border-radius: 999px;
-  border: 1.5px solid color-mix(in srgb, var(--text-active) 35%, transparent);
-  background: color-mix(in srgb, var(--surface) 92%, var(--bg));
-  box-shadow: 0 8px 18px color-mix(in srgb, var(--text-active) 12%, transparent);
-  font-size: 1.25rem;
-  line-height: 1;
-  animation: ghost-orb-bob 1.35s ease-in-out infinite alternate;
+  gap: 0;
 }
 
-.ghost-loader--ghost .ghost-loader-orb {
-  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
-  box-shadow: 0 8px 20px color-mix(in srgb, var(--accent) 25%, transparent);
+.ghost-trace-steps li {
+  display: grid;
+  gap: .15rem;
+  padding: .7rem 0;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 0;
+  background: transparent;
 }
 
-.ghost-loader--you .ghost-loader-orb {
-  border-color: color-mix(in srgb, var(--success) 55%, transparent);
-  box-shadow: 0 8px 20px color-mix(in srgb, var(--success) 22%, transparent);
+.ghost-trace-steps li:last-child {
+  border-bottom: 0;
+  padding-bottom: .15rem;
 }
 
-.ghost-race-stage-ticks {
-  display: flex;
-  justify-content: space-between;
-  margin-top: .15rem;
+.ghost-trace-steps strong {
+  font-family: var(--font-display);
+  font-size: .78rem;
+  font-weight: 900;
+  text-transform: lowercase;
+}
+
+.ghost-trace-steps small {
   color: var(--text-stats);
+  font-family: var(--font-mono);
   font-size: .62rem;
-  font-weight: 800;
-}
-
-.ghost-race-footer {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
-  gap: 1.5rem;
-  margin: 1.25rem auto 0;
-}
-
-.ghost-how {
-  display: flex;
-  flex-direction: column;
-  gap: .28rem;
-  padding: .8rem 1rem;
-  border: 1px dashed var(--border);
-  font-size: .65rem;
   line-height: 1.45;
 }
 
-.ghost-how b {
-  font-family: var(--font-display);
-  font-size: .72rem;
-  text-transform: lowercase;
-}
-
-.ghost-how span { color: var(--text-stats); }
-
-.ghost-start {
-  padding: .85rem 2.6rem;
-  border: 1.5px solid color-mix(in srgb, var(--success) 70%, var(--border));
+.ghost-trace-side-metric {
+  display: grid;
+  justify-items: start;
+  gap: .15rem;
+  margin: 0 clamp(1.1rem, 2.5vw, 1.5rem) 1.1rem;
+  padding: .95rem 1rem;
+  border: 1.5px dashed var(--border);
   border-radius: .85rem;
-  background: var(--success);
-  color: #071b0d;
-  box-shadow: 0 6px 0 color-mix(in srgb, var(--success) 58%, #073916);
-  font: 900 1.15rem var(--font-display);
-  text-transform: lowercase;
-  cursor: pointer;
-  transition: transform .15s var(--ease-snappy), box-shadow .15s var(--ease-snappy);
+  background: color-mix(in srgb, var(--bg) 40%, var(--surface));
 }
 
-.ghost-start:hover { transform: translateY(-2px); }
-.ghost-start:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 3px;
-  transform: translateY(-2px);
-}
-.ghost-start:active {
-  transform: translateY(4px);
-  box-shadow: 0 2px 0 color-mix(in srgb, var(--success) 58%, #073916);
-}
-.ghost-start span { margin-right: .45rem; }
-
-.ghost-race-footer > p {
-  margin: 0;
+.ghost-trace-side-metric span,
+.ghost-trace-side-metric small {
   color: var(--text-stats);
-  font-size: .65rem;
-  line-height: 1.5;
+  font-family: var(--font-mono);
+  font-size: .62rem;
+  font-weight: 700;
+  text-transform: lowercase;
 }
 
-.ghost-race--live {
+.ghost-trace-side-metric b {
+  font-family: var(--font-display);
+  font-size: 2rem;
+  font-weight: 900;
+  line-height: 1;
+  color: var(--accent);
+}
+
+.ghost-trace--live {
   position: fixed;
   z-index: 95;
   right: clamp(.75rem, 3vw, 2.25rem);
-  bottom: .75rem;
+  bottom: max(.75rem, env(safe-area-inset-bottom, 0px));
   width: min(420px, calc(100vw - 1.5rem));
   padding: 0;
-  border: none;
-  background: transparent;
-  box-shadow: none;
+  display: grid;
+  gap: .45rem;
+}
+
+.ghost-trace-live-chip {
+  display: none;
+}
+
+.ghost-trace-live-card {
+  padding: .8rem .95rem .85rem;
+  border-radius: .95rem;
+  border-width: 1.5px;
+  background: var(--surface);
+}
+
+.ghost-trace-live-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: .75rem;
+  margin-bottom: .65rem;
+  color: var(--text-stats);
+  font-family: var(--font-mono);
+  font-size: .75rem;
+  font-weight: 700;
+  text-transform: lowercase;
+}
+
+.ghost-trace-live-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+}
+
+.ghost-trace-live-tag img {
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: .3rem;
+  object-fit: contain;
+  padding: 1px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.ghost-trace-live-meta {
+  flex-shrink: 0;
+  padding: .2rem .45rem;
+  border: 1px dashed var(--border);
+  border-radius: .4rem;
+}
+
+.ghost-trace--live .ghost-trace-lane { gap: .3rem; }
+.ghost-trace--live .ghost-trace-lane + .ghost-trace-lane { margin-top: .45rem; }
+.ghost-trace--live .ghost-trace-lane-wpm { font-size: 1.15rem; }
+.ghost-trace--live .ghost-trace-lane-label { font-size: .75rem; }
+.ghost-trace--live .ghost-trace-lane-hint { font-size: .7rem; }
+.ghost-trace--live .ghost-trace-track { height: .8rem; }
+.ghost-trace--live .ghost-trace-marker {
+  width: 1.85rem;
+  height: 1.85rem;
+}
+
+.ghost-trace-status {
+  margin: .65rem 0 0;
+  padding: .45rem .6rem;
+  text-align: center;
+  color: var(--text-stats);
+  font-family: var(--font-mono);
+  font-size: .75rem;
+  font-weight: 700;
+  border: 1px solid var(--border);
+  border-radius: .55rem;
+  background: color-mix(in srgb, var(--bg) 45%, var(--surface));
+}
+
+.ghost-trace-status.is-ahead {
+  color: color-mix(in srgb, var(--success) 80%, var(--text-active));
+  border-color: color-mix(in srgb, var(--success) 45%, var(--border));
+  background: color-mix(in srgb, var(--success) 10%, var(--surface));
+}
+
+.ghost-trace-status.is-behind {
+  color: color-mix(in srgb, var(--accent) 85%, var(--text-active));
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
 }
 
 .app-toast {
@@ -3845,51 +4219,243 @@ html.filler-flash .game-focus-card {
   .app-header-actions { grid-area: actions; }
 }
 
-.ghost-race-stage--live {
-  min-height: 0;
-  border-radius: .95rem;
-  box-shadow: var(--shadow-soft);
+@keyframes ghost-trace-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
-.ghost-race-stage--live .ghost-race-stage-content {
-  gap: .7rem;
-  padding: .85rem 1rem .8rem;
+@media (prefers-reduced-motion: reduce) {
+  .ghost-trace-intro,
+  .ghost-trace-workspace,
+  .ghost-trace-marker {
+    animation: none !important;
+  }
+
+  .ghost-trace-fill,
+  .ghost-trace-marker,
+  .ghost-trace-lane.is-live .ghost-trace-fill,
+  .ghost-trace-lane.is-live .ghost-trace-marker {
+    transition: none !important;
+  }
 }
 
-.ghost-race-stage--live .ghost-loader-wpm { font-size: 1.15rem; }
-.ghost-race-stage--live .ghost-loader-track { height: .85rem; }
-.ghost-race-stage--live .ghost-loader-orb {
-  width: 1.9rem;
-  height: 1.9rem;
-  font-size: .95rem;
-}
-.ghost-race-stage--live .ghost-loader-meta { gap: .05rem .5rem; }
-.ghost-race-stage--live .ghost-race-stage-ticks { font-size: .5rem; }
-
-.ghost-race-status {
-  margin: .45rem 0 0;
-  text-align: center;
-  color: var(--text-stats);
-  font-size: .62rem;
-  font-weight: 700;
-}
-
-.ghost-race-status.is-ahead { color: var(--success); }
-
-@keyframes ghost-orb-bob {
-  to { transform: translateY(-3px); }
+@media (max-width: 960px) {
+  .ghost-trace-workspace { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 720px) {
-  .ghost-race-footer {
-    grid-template-columns: 1fr;
-    gap: .9rem;
-    text-align: center;
+  .hero-preflight--ghost {
+    padding-inline: 0.75rem;
+    padding-block: 0.35rem;
   }
-  .ghost-how { text-align: left; }
-  .ghost-race-footer > p { display: none; }
-  .ghost-race-intro h1 { font-size: clamp(2.5rem, 13vw, 4rem); }
-  .ghost-race-stage { min-height: 320px; }
+
+  .hero-preflight--ghost .hero-preflight-groups {
+    gap: 0.45rem 0.65rem;
+  }
+
+  .hero-preflight--ghost .flex-col.items-center.gap-2 {
+    gap: 0.25rem;
+  }
+
+  .ghost-trace {
+    padding-inline: 0;
+    padding-bottom: 5.5rem;
+  }
+
+  .ghost-trace-intro {
+    grid-template-columns: minmax(0, 1fr) 88px;
+    align-items: start;
+    gap: 0.75rem;
+    margin-bottom: 0.85rem;
+  }
+
+  .ghost-trace-mascot-wrap {
+    width: 88px;
+    justify-self: end;
+    margin-top: 0;
+  }
+
+  .ghost-trace-scribble {
+    display: none;
+  }
+
+  .ghost-trace-intro h1 {
+    font-size: clamp(1.85rem, 9vw, 2.6rem);
+  }
+
+  .ghost-trace-lede {
+    display: none;
+  }
+
+  .ghost-trace-intro-hint {
+    margin-top: 0.55rem !important;
+    padding: 0.55rem 0.7rem;
+    font-size: 0.68rem;
+  }
+
+  .ghost-trace-workspace {
+    gap: 0.85rem;
+  }
+
+  .ghost-trace-card-header {
+    padding: 0.85rem 1rem 0.55rem;
+  }
+
+  .ghost-trace-main h2 {
+    font-size: 1rem;
+  }
+
+  .ghost-trace-stage {
+    min-height: 0;
+    margin-inline: 0.85rem;
+  }
+
+  .ghost-trace-stage-content {
+    gap: 0.75rem;
+    padding: 0.85rem 0.9rem;
+    min-height: 0;
+  }
+
+  .ghost-trace-lane-wpm {
+    font-size: 1.15rem;
+  }
+
+  .ghost-trace-actions {
+    position: sticky;
+    bottom: max(0.55rem, env(safe-area-inset-bottom, 0px));
+    z-index: 40;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.55rem;
+    margin: 0.65rem 0.5rem 0;
+    padding: 0.75rem 0.85rem;
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: color-mix(in srgb, var(--surface) 92%, transparent);
+    box-shadow: var(--shadow-soft);
+  }
+
+  .ghost-trace-start,
+  .ghost-trace-action-stack { width: 100%; }
+
+  .ghost-trace-actions p {
+    max-width: none;
+    text-align: left;
+  }
+
+  .ghost-trace-side {
+    order: 2;
+  }
+
+  .ghost-trace-duration-chip {
+    align-self: start;
+  }
+
+  .ghost-trace-card-header {
+    flex-wrap: wrap;
+  }
+
+  .ghost-trace-card-header,
+  .ghost-trace-side-head {
+    padding-inline: 1rem;
+  }
+
+  /* Mobile live: chip by default, expand for full dual lanes. */
+  .ghost-trace--live {
+    right: .65rem;
+    left: .65rem;
+    width: auto;
+    gap: .4rem;
+  }
+
+  .ghost-trace-live-chip {
+    display: flex;
+    align-items: center;
+    gap: .45rem;
+    width: 100%;
+    padding: .55rem .7rem;
+    border: 1.5px solid var(--border);
+    border-radius: .85rem;
+    background: var(--surface);
+    color: var(--text-active);
+    box-shadow: var(--shadow-soft-sm);
+    font-family: var(--font-mono);
+    font-size: .72rem;
+    font-weight: 700;
+    text-transform: lowercase;
+    cursor: pointer;
+  }
+
+  .ghost-trace-live-chip img {
+    width: 1rem;
+    height: 1rem;
+    border-radius: .25rem;
+    object-fit: contain;
+    border: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .ghost-trace-live-chip-label {
+    color: var(--text-stats);
+  }
+
+  .ghost-trace-live-chip-status {
+    margin-left: auto;
+    padding: .12rem .4rem;
+    border-radius: .4rem;
+    border: 1px solid var(--border);
+  }
+
+  .ghost-trace-live-chip-status.is-ahead {
+    color: color-mix(in srgb, var(--success) 80%, var(--text-active));
+    border-color: color-mix(in srgb, var(--success) 45%, var(--border));
+    background: color-mix(in srgb, var(--success) 10%, var(--surface));
+  }
+
+  .ghost-trace-live-chip-status.is-behind {
+    color: color-mix(in srgb, var(--accent) 85%, var(--text-active));
+    border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+    background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  }
+
+  .ghost-trace-live-chip-wpm {
+    display: inline-flex;
+    align-items: baseline;
+    gap: .15rem;
+    font-family: var(--font-display);
+    font-size: .95rem;
+    font-weight: 900;
+  }
+
+  .ghost-trace-live-chip-wpm small {
+    color: var(--text-stats);
+    font-size: .7em;
+  }
+
+  .ghost-trace--live:not(.is-expanded) .ghost-trace-live-card {
+    display: none;
+  }
+
+  .ghost-trace--live.is-expanded .ghost-trace-live-card {
+    display: block;
+    padding: .65rem .75rem .7rem;
+  }
+
+  .ghost-trace--live .ghost-trace-lane-hint { display: none; }
+  .ghost-trace--live .ghost-trace-lane-label { font-size: .75rem; }
+  .ghost-trace--live .ghost-trace-lane-wpm { font-size: 1.05rem; }
+  .ghost-trace--live .ghost-trace-status { font-size: .75rem; }
+  .ghost-trace--live .ghost-trace-marker {
+    width: 1.45rem;
+    height: 1.45rem;
+  }
+  .ghost-trace--live .ghost-trace-track { height: .65rem; }
 }
 
 /* ── Mobile game & results fixes (≤640px) ── */
