@@ -64,7 +64,7 @@ export default function Header({ onSettingsOpen, onProfileOpen }: HeaderProps) {
           className={`mode-tab ${mode === 'ghost' ? 'active' : ''}`}
           onClick={() => handleMode('ghost')}
         >
-          ghost race
+          ghost trace
         </button>
       </div>
 

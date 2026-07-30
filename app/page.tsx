@@ -615,11 +615,18 @@ export default function Home() {
   const isIdle    = store.testState === 'idle'
   const elapsedMs = store.duration * 1000 - timeRemaining
   const ghostBest = store.settings.personalBests[`speed-${store.duration}s-${store.promptType}`]
+  const hasGhostReplay = Boolean(ghostBest?.timeline?.progress?.length)
   const ghostProgressAt = (elapsedSeconds: number) => {
     const points = ghostBest?.timeline?.progress ?? []
-    if (!points.length) return Math.min(100, (elapsedSeconds / store.duration) * 100)
+    // No linear timer fallback — without a real timeline the ghost stays parked.
+    if (!points.length) return 0
     const maxWords = Math.max(...points.map((p) => p.words), 1)
-    const prior = [...points].reverse().find((point) => point.second <= elapsedSeconds) ?? points[0]
+    // Prefer real `second` samples; fall back to array index for older/local seeds.
+    const prior =
+      [...points].reverse().find((point, idx, arr) => {
+        const at = typeof point.second === 'number' ? point.second : arr.length - 1 - idx
+        return at <= elapsedSeconds
+      }) ?? points[0]
     return Math.min(100, ((prior?.words ?? 0) / maxWords) * 100)
   }
   const startHint = store.settings.sttProvider === 'deepgram'
@@ -646,7 +653,7 @@ export default function Home() {
         className={`flex-1 flex flex-col items-center px-6 mx-auto w-full ${
           store.mode === 'clarity' ? 'py-4' : 'py-8'
         } ${
-          store.mode !== 'clarity' ? (isIdle ? 'max-w-[1320px]' : 'max-w-[900px]') : 'max-w-[1320px]'
+          store.mode === 'speed' && !isIdle ? 'max-w-[900px]' : 'max-w-[1320px]'
         } ${isIdle ? 'justify-start' : 'justify-center'}`}
       >
         {!isEnded ? (
@@ -757,7 +764,19 @@ export default function Home() {
                 )}
 
                 {isIdle && store.mode === 'ghost' && (() => {
-                  return <GhostRace phase="idle" playerProgress={0} ghostProgress={0} playerWpm={0} ghostWpm={ghostBest?.wpm ?? 0} duration={store.duration} onStart={handleStart} />
+                  return (
+                    <GhostRace
+                      phase="idle"
+                      playerProgress={0}
+                      ghostProgress={0}
+                      playerWpm={0}
+                      ghostWpm={ghostBest?.wpm ?? 0}
+                      hasReplay={hasGhostReplay}
+                      duration={store.duration}
+                      onStart={handleStart}
+                      onGoSpeed={() => store.setMode('speed')}
+                    />
+                  )
                 })()}
 
                 {/* running live test */}
@@ -794,7 +813,17 @@ export default function Home() {
                         ? (speakingGame.currentIndex / store.prompt.length) * 100
                         : 0
                       const ghostProgress = ghostProgressAt(elapsedMs / 1000)
-                      return <GhostRace phase="running" playerProgress={playerProgress} ghostProgress={ghostProgress} playerWpm={Math.round(speakingGame.liveWpm)} ghostWpm={ghostBest?.wpm ?? 0} duration={store.duration} />
+                      return (
+                        <GhostRace
+                          phase="running"
+                          playerProgress={playerProgress}
+                          ghostProgress={ghostProgress}
+                          playerWpm={Math.round(speakingGame.liveWpm)}
+                          ghostWpm={ghostBest?.wpm ?? 0}
+                          hasReplay={hasGhostReplay}
+                          duration={store.duration}
+                        />
+                      )
                     })()}
                   </>
                 )}

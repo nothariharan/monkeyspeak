@@ -116,14 +116,17 @@ export default function ConfigBar() {
   return (
     <div
       ref={barRef}
+      data-mode={mode}
       className={`hero-preflight flex flex-col items-center px-6 ${
         mode === 'clarity'
           ? 'hero-preflight--clarity gap-2 py-1.5'
-          : 'gap-4 py-3'
+          : mode === 'ghost'
+            ? 'hero-preflight--ghost gap-4 py-3'
+            : 'gap-4 py-3'
       }`}
     >
       <div
-        className={`flex flex-wrap items-start justify-center ${
+        className={`hero-preflight-groups flex flex-wrap items-start justify-center ${
           mode === 'clarity' ? 'gap-3' : 'gap-6'
         }`}
       >
@@ -161,57 +164,110 @@ export default function ConfigBar() {
           ))}
         </SegmentGroup>
 
-        {isRaceMode && (
-          <SegmentGroup label="end">
-            {END_CONDITIONS.map((ec) => (
-              <SegmentBtn
-                key={ec.value}
-                id={`end-${ec.value}`}
-                active={promptType === 'daily' ? ec.value === 'timer' : endCondition === ec.value}
-                disabled={isRunning || promptType === 'daily'}
-                onClick={() => !isRunning && updateSettings({ endCondition: ec.value })}
-              >
-                {ec.label}
-              </SegmentBtn>
-            ))}
-          </SegmentGroup>
-        )}
+        {mode === 'ghost' ? (
+          <details className="hero-preflight-more">
+            <summary>more options</summary>
+            <div className="hero-preflight-more-body">
+              <SegmentGroup label="end">
+                {END_CONDITIONS.map((ec) => (
+                  <SegmentBtn
+                    key={ec.value}
+                    id={`end-${ec.value}`}
+                    active={promptType === 'daily' ? ec.value === 'timer' : endCondition === ec.value}
+                    disabled={isRunning || promptType === 'daily'}
+                    onClick={() => !isRunning && updateSettings({ endCondition: ec.value })}
+                  >
+                    {ec.label}
+                  </SegmentBtn>
+                ))}
+              </SegmentGroup>
 
-        {isRaceMode && promptType === 'sentences' && (
-          <SegmentGroup label="difficulty">
-            {DIFFICULTIES.map((d) => (
-              <SegmentBtn
-                key={d.value}
-                id={`difficulty-${d.value}`}
-                active={promptDifficulty === d.value}
-                disabled={isRunning}
-                onClick={() => !isRunning && updateSettings({ promptDifficulty: d.value })}
-              >
-                {d.label}
-              </SegmentBtn>
-            ))}
-          </SegmentGroup>
-        )}
+              {promptType === 'sentences' && (
+                <SegmentGroup label="difficulty">
+                  {DIFFICULTIES.map((d) => (
+                    <SegmentBtn
+                      key={d.value}
+                      id={`difficulty-${d.value}`}
+                      active={promptDifficulty === d.value}
+                      disabled={isRunning}
+                      onClick={() => !isRunning && updateSettings({ promptDifficulty: d.value })}
+                    >
+                      {d.label}
+                    </SegmentBtn>
+                  ))}
+                </SegmentGroup>
+              )}
 
-        {isRaceMode && (
-          <SegmentGroup label="stt">
-            {PROVIDERS.map((p) => (
-              <SegmentBtn
-                key={p.value}
-                id={`stt-provider-${p.value}`}
-                active={currentProvider === p.value}
-                disabled={isRunning}
-                onClick={() => !isRunning && setSttProvider(p.value)}
-              >
-                {p.label}
-              </SegmentBtn>
-            ))}
-          </SegmentGroup>
+              <SegmentGroup label="stt">
+                {PROVIDERS.map((p) => (
+                  <SegmentBtn
+                    key={p.value}
+                    id={`stt-provider-${p.value}`}
+                    active={currentProvider === p.value}
+                    disabled={isRunning}
+                    onClick={() => !isRunning && setSttProvider(p.value)}
+                  >
+                    {p.label}
+                  </SegmentBtn>
+                ))}
+              </SegmentGroup>
+            </div>
+          </details>
+        ) : (
+          <>
+            {isRaceMode && (
+              <SegmentGroup label="end">
+                {END_CONDITIONS.map((ec) => (
+                  <SegmentBtn
+                    key={ec.value}
+                    id={`end-${ec.value}`}
+                    active={promptType === 'daily' ? ec.value === 'timer' : endCondition === ec.value}
+                    disabled={isRunning || promptType === 'daily'}
+                    onClick={() => !isRunning && updateSettings({ endCondition: ec.value })}
+                  >
+                    {ec.label}
+                  </SegmentBtn>
+                ))}
+              </SegmentGroup>
+            )}
+
+            {isRaceMode && promptType === 'sentences' && (
+              <SegmentGroup label="difficulty">
+                {DIFFICULTIES.map((d) => (
+                  <SegmentBtn
+                    key={d.value}
+                    id={`difficulty-${d.value}`}
+                    active={promptDifficulty === d.value}
+                    disabled={isRunning}
+                    onClick={() => !isRunning && updateSettings({ promptDifficulty: d.value })}
+                  >
+                    {d.label}
+                  </SegmentBtn>
+                ))}
+              </SegmentGroup>
+            )}
+
+            {isRaceMode && (
+              <SegmentGroup label="stt">
+                {PROVIDERS.map((p) => (
+                  <SegmentBtn
+                    key={p.value}
+                    id={`stt-provider-${p.value}`}
+                    active={currentProvider === p.value}
+                    disabled={isRunning}
+                    onClick={() => !isRunning && setSttProvider(p.value)}
+                  >
+                    {p.label}
+                  </SegmentBtn>
+                ))}
+              </SegmentGroup>
+            )}
+          </>
         )}
       </div>
 
       {isRaceMode && recommendDeepgram && currentProvider === 'webspeech' && !isRunning && (
-        <p className="text-center text-xs text-[var(--text-stats)] max-w-md">
+        <p className="text-center text-xs text-[var(--text-stats)] max-w-md hero-preflight-tip">
           if browser speech feels stuck, try deepgram mode or switch to chrome for the quick test.
         </p>
       )}
