@@ -2,6 +2,8 @@ const fs = require('fs')
 const path = require('path')
 
 // keep public/ ort wasm in sync with onnxruntime-web after npm install
+// VAD worker loads ort.min.js + ort-wasm-simd-threaded.wasm (numThreads=1).
+// Do not copy jsep builds — they are unused and ~25MB+.
 
 const dist = path.join(__dirname, '..', 'node_modules', 'onnxruntime-web', 'dist')
 const out = path.join(__dirname, '..', 'public')
@@ -9,8 +11,6 @@ const out = path.join(__dirname, '..', 'public')
 const files = [
   'ort-wasm-simd-threaded.wasm',
   'ort-wasm-simd-threaded.mjs',
-  'ort-wasm-simd-threaded.jsep.mjs',
-  'ort-wasm-simd-threaded.jsep.wasm',
 ]
 
 for (const name of files) {

@@ -1205,7 +1205,7 @@ html.filler-flash .game-focus-card {
   will-change: transform;
 }
 
-/* sprite sheet lives in public/monmiddle.png. gsap steps background-position-x */
+/* idle bounce strip for hero monkey — gsap steps background-position-x */
 .hero-monkey-sprite {
   position: absolute;
   inset: -10% -8% -4%;

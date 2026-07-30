@@ -1,6 +1,6 @@
 # monkeyspeak
 
-what's launching: a tiny speaking benchmark. read prompts out loud, get a wpm score, chase one more personal best 🙊
+a tiny speaking benchmark. read prompts out loud, get a wpm score, chase one more personal best 🙊
 (totally original idea hehehe)
 
 check out [CONTRIBUTING.md](CONTRIBUTING.md) for the longer contributor guide — this readme is the fast version.

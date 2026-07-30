@@ -12,6 +12,7 @@
     "build": "next build",
     "start": "cross-env NODE_ENV=production node server.js",
     "lint": "next lint",
+    "typecheck": "tsc --noEmit",
     "test": "jest"
   },
   "dependencies": {
@@ -29,6 +30,7 @@
     "zustand": "^4.5.4"
   },
   "devDependencies": {
+    "@eslint-community/eslint-utils": "^4.10.1",
     "@types/fast-levenshtein": "^0.0.4",
     "@types/jest": "^30.0.0",
     "@types/node": "^20",

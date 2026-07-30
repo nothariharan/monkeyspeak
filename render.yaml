@@ -11,3 +11,9 @@ services:
         sync: false
       - key: DEEPGRAM_PROJECT_ID
         sync: false
+      - key: SESSION_SECRET
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: NEXT_PUBLIC_DEEPGRAM_PROXY_URL
+        sync: false
