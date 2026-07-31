@@ -2425,7 +2425,7 @@ html.filler-flash .game-focus-card {
 
 .clarity-intro {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(120px, 168px);
+  grid-template-columns: minmax(0, 1fr) minmax(140px, 190px);
   align-items: end;
   gap: clamp(0.6rem, 1.5vw, 1.1rem);
 }
@@ -2454,17 +2454,8 @@ html.filler-flash .game-focus-card {
 }
 
 .clarity-hear {
-  display: inline-block;
   color: var(--accent);
-  font-family: var(--font-hand);
-  font-size: 1.18em;
-  font-weight: 700;
-  letter-spacing: 0;
-  line-height: 0.85;
-  transform: rotate(-3deg);
-  text-shadow:
-    1px 0 0 color-mix(in srgb, var(--accent) 35%, transparent),
-    0 1px 0 color-mix(in srgb, var(--accent) 25%, transparent);
+  filter: drop-shadow(1px 2px 0 color-mix(in srgb, var(--accent) 28%, transparent));
 }
 
 .clarity-lede {
@@ -2500,9 +2491,9 @@ html.filler-flash .game-focus-card {
 
 .clarity-mascot-wrap {
   position: relative;
-  align-self: center;
+  align-self: end;
   justify-self: center;
-  width: min(100%, 150px);
+  width: min(100%, 176px);
 }
 
 .clarity-mascot {
@@ -2511,12 +2502,13 @@ html.filler-flash .game-focus-card {
   height: auto;
   object-fit: contain;
   filter: drop-shadow(0 10px 18px color-mix(in srgb, var(--border) 40%, transparent));
+  image-rendering: auto;
 }
 
 .clarity-scribble {
   position: absolute;
-  right: -0.6rem;
-  top: -0.15rem;
+  right: -0.85rem;
+  top: 0.1rem;
   max-width: 7.5rem;
   color: var(--accent);
   font-family: var(--font-hand);
@@ -2658,28 +2650,35 @@ html.filler-flash .game-focus-card {
 
 .leaderboard-empty--soft {
   display: grid;
-  gap: 0.28rem;
-  justify-items: start;
-  padding: 1.15rem 0.35rem 1.35rem;
+  gap: 0.45rem;
+  padding: 0.85rem 0.75rem;
   border: 1px dashed color-mix(in srgb, var(--accent) 28%, var(--border));
   border-radius: var(--radius);
   background: color-mix(in srgb, var(--accent) 5%, var(--surface));
 }
 
+.leaderboard-empty-top {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
 .leaderboard-empty--soft .leaderboard-empty-mark {
   color: var(--accent);
-  font-size: 0.85rem;
+  font-size: 0.78rem;
   line-height: 1;
 }
 
 .leaderboard-empty--soft strong {
   color: var(--text-active);
-  font: 800 0.72rem var(--font-display);
+  font: 800 0.78rem/1 var(--font-display);
   text-transform: lowercase;
 }
 
-.leaderboard-empty--soft span:last-child {
-  max-width: 18ch;
+.leaderboard-empty--soft p {
+  margin: 0;
+  color: var(--text-stats);
+  font: 0.62rem/1.45 var(--font-mono);
 }
 
 .tool-roster {
@@ -2777,6 +2776,13 @@ html.filler-flash .game-focus-card {
   background: var(--surface);
 }
 
+.prompt-facts .prompt-scene {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  text-transform: lowercase;
+}
+
 .clarity-legal-pad {
   position: relative;
   margin: 0.65rem 0 0.65rem;
@@ -2839,10 +2845,28 @@ html.filler-flash .game-focus-card {
   text-transform: lowercase;
 }
 
-.prompt-signal-row span {
+.prompt-signal-row .prompt-signal {
   display: inline-flex;
   align-items: center;
   gap: 0.28rem;
+}
+
+.prompt-signal.is-active {
+  color: var(--accent);
+}
+
+.prompt-signal.is-muted {
+  color: color-mix(in srgb, var(--text-stats) 55%, transparent);
+  opacity: 0.72;
+}
+
+.prompt-signal-dot {
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+  opacity: 0.7;
 }
 
 .clarity-prompt-actions {
@@ -2912,6 +2936,20 @@ html.filler-flash .game-focus-card {
   padding: 0.15rem clamp(0.75rem, 1.8vw, 1.05rem) 1rem;
 }
 
+.clarity-cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+}
+
+.clarity-cancel-button {
+  min-height: 2.75rem;
+  padding-inline: 1.1rem;
+  color: var(--text-stats);
+}
+
 .clarity-start-button {
   display: inline-flex;
   align-items: center;
@@ -2946,7 +2984,10 @@ html.filler-flash .game-focus-card {
 .clarity-board {
   position: sticky;
   top: 1rem;
-  padding: 1.25rem 1.1rem 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1.15rem 1rem 0.95rem;
   background:
     repeating-linear-gradient(
       transparent 0,
@@ -2965,21 +3006,37 @@ html.filler-flash .game-focus-card {
   transform: translateX(-50%) rotate(-2deg);
 }
 
+.clarity-board-head {
+  align-items: center;
+}
+
+.clarity-board-head .clarity-step {
+  margin: 0 0 0.15rem;
+}
+
 .leaderboard-period {
-  padding: 0.25rem 0.4rem;
+  flex: 0 0 auto;
+  max-width: 7.5rem;
+  padding: 0.22rem 0.4rem;
   color: var(--accent);
   border: 1px dashed color-mix(in srgb, var(--accent) 45%, var(--border));
   border-radius: 0.35rem;
-  font: 700 0.56rem var(--font-mono);
+  font: 700 0.56rem/1.2 var(--font-mono);
+  text-align: center;
   text-transform: lowercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .clarity-board ol {
   display: grid;
   gap: 0.35rem;
+  flex: 1 1 auto;
   padding: 0;
-  margin: 0.85rem 0 0;
+  margin: 0;
   list-style: none;
+  min-width: 0;
 }
 
 .leader-row {
@@ -3009,7 +3066,10 @@ html.filler-flash .game-focus-card {
 .leader-row > b small { display: inline; font-size: 0.55em; }
 
 .clarity-board-foot {
-  margin-top: 0.85rem;
+  display: grid;
+  gap: 0.7rem;
+  padding-top: 0.75rem;
+  border-top: 1px dashed color-mix(in srgb, var(--border) 55%, transparent);
 }
 
 .clarity-score-link {
@@ -3020,21 +3080,24 @@ html.filler-flash .game-focus-card {
 }
 
 .clarity-board-doodle {
-  display: grid;
-  grid-template-columns: auto auto 1fr;
-  gap: 0.35rem;
+  display: flex;
   align-items: center;
-  margin-top: 1rem;
+  gap: 0.35rem;
   color: var(--accent);
+  min-width: 0;
+}
+
+.clarity-board-doodle svg {
+  flex: 0 0 auto;
 }
 
 .clarity-board-doodle p {
   margin: 0;
   font-family: var(--font-hand);
-  font-size: 0.95rem;
+  font-size: 0.88rem;
   font-weight: 700;
-  line-height: 1.1;
-  transform: rotate(-2deg);
+  line-height: 1.15;
+  transform: rotate(-1.5deg);
 }
 
 .clarity-crown-doodle,
@@ -3056,6 +3119,106 @@ html.filler-flash .game-focus-card {
 .clarity-side-stack .hero-top-score--empty .hero-top-score-foot {
   color: color-mix(in srgb, var(--text-stats) 85%, var(--accent));
   font-style: italic;
+}
+
+.clarity-scorecard {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding: 1rem 0.9rem 0.85rem;
+  transform: rotate(1.2deg);
+}
+
+.clarity-scorecard .hero-paper-tape {
+  position: absolute;
+  top: -0.35rem;
+  left: 50%;
+  transform: translateX(-50%) rotate(-3deg);
+}
+
+.clarity-scorecard-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.55rem;
+}
+
+.clarity-scorecard-tool {
+  max-width: 9.5rem;
+  padding: 0.22rem 0.45rem;
+  border: 1px dashed color-mix(in srgb, var(--accent) 40%, var(--border));
+  border-radius: 0.35rem;
+  color: var(--accent);
+  font: 700 0.56rem/1.2 var(--font-mono);
+  text-align: right;
+  text-transform: lowercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clarity-scorecard-tool.is-empty {
+  color: var(--text-stats);
+  border-color: color-mix(in srgb, var(--border) 70%, transparent);
+  opacity: 0.75;
+}
+
+.clarity-scorecard-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem;
+}
+
+.clarity-scorecard-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  padding: 0.55rem 0.6rem;
+  border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--surface) 92%, var(--bg));
+}
+
+.clarity-scorecard-metric--top {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+}
+
+.clarity-scorecard-metric-label {
+  color: var(--text-stats);
+  font: 700 0.55rem var(--font-mono);
+  text-transform: lowercase;
+}
+
+.clarity-scorecard-metric-value {
+  color: var(--text-active);
+  font: 900 1.45rem/0.95 var(--font-display);
+  letter-spacing: -0.03em;
+}
+
+.clarity-scorecard-metric--top .clarity-scorecard-metric-value {
+  color: var(--accent);
+}
+
+.clarity-scorecard-metric-value small {
+  margin-left: 0.08rem;
+  font-size: 0.55em;
+  font-weight: 800;
+}
+
+.clarity-scorecard-foot {
+  color: var(--text-stats);
+  font: 0.58rem/1.35 var(--font-mono);
+}
+
+.clarity-scorecard--empty .clarity-scorecard-foot {
+  font-style: italic;
+  color: color-mix(in srgb, var(--text-stats) 85%, var(--accent));
+}
+
+.clarity-scorecard--empty .clarity-scorecard-metric-value {
+  opacity: 0.38;
 }
 
 .clarity-best-unit {
@@ -3113,11 +3276,128 @@ html.filler-flash .game-focus-card {
 .clarity-slogan {
   margin: 0;
   color: var(--accent);
-  font-family: var(--font-hand);
-  font-size: 1.15rem;
-  font-weight: 700;
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
   text-align: right;
-  transform: rotate(2deg);
+  text-transform: lowercase;
+}
+
+.clarity-results-kicker {
+  margin: 0;
+  color: var(--text-stats);
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.clarity-results-diff {
+  font-family: var(--font-display);
+  font-weight: 600;
+}
+
+.clarity-results-legend,
+.clarity-results-meta {
+  margin: 0;
+  color: var(--text-stats);
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: lowercase;
+}
+
+.clarity-results-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1.15rem 1.2rem 1.05rem;
+}
+
+.clarity-results-hero-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.clarity-results-engine {
+  max-width: 12rem;
+  padding: 0.28rem 0.55rem;
+  border: 1px dashed color-mix(in srgb, var(--accent) 40%, var(--border));
+  border-radius: 0.4rem;
+  color: var(--accent);
+  font-family: var(--font-display);
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: lowercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clarity-results-hero-score {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.75rem 1rem;
+}
+
+.clarity-results-pct {
+  color: var(--accent);
+  font-size: clamp(2.6rem, 6vw, 3.5rem);
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+}
+
+.clarity-results-grade {
+  font-size: clamp(1.6rem, 3.5vw, 2.25rem);
+  line-height: 1;
+  letter-spacing: -0.03em;
+  text-transform: lowercase;
+}
+
+.clarity-results-delta.is-up { color: var(--success); }
+.clarity-results-delta.is-down { color: var(--error); }
+
+.clarity-results-chips {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(4.6rem, 1fr));
+  gap: 0.5rem;
+}
+
+.clarity-results-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.65rem 0.55rem;
+  border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-soft-sm);
+}
+
+.clarity-results-chip--accent {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+}
+
+.clarity-results-chip-value {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+
+.clarity-results-chip-label {
+  color: var(--text-stats);
+  font-family: var(--font-display);
+  font-size: 0.58rem;
+  font-weight: 700;
+  text-transform: lowercase;
 }
 
 @media (max-width: 1100px) {
@@ -3141,7 +3421,7 @@ html.filler-flash .game-focus-card {
   }
   .clarity-side-stack {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.75rem;
   }
   .clarity-intro { grid-template-columns: minmax(0, 1fr) 140px; }

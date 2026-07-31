@@ -7,7 +7,7 @@ import type { DiffWord } from '@/store/testStore'
 import { useTestStore } from '@/store/testStore'
 import { useClarityLeaderboard } from '@/hooks/useClarityLeaderboard'
 import { CLARITY_TOOLS } from '@/lib/clarityLeaderboard/tools'
-import { getLocalDateStr } from '@/lib/stats/streak'
+import { getClarityPromptMeta, type ClaritySignal } from '@/lib/clarityPrompts'
 
 interface ClarityInputProps {
   testState: 'idle' | 'running' | 'ended'
@@ -16,18 +16,25 @@ interface ClarityInputProps {
   prompt: string[]
   onChange: (val: string) => void
   onStop: () => void
+  onCancel: () => void
   onStart: (tool: { id: string; name: string }) => void
   onShuffle: () => void
 }
 
 const TOOLS = CLARITY_TOOLS
-const DAILY_CLARITY_GOAL = 3
+
+const SIGNAL_LABELS: { id: ClaritySignal; label: string }[] = [
+  { id: 'names', label: 'names & terms' },
+  { id: 'numbers', label: 'numbers & symbols' },
+  { id: 'punctuation', label: 'punctuation' },
+  { id: 'pauses', label: 'pauses' },
+]
 
 const CLARITY_TIPS = [
-  'read at a steady pace',
-  'articulate your words',
-  'avoid background noise',
-  'speak as you would naturally',
+  'pick one engine and stick with it for the run',
+  'read the pad once before you hit start',
+  'say numbers, names, and quotes exactly as written',
+  'paste the full transcript — don’t edit it first',
 ]
 
 function MicIcon() {
@@ -60,7 +67,7 @@ function CheckMark() {
 
 function CrownDoodle() {
   return (
-    <svg className="clarity-crown-doodle" width="52" height="36" viewBox="0 0 52 36" fill="none" aria-hidden>
+    <svg className="clarity-crown-doodle" width="36" height="25" viewBox="0 0 52 36" fill="none" aria-hidden>
       <path d="M6 28 L10 12 L20 22 L26 8 L32 22 L42 12 L46 28 Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
       <path d="M8 28 H44" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
       <circle cx="26" cy="6" r="1.5" fill="currentColor" />
@@ -70,7 +77,7 @@ function CrownDoodle() {
 
 function StarDoodle() {
   return (
-    <svg className="clarity-star-doodle" width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden>
+    <svg className="clarity-star-doodle" width="20" height="20" viewBox="0 0 28 28" fill="none" aria-hidden>
       <path
         d="M14 3 L16.2 10.2 L24 11 L18 15.8 L19.8 24 L14 19.8 L8.2 24 L10 15.8 L4 11 L11.8 10.2 Z"
         stroke="currentColor"
@@ -87,12 +94,24 @@ export default function ClarityInput({
   prompt,
   onChange,
   onStop,
+  onCancel,
   onStart,
   onShuffle,
 }: ClarityInputProps) {
   const [tool, setTool] = useState(TOOLS[0].id)
   const [customToolName, setCustomToolName] = useState('')
-  const { rows: leaders, loading: leadersLoading, error: leadersError } = useClarityLeaderboard()
+  const promptType = useTestStore((s) => s.promptType)
+  const boardPromptType =
+    promptType === 'sentences' ||
+    promptType === 'technical' ||
+    promptType === 'tongue-twisters' ||
+    promptType === 'custom'
+      ? promptType
+      : undefined
+  const { rows: leaders, loading: leadersLoading, error: leadersError } = useClarityLeaderboard({
+    promptType: boardPromptType,
+    limit: 5,
+  })
   const sessionHistory = useTestStore((s) => s.settings.sessionHistory)
 
   const selectedTool = useMemo(
@@ -103,27 +122,30 @@ export default function ClarityInput({
     [tool, customToolName]
   )
 
+  const promptText = prompt.join(' ')
   const wordCount = prompt.length
-  const punctuationCount = prompt.join(' ').match(/[,.!?;:—'"]/g)?.length ?? 0
+  const punctuationCount = promptText.match(/[,.!?;:—'"]/g)?.length ?? 0
+  const promptMeta = useMemo(() => getClarityPromptMeta(promptText), [promptText])
+  const activeSignals = useMemo(
+    () => new Set<ClaritySignal>(promptMeta?.signals ?? ['names', 'numbers', 'punctuation', 'pauses']),
+    [promptMeta]
+  )
 
+  const clarityRuns = useMemo(
+    () => sessionHistory.filter((entry) => entry.mode === 'clarity'),
+    [sessionHistory]
+  )
+
+  const currentClarity = clarityRuns[0] ?? null
   const bestClarity = useMemo(() => {
-    const runs = sessionHistory.filter((entry) => entry.mode === 'clarity')
-    if (runs.length === 0) return null
-    return runs.reduce((best, entry) => (entry.accuracy > best.accuracy ? entry : best))
-  }, [sessionHistory])
+    if (clarityRuns.length === 0) return null
+    return clarityRuns.reduce((best, entry) => (entry.accuracy > best.accuracy ? entry : best))
+  }, [clarityRuns])
 
-  const todayClarityRuns = useMemo(() => {
-    const today = getLocalDateStr()
-    return sessionHistory.filter(
-      (entry) => entry.mode === 'clarity' && entry.date.slice(0, 10) === today
-    ).length
-  }, [sessionHistory])
-
-  const dailyProgress = Math.min(1, todayClarityRuns / DAILY_CLARITY_GOAL)
-  const isNewBest =
-    bestClarity != null &&
-    bestClarity.date.slice(0, 10) === getLocalDateStr() &&
-    bestClarity.accuracy > 0
+  const boardPromptLabel =
+    boardPromptType === 'tongue-twisters'
+      ? 'tongue twisters'
+      : boardPromptType ?? 'all prompts'
 
   const startTool = () => {
     const id =
@@ -143,7 +165,9 @@ export default function ClarityInput({
               <p className="clarity-step">engine board</p>
               <h2>leaderboard</h2>
             </div>
-            <span className="leaderboard-period">30d</span>
+            <span className="leaderboard-period" title="filtered by prompt type in the bar above">
+              {boardPromptLabel}
+            </span>
           </div>
           <ol>
             {leadersLoading ? (
@@ -152,11 +176,16 @@ export default function ClarityInput({
               <li className="leaderboard-empty">{leadersError}</li>
             ) : leaders.length === 0 ? (
               <li className="leaderboard-empty leaderboard-empty--soft">
-                <span className="leaderboard-empty-mark" aria-hidden>
-                  ✦
-                </span>
-                <strong>board is open</strong>
-                <span>no verified runs yet — finish a clarity test to plant the first score.</span>
+                <div className="leaderboard-empty-top">
+                  <span className="leaderboard-empty-mark" aria-hidden>
+                    ✦
+                  </span>
+                  <strong>board is open</strong>
+                </div>
+                <p>
+                  no verified {boardPromptLabel} runs yet. finish a clarity test to plant the first
+                  score.
+                </p>
               </li>
             ) : (
               leaders.slice(0, 5).map((leader, index) => (
@@ -180,11 +209,11 @@ export default function ClarityInput({
             <Link href="/leaderboard" className="clarity-score-link">
               how is this scored?
             </Link>
-          </div>
-          <div className="clarity-board-doodle" aria-hidden>
-            <CrownDoodle />
-            <StarDoodle />
-            <p>different engines, different strengths!</p>
+            <div className="clarity-board-doodle" aria-hidden>
+              <CrownDoodle />
+              <StarDoodle />
+              <p>different engines, different strengths!</p>
+            </div>
           </div>
         </aside>
 
@@ -211,10 +240,10 @@ export default function ClarityInput({
             </div>
             <div className="clarity-mascot-wrap" aria-hidden="true">
               <Image
-                src="/clarity-inspector-monkey.png"
+                src="/clarity-current-1.png"
                 alt=""
                 width={220}
-                height={220}
+                height={234}
                 priority
                 className="clarity-mascot"
               />
@@ -300,6 +329,7 @@ export default function ClarityInput({
                   <h2>precision prompt</h2>
                 </div>
                 <div className="prompt-facts">
+                  {promptMeta ? <span className="prompt-scene">{promptMeta.scene}</span> : null}
                   <span>{wordCount} words</span>
                   <span>{punctuationCount} marks</span>
                 </div>
@@ -308,23 +338,24 @@ export default function ClarityInput({
               <div className="clarity-legal-pad">
                 <span className="clarity-paperclip" aria-hidden />
                 <blockquote className="clarity-prompt-text">
-                  {prompt.join(' ') || 'choose a prompt style above to begin.'}
+                  {promptText || 'choose a prompt style above to begin.'}
                 </blockquote>
               </div>
 
               <div className="prompt-signal-row">
-                <span>
-                  <CheckMark /> names &amp; terms
-                </span>
-                <span>
-                  <CheckMark /> numbers &amp; symbols
-                </span>
-                <span>
-                  <CheckMark /> punctuation
-                </span>
-                <span>
-                  <CheckMark /> pauses
-                </span>
+                {SIGNAL_LABELS.map(({ id, label }) => {
+                  const active = activeSignals.has(id)
+                  return (
+                    <span
+                      key={id}
+                      className={active ? 'prompt-signal is-active' : 'prompt-signal is-muted'}
+                      aria-current={active ? 'true' : undefined}
+                    >
+                      {active ? <CheckMark /> : <span className="prompt-signal-dot" aria-hidden />}
+                      {label}
+                    </span>
+                  )
+                })}
               </div>
 
               <div className="clarity-prompt-actions">
@@ -373,19 +404,29 @@ export default function ClarityInput({
                   start clarity test
                 </button>
               ) : (
-                <button
-                  id="btn-clarity-stop"
-                  onClick={onStop}
-                  className="desk-btn desk-btn-quiet clarity-score-button"
-                  disabled={!transcript.trim()}
-                >
-                  score transcript <span>→</span>
-                </button>
+                <div className="clarity-cta-row">
+                  <button
+                    type="button"
+                    id="btn-clarity-cancel"
+                    onClick={onCancel}
+                    className="desk-btn desk-btn-quiet clarity-cancel-button"
+                  >
+                    cancel
+                  </button>
+                  <button
+                    id="btn-clarity-stop"
+                    onClick={onStop}
+                    className="desk-btn desk-btn-quiet clarity-score-button"
+                    disabled={!transcript.trim()}
+                  >
+                    score transcript <span>→</span>
+                  </button>
+                </div>
               )}
               <p className="clarity-cta-note">
                 {testState === 'idle'
                   ? 'no signup, no account. just a clarity check ❤️'
-                  : 'paste or type the output, then score it against the prompt.'}
+                  : 'paste or type the output, then score it — or cancel to exit.'}
               </p>
             </div>
           </div>
@@ -393,81 +434,55 @@ export default function ClarityInput({
 
         <div className="hero-side-stack clarity-side-stack hero-animate">
           <div
-            className={`hero-top-score paper-panel${bestClarity ? '' : ' hero-top-score--empty'}`}
+            className={`clarity-scorecard paper-panel${bestClarity || currentClarity ? '' : ' clarity-scorecard--empty'}`}
             role="status"
             aria-live="polite"
             aria-label={
               bestClarity
-                ? `Your best clarity ${bestClarity.accuracy} percent`
-                : 'No clarity score yet'
+                ? `Current clarity ${currentClarity?.accuracy ?? 0} percent. Top clarity ${bestClarity.accuracy} percent${bestClarity.toolName ? ` with ${bestClarity.toolName}` : ''}`
+                : 'No clarity scores yet'
             }
           >
             <span className="hero-paper-tape hero-paper-tape--orange" aria-hidden />
-            <span className="momentum-fire-label">your best clarity</span>
-            <div className="hero-top-score-core">
-              <span className="hero-top-score-icon" aria-hidden>
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-                  <path
-                    d="M8 4h8v3a4 4 0 0 1-8 0V4Z"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinejoin="round"
-                  />
-                  <path
-                    d="M8 6H5a3 3 0 0 0 3 3M16 6h3a3 3 0 0 1-3 3M12 11v5M8 20h8M10 16h4"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </span>
-              <span className="hero-top-score-value tabular-nums">
-                {bestClarity ? `${bestClarity.accuracy}` : '—'}
-                {bestClarity ? <small className="clarity-best-unit">%</small> : null}
-              </span>
-              {isNewBest && <span className="clarity-new-best">new best!</span>}
+            <div className="clarity-scorecard-head">
+              <span className="momentum-fire-label">your clarity</span>
+              {bestClarity?.toolName ? (
+                <span className="clarity-scorecard-tool" title="engine behind your top score">
+                  {bestClarity.toolName}
+                </span>
+              ) : (
+                <span className="clarity-scorecard-tool is-empty">no top tool yet</span>
+              )}
             </div>
-            <span className="hero-top-score-foot">
+            <div className="clarity-scorecard-metrics">
+              <div className="clarity-scorecard-metric">
+                <span className="clarity-scorecard-metric-label">current</span>
+                <span className="clarity-scorecard-metric-value tabular-nums">
+                  {currentClarity ? `${currentClarity.accuracy}` : '—'}
+                  {currentClarity ? <small>%</small> : null}
+                </span>
+              </div>
+              <div className="clarity-scorecard-metric clarity-scorecard-metric--top">
+                <span className="clarity-scorecard-metric-label">top</span>
+                <span className="clarity-scorecard-metric-value tabular-nums">
+                  {bestClarity ? `${bestClarity.accuracy}` : '—'}
+                  {bestClarity ? <small>%</small> : null}
+                </span>
+              </div>
+            </div>
+            <span className="clarity-scorecard-foot">
               {bestClarity
                 ? [
-                    bestClarity.toolName ? `with ${bestClarity.toolName}` : null,
-                    `${bestClarity.wordsSpoken ?? wordCount} words`,
-                    `${bestClarity.promptMarks ?? punctuationCount} marks`,
+                    currentClarity && currentClarity !== bestClarity
+                      ? `latest · ${currentClarity.toolName ?? currentClarity.promptType}`
+                      : null,
+                    `${clarityRuns.length} run${clarityRuns.length === 1 ? '' : 's'} saved`,
                   ]
                     .filter(Boolean)
                     .join(' · ')
-                : 'finish a test to pin your best here'}
+                : 'finish a test to pin current + top here'}
             </span>
           </div>
-
-          <section className="hero-sticky-note hero-sticky-note--goal" aria-label="Daily challenge">
-            <span className="hero-paper-tape hero-paper-tape--blue" aria-hidden />
-            <div className="hero-sticky-note-head">
-              <span className="hero-sticky-note-icon" aria-hidden>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <polygon points="12 2 15 9 22 9 17 14 19 21 12 17 5 21 7 14 2 9 9 9" />
-                </svg>
-              </span>
-              <div>
-                <h3>daily challenge</h3>
-                <p>
-                  {Math.min(todayClarityRuns, DAILY_CLARITY_GOAL)} / {DAILY_CLARITY_GOAL} clarity
-                  tests
-                </p>
-              </div>
-            </div>
-            <div className="hero-goal-track" aria-hidden>
-              {Array.from({ length: DAILY_CLARITY_GOAL }, (_, index) => (
-                <span
-                  key={index}
-                  className={`hero-goal-segment${index < todayClarityRuns ? ' hero-goal-segment--done' : ''}`}
-                />
-              ))}
-              <span className="hero-goal-fill" style={{ width: `${dailyProgress * 100}%` }} />
-            </div>
-            <p className="hero-sticky-note-foot">hit 3 clarity checks for today&apos;s badge</p>
-          </section>
 
           <section className="hero-sticky-note hero-sticky-note--tips" aria-label="Quick tips">
             <span className="hero-paper-tape hero-paper-tape--purple" aria-hidden />
@@ -479,7 +494,7 @@ export default function ClarityInput({
                   <path d="M12 2a7 7 0 0 0-4 12v2h8v-2a7 7 0 0 0-4-12z" />
                 </svg>
               </span>
-              <h3>quick tips</h3>
+              <h3>clarity tips</h3>
             </div>
             <ul className="hero-tips-list">
               {CLARITY_TIPS.map((tip) => (
@@ -504,7 +519,7 @@ export default function ClarityInput({
           />
           <span className="clarity-paste-bubble">paste your result after you speak!</span>
         </div>
-        <p className="clarity-slogan">beat your score. beat the day. beat yourself.</p>
+        <p className="clarity-slogan">beat your score. beat the board. beat yourself.</p>
       </div>
     </section>
   )

@@ -146,7 +146,7 @@ export default function ConfigBar() {
           </SegmentGroup>
         )}
 
-        <SegmentGroup label="prompt">
+        <SegmentGroup label={mode === 'clarity' ? 'board prompt' : 'prompt'}>
           {promptOptions.map((opt) => (
             <SegmentBtn
               key={opt.value}

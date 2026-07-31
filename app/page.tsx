@@ -333,7 +333,7 @@ export default function Home() {
     } else {
       const difficulty = s.settings.promptDifficulty ?? 'normal'
       const text = s.mode === 'clarity'
-        ? generateClarityPrompt(s.promptType as PromptMode, s.customPromptText)
+        ? generateClarityPrompt(s.promptType as PromptMode, s.customPromptText, s.prompt.join(' ') || undefined)
         : generatePrompt(s.promptType as PromptMode, s.duration, s.customPromptText, difficulty)
       s.setPrompt(splitPrompt(text))
     }
@@ -498,7 +498,7 @@ export default function Home() {
     resetTimer(s.duration)
     const last = s.prompt.join(' ')
     const text = s.mode === 'clarity'
-      ? generateClarityPrompt(s.promptType as PromptMode, s.customPromptText)
+      ? generateClarityPrompt(s.promptType as PromptMode, s.customPromptText, last)
       : regeneratePrompt(s.promptType as PromptMode, s.duration, last, s.customPromptText, s.settings.promptDifficulty ?? 'normal')
     useTestStore.getState().setPrompt(splitPrompt(text))
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -513,7 +513,7 @@ export default function Home() {
     resetTimer(s.duration)
     const s2 = useTestStore.getState()
     const text = s2.mode === 'clarity'
-      ? generateClarityPrompt(s2.promptType as PromptMode, s2.customPromptText)
+      ? generateClarityPrompt(s2.promptType as PromptMode, s2.customPromptText, last)
       : regeneratePrompt(s2.promptType as PromptMode, s2.duration, last, s2.customPromptText, s2.settings.promptDifficulty ?? 'normal')
     s2.setPrompt(splitPrompt(text))
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -836,14 +836,16 @@ export default function Home() {
                 prompt={store.prompt}
                 onChange={(val) => store.setClarityTranscript(val)}
                 onStop={handleStop}
+                onCancel={() => {
+                  useTestStore.getState().resetTest()
+                }}
                 onStart={(tool) => { store.setClarityTool(tool.id, tool.name); void handleStart() }}
                 onShuffle={() => {
                   const s = useTestStore.getState()
                   if (s.testState !== 'idle') return
                   const last = s.prompt.join(' ')
-                  const text = generateClarityPrompt(s.promptType as PromptMode, s.customPromptText)
-                  // Prefer a different prompt when the generator can give one.
-                  s.setPrompt(splitPrompt(text === last ? generateClarityPrompt(s.promptType as PromptMode, s.customPromptText) : text))
+                  const text = generateClarityPrompt(s.promptType as PromptMode, s.customPromptText, last)
+                  s.setPrompt(splitPrompt(text))
                 }}
               />
             )}
