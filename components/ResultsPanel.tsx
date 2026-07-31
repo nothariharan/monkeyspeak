@@ -1,10 +1,11 @@
 'use client'
 
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { gsap } from 'gsap'
 import { generateShareCard } from '@/lib/shareCard'
 import { resolveResultsTimeline } from '@/lib/stats/timeline'
 import { calculateSpeakingStreak } from '@/lib/stats/streak'
+import { calcPunctuationScore } from '@/lib/diff'
 import { useTestStore } from '@/store/testStore'
 import type { DiffWord, SpeedResults } from '@/store/testStore'
 import HistoryDrawer from '@/components/HistoryDrawer'
@@ -55,6 +56,7 @@ export default function ResultsPanel({
   results,
   duration,
   promptType,
+  prompt = [],
   clarityScore,
   clarityGrade,
   diffResult,
@@ -65,6 +67,8 @@ export default function ResultsPanel({
   onPractice,
 }: ResultsPanelProps) {
   const settings = useTestStore((s) => s.settings)
+  const clarityToolName = useTestStore((s) => s.clarityToolName)
+  const clarityTranscript = useTestStore((s) => s.clarityTranscript)
   const [historyOpen, setHistoryOpen] = useState(false)
   const panelRef = useRef<HTMLDivElement | null>(null)
   const streakDays = calculateSpeakingStreak(settings.speakingActivity)
@@ -76,6 +80,30 @@ export default function ResultsPanel({
         substituted: results.diff.filter((w) => w.tag === 'substituted').length,
       }
     : { correct: 0, missed: 0, substituted: 0 }
+
+  const clarityDiffCounts = useMemo(() => {
+    const counts = { correct: 0, substituted: 0, missed: 0, added: 0 }
+    for (const word of diffResult) counts[word.tag] += 1
+    return counts
+  }, [diffResult])
+
+  const punctuationScore = useMemo(() => {
+    if (mode !== 'clarity') return 0
+    const promptStr = prompt.join(' ')
+    if (!promptStr.trim()) return 0
+    return calcPunctuationScore(promptStr, clarityTranscript)
+  }, [mode, prompt, clarityTranscript])
+
+  const priorBestClarity = useMemo(() => {
+    const runs = settings.sessionHistory.filter((entry) => entry.mode === 'clarity')
+    // history already includes this run at the front after stop — compare to previous best
+    const prior = runs.slice(1)
+    if (prior.length === 0) return null
+    return prior.reduce((best, entry) => (entry.accuracy > best.accuracy ? entry : best))
+  }, [settings.sessionHistory])
+
+  const vsBest =
+    priorBestClarity != null ? clarityScore - priorBestClarity.accuracy : null
 
   const promptCount = results?.diff.length ?? 0
   const spokenWordCount = results?.transcript
@@ -171,24 +199,28 @@ export default function ResultsPanel({
           onHistory={() => setHistoryOpen(true)}
         />
       ) : mode === 'clarity' ? (
-        <div className="grid w-full max-w-[1200px] py-8 md:py-10 items-start gap-10 md:gap-12 grid-cols-1 md:grid-cols-2">
+        <div className="clarity-results grid w-full max-w-[1200px] py-8 md:py-10 items-start gap-10 md:gap-12 grid-cols-1 md:grid-cols-2">
           <div className="min-w-0">
-            <p className="stat-label mb-4">transcript diff</p>
+            <p className="clarity-results-kicker mb-4">transcript diff</p>
             <div
-              className="leading-loose p-4 mb-6 max-h-[min(28rem,50vh)] overflow-y-auto"
+              className="clarity-results-diff leading-loose p-4 mb-6 max-h-[min(28rem,50vh)] overflow-y-auto"
               style={{ ...reviewBoxStyle, fontSize: '0.95rem', lineHeight: '2rem' }}
             >
-              {diffResult.map((w, i) => (
-                <span
-                  key={i}
-                  className={`diff-word inline-block mr-[0.4em] ${TAG_CLASS[w.tag]}`}
-                  title={w.tag === 'substituted' ? `expected: ${w.expected}` : w.tag}
-                >
-                  {w.word}
-                </span>
-              ))}
+              {diffResult.length > 0 ? (
+                diffResult.map((w, i) => (
+                  <span
+                    key={i}
+                    className={`diff-word inline-block mr-[0.4em] ${TAG_CLASS[w.tag]}`}
+                    title={w.tag === 'substituted' ? `expected: ${w.expected}` : w.tag}
+                  >
+                    {w.word}
+                  </span>
+                ))
+              ) : (
+                <span className="clarity-results-meta">no transcript to compare yet</span>
+              )}
             </div>
-            <div className="font-mono text-xs flex flex-wrap gap-4" style={{ color: 'var(--text-stats)' }}>
+            <div className="clarity-results-legend flex flex-wrap gap-4">
               <span><span className="diff-correct">■</span> correct</span>
               <span><span className="diff-substituted">■</span> wrong word</span>
               <span><span className="diff-missed">■</span> missed</span>
@@ -196,26 +228,69 @@ export default function ResultsPanel({
             </div>
           </div>
 
-          <div className="min-w-0 flex flex-col gap-8">
-            <div className="paper-panel stat-card p-6 flex items-baseline gap-4 flex-wrap">
-              <span
-                className="font-display font-black"
-                style={{ fontSize: '3.5rem', color: 'var(--accent)', lineHeight: 1 }}
-                aria-label={`Clarity score ${clarityScore} percent`}
-              >
-                {clarityScore}%
-              </span>
-              <span
-                className="font-display font-black text-4xl"
-                style={{ color: GRADE_COLOR[clarityGrade] ?? 'var(--text-active)' }}
-                aria-label={`Grade ${clarityGrade}`}
-              >
-                {clarityGrade}
-              </span>
+          <div className="min-w-0 flex flex-col gap-6">
+            <div className="paper-panel clarity-results-hero">
+              <div className="clarity-results-hero-top">
+                <span className="clarity-results-kicker">clarity score</span>
+                {clarityToolName ? (
+                  <span className="clarity-results-engine" title="engine tested">
+                    {clarityToolName}
+                  </span>
+                ) : null}
+              </div>
+              <div className="clarity-results-hero-score">
+                <span
+                  className="clarity-results-pct font-display font-black"
+                  aria-label={`Clarity score ${clarityScore} percent`}
+                >
+                  {clarityScore}%
+                </span>
+                <span
+                  className="clarity-results-grade font-display font-black"
+                  style={{ color: GRADE_COLOR[clarityGrade] ?? 'var(--text-active)' }}
+                  aria-label={`Grade ${clarityGrade}`}
+                >
+                  {clarityGrade}
+                </span>
+              </div>
+              <p className="clarity-results-meta">
+                {promptType}
+                {vsBest != null ? (
+                  <>
+                    {' · '}
+                    <span className={vsBest >= 0 ? 'clarity-results-delta is-up' : 'clarity-results-delta is-down'}>
+                      {vsBest >= 0 ? '+' : ''}
+                      {vsBest}% vs your best
+                    </span>
+                  </>
+                ) : (
+                  ' · first clarity run'
+                )}
+              </p>
             </div>
-            <p className="font-mono text-xs" style={{ color: 'var(--text-stats)' }}>
-              {promptType} · {duration}s
-            </p>
+
+            <div className="clarity-results-chips" aria-label="Result breakdown">
+              <div className="clarity-results-chip">
+                <span className="clarity-results-chip-value tabular-nums diff-correct">{clarityDiffCounts.correct}</span>
+                <span className="clarity-results-chip-label">correct</span>
+              </div>
+              <div className="clarity-results-chip">
+                <span className="clarity-results-chip-value tabular-nums diff-substituted">{clarityDiffCounts.substituted}</span>
+                <span className="clarity-results-chip-label">wrong</span>
+              </div>
+              <div className="clarity-results-chip">
+                <span className="clarity-results-chip-value tabular-nums diff-missed">{clarityDiffCounts.missed}</span>
+                <span className="clarity-results-chip-label">missed</span>
+              </div>
+              <div className="clarity-results-chip">
+                <span className="clarity-results-chip-value tabular-nums diff-added">{clarityDiffCounts.added}</span>
+                <span className="clarity-results-chip-label">extra</span>
+              </div>
+              <div className="clarity-results-chip clarity-results-chip--accent">
+                <span className="clarity-results-chip-value tabular-nums">{punctuationScore}%</span>
+                <span className="clarity-results-chip-label">punctuation</span>
+              </div>
+            </div>
 
             <div className="flex flex-wrap items-center gap-3">
               <button type="button" id="btn-retry" onClick={onRetry} className="desk-btn desk-btn-primary">
@@ -228,7 +303,7 @@ export default function ResultsPanel({
                 share
               </button>
             </div>
-            <p className="font-mono text-xs" style={{ color: 'var(--text-stats)' }}>
+            <p className="clarity-results-meta">
               tab · retry &nbsp;&nbsp; enter · next
             </p>
           </div>
