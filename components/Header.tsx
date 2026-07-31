@@ -16,6 +16,7 @@ export default function Header({ onSettingsOpen, onProfileOpen }: HeaderProps) {
   const { mode, setMode, settings, updateSettings, testState } = useTestStore()
 
   if (testState === 'running' && mode !== 'clarity') return null
+  // speed/ghost hide the chrome for focus. clarity keeps the header so u can cancel / hop modes.
 
   const handleMode = (m: Mode) => setMode(m)
 

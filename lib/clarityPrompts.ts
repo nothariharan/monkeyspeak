@@ -1,3 +1,12 @@
+/**
+ * clarity precision pads — hand-tuned passages for the external-tool benchmark.
+ * tagged by mode (sentences / technical / tongue-twisters) + scene + what signals
+ * the pad is actually stressing so the ui chips stay honest.
+ *
+ * keep new ones ~25–40 words with real punctuation STT hates (quotes, times, $, %).
+ * author the signals yourself — dont regex them later and call it done.
+ */
+
 export type ClarityPromptScene =
   | 'office'
   | 'clinic'
@@ -15,11 +24,12 @@ export type ClarityPromptEntry = {
   mode: ClarityBankMode
   scene: ClarityPromptScene
   text: string
+  /** what this pad is actually testing — drives the signal chips under the legal pad */
   signals: ClaritySignal[]
 }
 
 export const CLARITY_PROMPT_BANK: ClarityPromptEntry[] = [
-  // ── sentences (~12) ──────────────────────────────────────────────
+  // everyday handoff / convo pads
   {
     id: 'sent-office-01',
     mode: 'sentences',
@@ -105,7 +115,7 @@ export const CLARITY_PROMPT_BANK: ClarityPromptEntry[] = [
     signals: ['names', 'numbers', 'punctuation', 'pauses'],
   },
 
-  // ── technical (~10) ──────────────────────────────────────────────
+  // api / money / version / checksum energy
   {
     id: 'tech-01',
     mode: 'technical',
@@ -177,7 +187,7 @@ export const CLARITY_PROMPT_BANK: ClarityPromptEntry[] = [
     signals: ['names', 'numbers', 'punctuation', 'pauses'],
   },
 
-  // ── tongue-twisters (~8) ─────────────────────────────────────────
+  // sibilants and alliteration — still pack a time or number in so the chips arent lying
   {
     id: 'twist-01',
     mode: 'tongue-twisters',
@@ -262,6 +272,7 @@ export function pickClarityPrompt(
   }
   if (bank.length === 1) return bank[0]!
 
+  // try a few times to not hand the same pad back after shuffle
   for (let attempt = 0; attempt < 8; attempt++) {
     const entry = bank[Math.floor(Math.random() * bank.length)]!
     if (!lastText || entry.text !== lastText) return entry
@@ -269,6 +280,7 @@ export function pickClarityPrompt(
   return bank.find((e) => e.text !== lastText) ?? bank[0]!
 }
 
+/** look up scene + signals for whatever is currently on the legal pad */
 export function getClarityPromptMeta(text: string): ClarityPromptEntry | null {
   const exact = BY_TEXT.get(text)
   if (exact) return exact

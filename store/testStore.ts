@@ -103,24 +103,24 @@ export interface SessionHistoryEntry {
   consistency?: number
   /** Actual number of words spoken this run. When absent, lifetime stats fall back to a WPM estimate. */
   wordsSpoken?: number
-  /** Clarity-only: speech engine tested (e.g. Wispr Flow). */
+  /** Clarity-only: which engine u just tested (wispr, deepgram, etc) */
   toolName?: string
-  /** Clarity-only: punctuation / mark count in the prompt that was scored. */
+  /** Clarity-only: how many punctuation marks were in the pad that got scored */
   promptMarks?: number
 }
 
-/** One completed Ghost Race: you vs the replay of your own best pace. */
+/** one finished ghost race — u vs the replay of your own best pace */
 export interface GhostRaceEntry {
   date: string
   duration: number
   promptType: string
-  /** Your net WPM this race. */
+  /** your net wpm this race */
   playerWpm: number
-  /** The ghost's WPM (your prior best for this board). 0 means there was no ghost to beat yet. */
+  /** ghost wpm (your prior best for this board). 0 = no ghost yet */
   ghostWpm: number
-  /** True when you had a ghost to race and matched or beat it. */
+  /** true when u actually had a ghost and matched or beat it */
   won: boolean
-  /** playerWpm - ghostWpm (positive = you were faster). */
+  /** playerWpm - ghostWpm (positive = u were faster) */
   marginWpm: number
 }
 
@@ -251,8 +251,8 @@ export const useTestStore = create<TestStore>()(
         set((s) => {
           if (mode === s.mode) return s
 
-          // Prompt options differ by mode (and custom's textarea should not linger
-          // as a stale writing section when hopping ghost ↔ speed ↔ clarity).
+          // each mode has different prompt options. also dump custom so the paste
+          // box doesnt stick around when u hop ghost ↔ speed ↔ clarity.
           let promptType = s.promptType
           const isDaily = promptType === 'daily' || promptType.startsWith('daily-')
           const racePrompts = new Set(['sentences', 'numbers', 'custom'])
@@ -266,11 +266,12 @@ export const useTestStore = create<TestStore>()(
             promptType = 'sentences'
           }
 
-          // Always drop custom when changing modes so the paste box doesn't stick around.
+          // custom never survives a mode hop — that paste box was getting sticky
           if (s.promptType === 'custom') {
             promptType = 'sentences'
           }
 
+          // if a run was mid-flight, kill it so clarity cant soft-lock with header gone
           const resetRun =
             s.testState !== 'idle'
               ? {
@@ -354,8 +355,8 @@ export const useTestStore = create<TestStore>()(
             accuracySum: 0,
           }
           const nextRuns = currentStats.totalRuns + 1
-          // Accumulate a raw accuracy sum and derive the average from it, so repeated
-          // rounding of the running average can't drift over many sessions.
+          // keep a raw accuracy sum and derive avg from it — rounding a running avg
+          // every time was drifting after enough sessions
           const nextAccuracySum = (currentStats.accuracySum ?? currentStats.avgAccuracy * currentStats.totalRuns) + entry.accuracy
           const nextStats = {
             totalRuns: nextRuns,

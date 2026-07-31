@@ -9,7 +9,7 @@ import type { PromptDifficulty } from '@/store/testStore'
 export type { ClarityPromptEntry, ClarityPromptScene, ClaritySignal } from './clarityPrompts'
 export { getClarityPromptMeta }
 
-/** Matches store `PromptType` without importing the store. */
+/** same shape as store PromptType — kept here so prompts doesnt import the store */
 export type PromptMode =
   | 'sentences'
   | 'technical'
@@ -57,7 +57,7 @@ function clarityBenchmark(mode: PromptMode, lastText?: string): string {
   return pickClarityPrompt(bankMode, lastText).text
 }
 
-/** Production-style passages used only by the external-tool clarity benchmark. */
+/** pick a clarity pad for the tool benchmark. pass lastText so shuffle actually changes. */
 export function generateClarityPrompt(
   mode: PromptMode,
   customText?: string,
@@ -118,9 +118,9 @@ export function regeneratePrompt(
 }
 
 /**
- * Build a practice prompt biased toward words the user missed or substituted.
- * 70% of slots are filled by sampling from missedWords (with repetition);
- * 30% are random words from COMMON_WORDS so the prompt isn't pure repetition.
+ * practice pad biased toward words u missed.
+ * ~70% from the miss list (with repeats ok), ~30% filler from COMMON_WORDS
+ * so it doesnt feel like pure punishment.
  */
 export function generatePracticePrompt(missedWords: string[], duration: number): string {
   const wordCount = WORD_COUNTS[duration] ?? 90
@@ -148,11 +148,11 @@ export function generatePracticePrompt(missedWords: string[], duration: number):
 }
 
 export function generateDailyPrompt(dateStr: string): string {
-  // 90 words is standard for 30 seconds
+  // ~90 words is the usual 30s load
   const wordCount = 90
   const pool = COMMON_WORDS
 
-  // Mulberry32 seed random generator based on dateStr
+  // mulberry32 seeded off the date string so everyone gets the same daily pad
   let h = 0
   for (let i = 0; i < dateStr.length; i++) {
     h = Math.imul(31, h) + dateStr.charCodeAt(i) | 0

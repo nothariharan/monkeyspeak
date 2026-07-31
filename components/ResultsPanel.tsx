@@ -96,7 +96,7 @@ export default function ResultsPanel({
 
   const priorBestClarity = useMemo(() => {
     const runs = settings.sessionHistory.filter((entry) => entry.mode === 'clarity')
-    // history already includes this run at the front after stop — compare to previous best
+    // this run is already at the front of history after stop — skip it when finding prior best
     const prior = runs.slice(1)
     if (prior.length === 0) return null
     return prior.reduce((best, entry) => (entry.accuracy > best.accuracy ? entry : best))
@@ -120,7 +120,7 @@ export default function ResultsPanel({
       )
     : null
 
-  // re-sync theme when results open. zustand hydrate can race the first paint.
+  // theme can hydrate late — poke it again when speed results open
   useEffect(() => {
     if (mode !== 'speed' || !results) return
     import('@/lib/themes').then(({ THEMES, applyTheme }) => {
@@ -129,8 +129,8 @@ export default function ResultsPanel({
     })
   }, [mode, results, settings.theme, settings.accentHex])
 
-  // clarity mode keeps its diff-word reveal. speed mode animations now live
-  // inside SpeedResultsView, so nothing to orchestrate here for it.
+  // clarity still does the little diff-word pop-in here.
+  // speed animations live inside SpeedResultsView now so we dont double-orchestrate.
   useEffect(() => {
     const ctx = gsap.context(() => {
       if (mode === 'clarity') {

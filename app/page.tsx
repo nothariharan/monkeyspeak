@@ -472,7 +472,7 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stopTimer, finalizeSpeed])
 
-  // shared reset for run scratch state + stt so start paths stay in sync
+  // wipe scratch + stt so retry / next / cancel all start from the same place
   const clearRunScratch = useCallback(() => {
     setIsPersonalBest(false)
     setStartError(null)
@@ -618,10 +618,10 @@ export default function Home() {
   const hasGhostReplay = Boolean(ghostBest?.timeline?.progress?.length)
   const ghostProgressAt = (elapsedSeconds: number) => {
     const points = ghostBest?.timeline?.progress ?? []
-    // No linear timer fallback — without a real timeline the ghost stays parked.
+    // no fake timer math — without a real timeline the ghost just sits there
     if (!points.length) return 0
     const maxWords = Math.max(...points.map((p) => p.words), 1)
-    // Prefer real `second` samples; fall back to array index for older/local seeds.
+    // prefer real `second` samples; older local seeds only had array index
     const prior =
       [...points].reverse().find((point, idx, arr) => {
         const at = typeof point.second === 'number' ? point.second : arr.length - 1 - idx

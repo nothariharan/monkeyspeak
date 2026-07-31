@@ -25,10 +25,12 @@ works out of the box with browser speech recognition. no api key, no signup, jus
 
 **clarity mode (stt tool benchmark)**
 - pick a transcription tool (wispr, chatgpt voice, apple, deepgram, chrome, or custom)
-- read a precision prompt, paste that tool's transcript, get word + punctuation scores
+- shuffle through curated precision pads (office / clinic / tech / tongue twisters etc)
+- read it out loud in that tool, paste the transcript back, get word + punctuation scores
 - letter grades from s down to needs work
+- engine board on the page filters by the board-prompt control up top
+- current + top clarity on the side, with which tool hit your top
 - shared tool leaderboard via supabase (rolling 30-day averages)
-- practice mode rebuilds a prompt from words you missed
 
 **ghost race**
 - race a visual ghost that replays the pace of your saved speed personal best
@@ -51,7 +53,7 @@ works out of the box with browser speech recognition. no api key, no signup, jus
 **ui + polish**
 - desk / doodle hero (slanted sticky notes, paper tape, monkey mascot)
 - themes, accent colors, fonts, blind mode
-- daily goal + quick tips on the home page
+- clarity tips + scorecard on the clarity page; daily goal lives on speed home
 - branded og image, monkey favicon
 
 **speech (stt)**
