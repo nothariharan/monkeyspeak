@@ -271,7 +271,20 @@ export const useTestStore = create<TestStore>()(
             promptType = 'sentences'
           }
 
-          return { mode, promptType }
+          const resetRun =
+            s.testState !== 'idle'
+              ? {
+                  testState: 'idle' as const,
+                  results: null,
+                  clarityTranscript: '',
+                  diffResult: [] as typeof s.diffResult,
+                  clarityScore: 0,
+                  clarityGrade: 'needs work' as const,
+                  micState: 'idle' as const,
+                }
+              : null
+
+          return { mode, promptType, ...resetRun }
         }),
       setTestState: (testState) => set({ testState }),
       setDuration: (duration) => set({ duration }),

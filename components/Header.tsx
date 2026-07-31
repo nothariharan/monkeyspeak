@@ -15,7 +15,7 @@ interface HeaderProps {
 export default function Header({ onSettingsOpen, onProfileOpen }: HeaderProps) {
   const { mode, setMode, settings, updateSettings, testState } = useTestStore()
 
-  if (testState === 'running') return null
+  if (testState === 'running' && mode !== 'clarity') return null
 
   const handleMode = (m: Mode) => setMode(m)
 
