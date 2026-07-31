@@ -464,7 +464,7 @@ export const useTestStore = create<TestStore>()(
             unlockedAchievements: p?.settings?.unlockedAchievements ?? [],
             lifetimeStats: (() => {
               const persistedStats = { ...DEFAULT_SETTINGS.lifetimeStats, ...(p?.settings?.lifetimeStats ?? {}) }
-              // Seed accuracySum for pre-existing users who never had the field.
+              // backfill accuracySum for ppl who had stats before that field existed
               if (p?.settings?.lifetimeStats && p.settings.lifetimeStats.accuracySum === undefined) {
                 persistedStats.accuracySum = persistedStats.avgAccuracy * persistedStats.totalRuns
               }
