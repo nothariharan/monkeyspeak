@@ -1,21 +1,14 @@
 'use client'
 
-import { useEffect, useRef, useCallback, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { gsap } from 'gsap'
-
 import Link from 'next/link'
+
 import { useTestStore } from '@/store/testStore'
-import { useTimer } from '@/hooks/useTimer'
-import { useActiveSpeechProvider } from '@/hooks/useActiveSpeechProvider'
-import { generatePrompt, generateClarityPrompt, regeneratePrompt, generatePracticePrompt, generateDailyPrompt, type PromptMode } from '@/lib/prompts'
+import { useSpeedTestController } from '@/hooks/useSpeedTestController'
+import { useClarityTestController } from '@/hooks/useClarityTestController'
 import { getLocalDateStr, calculateSpeakingStreak } from '@/lib/stats/streak'
-import { diffWords, calcClarityScore, calcPunctuationScore } from '@/lib/diff'
-import { submitClarityBenchmark } from '@/lib/clarityLeaderboard/client'
-import { alignTranscriptToPrompt, countFillers } from '@/lib/alignTranscriptToPrompt'
-import { netWpmFromChars, rawWpmFromChars } from '@/lib/stats/wpm'
-import { computeConsistency } from '@/lib/stats/consistency'
-import { buildSessionTimeline, type TimelineSample } from '@/lib/stats/timeline'
-import { useSpeakingGame } from '@/hooks/useSpeakingGame'
+import { generateClarityPrompt, type PromptMode } from '@/lib/prompts'
 
 import Header from '@/components/Header'
 import ConfigBar from '@/components/ConfigBar'
@@ -34,121 +27,71 @@ import HeroQuickTips from '@/components/decor/HeroQuickTips'
 import LeaderboardSavePrompt from '@/components/decor/LeaderboardSavePrompt'
 import CapabilityBanner from '@/components/CapabilityBanner'
 import Toast from '@/components/Toast'
-import type { Duration, PromptType } from '@/store/testStore'
-
-type PendingLeaderboardScore = {
-  wpm: number
-  accuracy: number
-  duration: Duration
-  promptType: PromptType
-  elapsedSec: number
-  runToken: string
-}
-
-function splitPrompt(text: string): string[] {
-  return text.split(/\s+/).filter(Boolean)
-}
 
 export default function Home() {
   const store = useTestStore()
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
-  const [unlockedBadgeNames, setUnlockedBadgeNames] = useState<string[]>([])
-  const [isPersonalBest, setIsPersonalBest] = useState(false)
-  const [startError, setStartError] = useState<string | null>(null)
-  const [dissolvedCount, setDissolvedCount] = useState(0)
-  const [isEnding, setIsEnding] = useState(false)
   const [micHovered, setMicHovered] = useState(false)
-  const [pendingLeaderboardScore, setPendingLeaderboardScore] = useState<PendingLeaderboardScore | null>(null)
   const heroRef = useRef<HTMLDivElement>(null)
-  const gameMetricsRef = useRef({ rawWpms: [] as number[] })
-  const timelineRef = useRef<TimelineSample[]>([])
 
-  const [testStartedAt, setTestStartedAt] = useState<number | null>(null)
-  const testStartedAtRef = useRef<number | null>(null)
-  const confirmedWordsRef = useRef<string[]>([])
-  const interimTextRef = useRef('')
-  const finalizingRef = useRef(false)
-  const runTokenRef = useRef<string | null>(null)
-  const prevFillerCountRef = useRef(0)
-  const [fillerFlashTick, setFillerFlashTick] = useState(0)
-  const [claritySaveError, setClaritySaveError] = useState<string | null>(null)
+  const speedCtrl = useSpeedTestController()
+  const clarityCtrl = useClarityTestController()
 
-  const sttProvider = store.settings.sttProvider ?? 'webspeech'
-  const endCondition = store.settings.endCondition ?? 'timer'
   const {
-    interimText,
-    previewWords,
-    confirmedWords,
-    fillerCount: liveFillerCount,
-    isListening,
-    error: sttError,
+    timeRemaining,
+    isWarning,
+    resetTimer,
+    startError,
+    setStartError,
+    dissolvedCount,
+    isEnding,
+    isPersonalBest,
+    pendingLeaderboardScore,
+    setPendingLeaderboardScore,
+    unlockedBadgeNames,
+    setUnlockedBadgeNames,
+    fillerFlashTick,
+    speakingGame,
+    timelineRef,
+    speechActive,
+    waveActivity,
     micStream,
-    audioActive,
     activeSource,
-    startSession,
-    retryWithDeepgram,
-    stopSession,
-    reset: resetProvider,
+    isListening,
+    sttError,
     fallbackMessage,
     clearFallbackMessage,
-  } = useActiveSpeechProvider(sttProvider)
+    endCondition,
+    handleStart,
+    handleStop: handleSpeedStop,
+    handleRetry,
+    handleNext,
+    handlePractice,
+    clearRunScratch,
+    loadPrompt,
+  } = speedCtrl
 
-  const speechActive =
-    Boolean(audioActive) ||
-    previewWords.length > 0 ||
-    interimText.trim().length > 0 ||
-    (isListening && confirmedWords.length > 0)
+  const {
+    claritySaveError,
+    setClaritySaveError,
+    handleClarityStop,
+  } = clarityCtrl
 
-  const waveActivity = (() => {
-    if (audioActive) return 0.9
-    if (previewWords.length > 0 || interimText.trim().length > 0) return 0.72
-    if (isListening && confirmedWords.length > 0) return 0.55
-    // don't fake a "live" wave from isListening alone — that lied when STT was silent
-    return 0
-  })()
-
-  useEffect(() => { confirmedWordsRef.current = confirmedWords }, [confirmedWords])
-  useEffect(() => { interimTextRef.current = interimText }, [interimText])
-
-  useEffect(() => {
-    if (liveFillerCount > prevFillerCountRef.current) {
-      setFillerFlashTick((n) => n + 1)
-    }
-    prevFillerCountRef.current = liveFillerCount
-  }, [liveFillerCount])
-
-  const isSpeedRunning = store.testState === 'running' && store.mode !== 'clarity'
-
-  const speakingGame = useSpeakingGame({
-    prompt: store.prompt,
-    confirmedWords,
-    previewWords,
-    isActive: isSpeedRunning,
-    startedAt: testStartedAt,
-  })
-
-  useEffect(() => {
-    if (store.testState !== 'running' || store.mode === 'clarity') return
-    setDissolvedCount(Math.min(speakingGame.displayIndex, store.prompt.length))
-  }, [store.testState, store.mode, store.prompt.length, speakingGame.displayIndex])
-
-  useEffect(() => {
-    gameMetricsRef.current.rawWpms = speakingGame.rawWpms
-  }, [speakingGame.rawWpms])
+  const handleStop = store.mode === 'clarity' ? handleClarityStop : handleSpeedStop
 
   useEffect(() => {
     if (typeof window === 'undefined') return
     const onBadge = (e: Event) => {
       const ids = (e as CustomEvent<string[]>).detail
       import('@/lib/achievements').then(({ ACHIEVEMENTS }) => {
-        const names = ids.map(id => ACHIEVEMENTS.find(a => a.id === id)?.title ?? id)
-        setUnlockedBadgeNames(prev => [...prev, ...names])
+        const names = ids.map((id) => ACHIEVEMENTS.find((a) => a.id === id)?.title ?? id)
+        setUnlockedBadgeNames((prev) => [...prev, ...names])
       })
     }
     window.addEventListener('monkeyspeak:badge-unlocked', onBadge)
     return () => window.removeEventListener('monkeyspeak:badge-unlocked', onBadge)
-  }, [])
+  }, [setUnlockedBadgeNames])
 
   useEffect(() => {
     const applyFromStore = () => {
@@ -163,181 +106,8 @@ export default function Home() {
     }
 
     applyFromStore()
-    // localStorage hydrate can land after first paint. run again when it finishes.
     const unsub = useTestStore.persist.onFinishHydration(applyFromStore)
     return unsub
-  }, [])
-
-  const finalizeSpeed = useCallback((elapsedSec: number) => {
-    if (finalizingRef.current) return
-    const state = useTestStore.getState()
-    if (state.testState !== 'running') return
-    finalizingRef.current = true
-
-    stopSession()
-
-    const s = useTestStore.getState()
-    const resultDuration = s.duration
-    const resultPromptType = s.promptType
-    const fullTranscriptParts = [...confirmedWordsRef.current]
-    const interim = interimTextRef.current.trim()
-    if (interim) {
-      fullTranscriptParts.push(...interim.split(/\s+/).filter(Boolean))
-    }
-    const fullTranscript = fullTranscriptParts.join(' ')
-
-    const safeElapsed = Math.max(1, Math.min(elapsedSec, resultDuration + 2))
-    const diff = alignTranscriptToPrompt(fullTranscript, s.prompt)
-    const fillerCount = Math.max(liveFillerCount, countFillers(fullTranscript, s.prompt))
-
-    const correctWords = diff.filter((w) => w.tag === 'correct')
-    const correctChars = correctWords.reduce((sum, w) => sum + w.word.length + 1, 0)
-    const allSpokenWords = diff.filter((w) => w.tag !== 'missed')
-    const allSpokenChars = allSpokenWords.reduce((sum, w) => sum + w.word.length + 1, 0)
-
-    const netWpm = netWpmFromChars(correctChars, safeElapsed)
-    const rawWpm = rawWpmFromChars(allSpokenChars, safeElapsed)
-    const accuracy = s.prompt.length > 0
-      ? Math.round((correctWords.length / s.prompt.length) * 100)
-      : 0
-
-    const timeline = buildSessionTimeline(timelineRef.current, diff)
-    const pbKey = `speed-${s.duration}s-${s.promptType}`
-    // Capture the ghost's pace (your prior best for this board) before the PB is updated.
-    const ghostWpmBefore = s.settings.personalBests[pbKey]?.wpm ?? 0
-    const newBest = s.checkAndUpdatePersonalBest(pbKey, netWpm, timeline)
-    setIsPersonalBest(newBest)
-
-    const prevWpm = s.settings.lastSpeedWpm
-    const deltaWpm = typeof prevWpm === 'number' ? netWpm - prevWpm : null
-    s.updateSettings({ lastSpeedWpm: netWpm })
-
-    const metrics = gameMetricsRef.current
-    const consistency = computeConsistency(metrics.rawWpms)
-    const todayStr = getLocalDateStr()
-    const activeDailyKey = resultPromptType === 'daily' ? `daily-${todayStr}` : resultPromptType
-
-    const missedWordsList = diff
-      .filter((w) => w.tag === 'missed' || w.tag === 'substituted')
-      .map((w) => w.tag === 'substituted' ? (w.expected ?? w.word) : w.word)
-      .map(w => w.toLowerCase().replace(/[^a-z0-9']/g, '').trim())
-      .filter(Boolean)
-
-    setIsEnding(true)
-    window.setTimeout(() => {
-      s.setResults({
-        netWpm,
-        rawWpm,
-        fillerCount,
-        accuracy,
-        diff,
-        elapsedSec: safeElapsed,
-        transcript: fullTranscript,
-        deltaWpm,
-        consistency,
-        timeline,
-      })
-      s.pushSessionHistory({
-        date: new Date().toISOString(),
-        mode: 'speed',
-        duration: resultDuration,
-        promptType: activeDailyKey,
-        netWpm,
-        accuracy,
-        fillerCount,
-        missedWords: missedWordsList,
-        consistency,
-        wordsSpoken: allSpokenWords.length,
-      })
-      if (s.mode === 'ghost') {
-        s.pushGhostRace({
-          date: new Date().toISOString(),
-          duration: resultDuration,
-          promptType: activeDailyKey,
-          playerWpm: netWpm,
-          ghostWpm: ghostWpmBefore,
-          won: ghostWpmBefore > 0 && netWpm >= ghostWpmBefore,
-          marginWpm: netWpm - ghostWpmBefore,
-        })
-      }
-      s.setTestState('ended')
-      const runToken = runTokenRef.current
-      if (runToken && safeElapsed >= resultDuration * 0.9) {
-        setPendingLeaderboardScore({
-          wpm: netWpm,
-          accuracy,
-          duration: resultDuration,
-          promptType: activeDailyKey as PromptType,
-          elapsedSec: safeElapsed,
-          runToken,
-        })
-      } else {
-        setPendingLeaderboardScore(null)
-      }
-      setIsEnding(false)
-    }, 1200)
-  }, [stopSession, liveFillerCount])
-
-  const handleTimerEnd = useCallback(() => {
-    if (useTestStore.getState().settings.endCondition === 'passage') return
-    const elapsed = testStartedAtRef.current
-      ? (Date.now() - testStartedAtRef.current) / 1000
-      : store.duration
-    finalizeSpeed(Math.min(elapsed, store.duration))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [finalizeSpeed, store.duration])
-
-  const { timeRemaining, isWarning, start: startTimer, stop: stopTimer, reset: resetTimer } =
-    useTimer(store.duration, handleTimerEnd)
-
-  useEffect(() => {
-    if (isListening) store.setMicState('active')
-    else if (sttError?.toLowerCase().includes('permission denied')) store.setMicState('denied')
-    else if (useTestStore.getState().micState !== 'requesting') store.setMicState('idle')
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sttError, isListening])
-
-  // runtime failsafe
-  useEffect(() => {
-    if (store.testState !== 'running' || store.mode === 'clarity') return
-    if (!retryWithDeepgram) return
-
-    const timer = window.setTimeout(() => {
-      if (speakingGame.displayIndex > 0 || confirmedWords.length > 0) return
-      if (!isListening && waveActivity < 0.25) return
-      void retryWithDeepgram().then((result) => {
-        if (!result.ok) {
-          setStartError(result.error ?? 'Deepgram speech recognition failed. try browser mode or check your connection')
-        }
-      })
-    }, 5000)
-
-    return () => clearTimeout(timer)
-  }, [
-    store.testState,
-    store.mode,
-    sttProvider,
-    speakingGame.displayIndex,
-    confirmedWords.length,
-    isListening,
-    waveActivity,
-    retryWithDeepgram,
-  ])
-
-  const loadPrompt = useCallback(() => {
-    const s = useTestStore.getState()
-    if (s.promptType === 'daily') {
-      const today = getLocalDateStr()
-      const text = generateDailyPrompt(today)
-      s.setPrompt(splitPrompt(text))
-    } else {
-      const difficulty = s.settings.promptDifficulty ?? 'normal'
-      const text = s.mode === 'clarity'
-        ? generateClarityPrompt(s.promptType as PromptMode, s.customPromptText, s.prompt.join(' ') || undefined)
-        : generatePrompt(s.promptType as PromptMode, s.duration, s.customPromptText, difficulty)
-      s.setPrompt(splitPrompt(text))
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -350,199 +120,7 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const handleStart = useCallback(async () => {
-    setStartError(null)
-    setClaritySaveError(null)
-    setPendingLeaderboardScore(null)
-    finalizingRef.current = false
-    runTokenRef.current = null
-    prevFillerCountRef.current = 0
-
-    const sStore = useTestStore.getState()
-    const todayStr = getLocalDateStr()
-    if (sStore.promptType === 'daily' && sStore.settings.lastStartedDailyChallengeDate === todayStr) {
-      setStartError("You've already started today's challenge! Only one attempt allowed.")
-      return
-    }
-
-    if (store.prompt.length === 0) loadPrompt()
-
-    if (store.mode !== 'clarity') {
-      resetProvider()
-      store.setMicState('requesting')
-
-      try {
-        const tokenRes = await fetch('/api/run-token', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            duration: sStore.duration,
-            promptType: sStore.promptType === 'daily' ? `daily-${todayStr}` : sStore.promptType,
-          }),
-        })
-        const tokenData = (await tokenRes.json().catch(() => ({}))) as { runToken?: string; error?: string }
-        if (tokenRes.ok && tokenData.runToken) {
-          runTokenRef.current = tokenData.runToken
-        }
-      } catch {
-        /* board save will simply be skipped without a token */
-      }
-
-      const didStart = await startSession()
-      if (!didStart.ok) {
-        const denied = didStart.error?.toLowerCase().includes('permission denied')
-        store.setMicState(denied ? 'denied' : 'idle')
-        const providerLabel = activeSource === 'deepgram' ? 'Deepgram' : 'Browser speech'
-        setStartError(didStart.error ?? `${providerLabel} could not start. check mic access and try again`)
-        return
-      }
-
-      if (store.promptType === 'daily') {
-        store.updateSettings({ lastStartedDailyChallengeDate: todayStr })
-      }
-
-      const now = Date.now()
-      store.startTest()
-      setTestStartedAt(now)
-      testStartedAtRef.current = now
-      setDissolvedCount(0)
-      setIsEnding(false)
-      gameMetricsRef.current = { rawWpms: [] }
-      timelineRef.current = []
-      startTimer()
-    } else {
-      const now = Date.now()
-      store.startTest()
-      setTestStartedAt(now)
-      testStartedAtRef.current = now
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store.mode, store.prompt.length, loadPrompt, startSession, resetProvider, startTimer, activeSource])
-
-  const handleStop = useCallback(() => {
-    const s = useTestStore.getState()
-    if (s.mode !== 'clarity') {
-      stopTimer()
-      const elapsed = testStartedAtRef.current
-        ? (Date.now() - testStartedAtRef.current) / 1000
-        : s.duration
-      finalizeSpeed(elapsed)
-    } else {
-      const promptStr = s.prompt.join(' ')
-      const diff = diffWords(promptStr, s.clarityTranscript)
-      const promptWordCount = promptStr.trim().split(/\s+/).filter(Boolean).length
-      const { score, grade } = calcClarityScore(diff, promptWordCount)
-      const punctuationScore = calcPunctuationScore(promptStr, s.clarityTranscript)
-      
-      const missedWordsList = diff
-        .filter((w) => w.tag === 'missed' || w.tag === 'substituted')
-        .map((w) => w.tag === 'substituted' ? (w.expected ?? w.word) : w.word)
-        .map(w => w.toLowerCase().replace(/[^a-z0-9']/g, '').trim())
-        .filter(Boolean)
-
-      const spokenWordCount = s.clarityTranscript.trim().split(/\s+/).filter(Boolean).length
-
-      s.setDiffResult(diff, score, grade)
-      setClaritySaveError(null)
-      void submitClarityBenchmark({
-        toolId: s.clarityToolId, toolName: s.clarityToolName, promptType: s.promptType,
-        promptText: promptStr, transcript: s.clarityTranscript, clarityScore: score, punctuationScore,
-      }).then(() => {
-        window.dispatchEvent(new Event('clarity-benchmark:refresh'))
-      }).catch((err: unknown) => {
-        setClaritySaveError(err instanceof Error ? err.message : 'could not save clarity result')
-      })
-      const promptMarks = promptStr.match(/[,.!?;:—'"]/g)?.length ?? 0
-      s.pushSessionHistory({
-        date: new Date().toISOString(),
-        mode: 'clarity',
-        duration: 0,
-        promptType: s.promptType,
-        netWpm: 0,
-        accuracy: score,
-        fillerCount: 0,
-        missedWords: missedWordsList,
-        consistency: 0,
-        wordsSpoken: spokenWordCount || promptWordCount,
-        toolName: s.clarityToolName || undefined,
-        promptMarks,
-      })
-      s.setTestState('ended')
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stopTimer, finalizeSpeed])
-
-  // wipe scratch + stt so retry / next / cancel all start from the same place
-  const clearRunScratch = useCallback(() => {
-    setIsPersonalBest(false)
-    setStartError(null)
-    setClaritySaveError(null)
-    setPendingLeaderboardScore(null)
-    setDissolvedCount(0)
-    setIsEnding(false)
-    finalizingRef.current = false
-    runTokenRef.current = null
-    prevFillerCountRef.current = 0
-    gameMetricsRef.current = { rawWpms: [] }
-    timelineRef.current = []
-    setTestStartedAt(null)
-    testStartedAtRef.current = null
-    resetProvider()
-  }, [resetProvider])
-
-  const handleRetry = useCallback(() => {
-    if (pendingLeaderboardScore) return
-    clearRunScratch()
-    const s = useTestStore.getState()
-    s.resetTest()
-    resetTimer(s.duration)
-    const last = s.prompt.join(' ')
-    const text = s.mode === 'clarity'
-      ? generateClarityPrompt(s.promptType as PromptMode, s.customPromptText, last)
-      : regeneratePrompt(s.promptType as PromptMode, s.duration, last, s.customPromptText, s.settings.promptDifficulty ?? 'normal')
-    useTestStore.getState().setPrompt(splitPrompt(text))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clearRunScratch, resetTimer, pendingLeaderboardScore])
-
-  const handleNext = useCallback(() => {
-    if (pendingLeaderboardScore) return
-    clearRunScratch()
-    const s = useTestStore.getState()
-    const last = s.prompt.join(' ')
-    s.resetTest()
-    resetTimer(s.duration)
-    const s2 = useTestStore.getState()
-    const text = s2.mode === 'clarity'
-      ? generateClarityPrompt(s2.promptType as PromptMode, s2.customPromptText, last)
-      : regeneratePrompt(s2.promptType as PromptMode, s2.duration, last, s2.customPromptText, s2.settings.promptDifficulty ?? 'normal')
-    s2.setPrompt(splitPrompt(text))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clearRunScratch, resetTimer, pendingLeaderboardScore])
-
-  const handlePractice = useCallback(() => {
-    if (pendingLeaderboardScore) return
-    clearRunScratch()
-    const s = useTestStore.getState()
-    const missedWords = (s.results?.diff ?? [])
-      .filter((w) => w.tag === 'missed' || w.tag === 'substituted')
-      .map((w) => w.tag === 'substituted' ? (w.expected ?? w.word) : w.word)
-    s.resetTest()
-    resetTimer(s.duration)
-    const practiceText = generatePracticePrompt(missedWords, s.duration)
-    useTestStore.getState().setPrompt(splitPrompt(practiceText))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clearRunScratch, resetTimer, pendingLeaderboardScore])
-
-  const handleStopRef = useRef(handleStop)
-  useEffect(() => { handleStopRef.current = handleStop }, [handleStop])
-
-  useEffect(() => {
-    if (store.testState !== 'running' || store.mode === 'clarity') return
-    if ((store.settings.endCondition ?? 'timer') !== 'passage') return
-    if (store.prompt.length === 0 || speakingGame.currentIndex < store.prompt.length) return
-    handleStopRef.current()
-  }, [speakingGame.currentIndex, store.testState, store.mode, store.prompt.length, store.settings.endCondition])
-
+  // Keyboard shortcuts
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName
@@ -579,9 +157,9 @@ export default function Home() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store.testState, store.duration, handleRetry, handleNext, handleStop, handleStart, resetTimer, clearRunScratch, pendingLeaderboardScore, setProfileOpen])
+  }, [store.testState, store.duration, handleRetry, handleNext, handleStop, handleStart, resetTimer, clearRunScratch, pendingLeaderboardScore])
 
-  // dismiss the badge-unlocked modal with Escape
+  // Dismiss badge modal with Escape
   useEffect(() => {
     if (unlockedBadgeNames.length === 0) return
     const onKey = (e: KeyboardEvent) => {
@@ -593,9 +171,9 @@ export default function Home() {
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [unlockedBadgeNames.length])
+  }, [unlockedBadgeNames.length, setUnlockedBadgeNames])
 
-  // hero entrance
+  // Hero entrance animation
   useEffect(() => {
     if (!heroRef.current || store.testState !== 'idle') return
     const ctx = gsap.context(() => {
@@ -618,10 +196,8 @@ export default function Home() {
   const hasGhostReplay = Boolean(ghostBest?.timeline?.progress?.length)
   const ghostProgressAt = (elapsedSeconds: number) => {
     const points = ghostBest?.timeline?.progress ?? []
-    // no fake timer math — without a real timeline the ghost just sits there
     if (!points.length) return 0
     const maxWords = Math.max(...points.map((p) => p.words), 1)
-    // prefer real `second` samples; older local seeds only had array index
     const prior =
       [...points].reverse().find((point, idx, arr) => {
         const at = typeof point.second === 'number' ? point.second : arr.length - 1 - idx
@@ -660,7 +236,7 @@ export default function Home() {
           <div className="relative w-full flex flex-col items-stretch">
             {store.mode !== 'clarity' ? (
               <div className="flex flex-col w-full gap-8">
-                {/* idle hero */}
+                {/* Idle hero */}
                 {isIdle && store.mode === 'speed' && (
                   <div
                     ref={heroRef}
@@ -669,90 +245,90 @@ export default function Home() {
                   >
                     <HeroLeaderboard />
                     <section className="hero-center-copy" aria-label="MonkeySpeak start">
-                    {store.promptType === 'daily' && store.settings.lastStartedDailyChallengeDate === getLocalDateStr() ? (
-                      <div className="hero-stage-content note-panel flex flex-col items-center justify-center text-center p-6 gap-4 max-w-md w-full">
-                        <span className="text-3xl animate-bounce">🔒</span>
-                        <h2 className="font-display font-black text-lg" style={{ color: 'var(--text-active)' }}>
-                          daily challenge completed
-                        </h2>
-                        <p className="stats-page-subtitle leading-normal max-w-xs">
-                          {"One date, one seed, one attempt. You've already taken today's challenge. Come back tomorrow!"}
-                        </p>
-                        <Link href="/leaderboard#stats" className="desk-btn desk-btn-primary text-xs py-2 px-4">
-                          view your stats
-                        </Link>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="hero-stage-content">
-                          <div className="hero-animate hero-title-block">
-                            <h1 className="hero-title font-display font-black">
-                              <span className="hero-title-line">
-                                how fast<span className="hero-title-accent">⚡</span>can u
-                              </span>
-                              <span className="hero-title-line hero-title-line--speak">
-                                speak<span className="hero-title-emoji" aria-hidden>🙊</span>
-                              </span>
-                            </h1>
-                            <p className="hero-subtitle font-mono">
-                              read it. say it.{' '}
-                              <span className="hero-subtitle-highlight">beat your score.</span>
-                            </p>
-                            {calculateSpeakingStreak(store.settings.speakingActivity) > 0 && (
-                              <div className="hero-animate inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-solid border-[var(--border)] bg-[var(--surface)] text-[var(--accent)] font-mono text-xs mt-2 select-none w-fit">
-                                <span>🔥 {calculateSpeakingStreak(store.settings.speakingActivity)} day streak</span>
+                      {store.promptType === 'daily' && store.settings.lastStartedDailyChallengeDate === getLocalDateStr() ? (
+                        <div className="hero-stage-content note-panel flex flex-col items-center justify-center text-center p-6 gap-4 max-w-md w-full">
+                          <span className="text-3xl animate-bounce">🔒</span>
+                          <h2 className="font-display font-black text-lg" style={{ color: 'var(--text-active)' }}>
+                            daily challenge completed
+                          </h2>
+                          <p className="stats-page-subtitle leading-normal max-w-xs">
+                            {"One date, one seed, one attempt. You've already taken today's challenge. Come back tomorrow!"}
+                          </p>
+                          <Link href="/leaderboard#stats" className="desk-btn desk-btn-primary text-xs py-2 px-4">
+                            view your stats
+                          </Link>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="hero-stage-content">
+                            <div className="hero-animate hero-title-block">
+                              <h1 className="hero-title font-display font-black">
+                                <span className="hero-title-line">
+                                  how fast<span className="hero-title-accent">⚡</span>can u
+                                </span>
+                                <span className="hero-title-line hero-title-line--speak">
+                                  speak<span className="hero-title-emoji" aria-hidden>🙊</span>
+                                </span>
+                              </h1>
+                              <p className="hero-subtitle font-mono">
+                                read it. say it.{' '}
+                                <span className="hero-subtitle-highlight">beat your score.</span>
+                              </p>
+                              {calculateSpeakingStreak(store.settings.speakingActivity) > 0 && (
+                                <div className="hero-animate inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-solid border-[var(--border)] bg-[var(--surface)] text-[var(--accent)] font-mono text-xs mt-2 select-none w-fit">
+                                  <span>🔥 {calculateSpeakingStreak(store.settings.speakingActivity)} day streak</span>
+                                </div>
+                              )}
+                              <p className="hero-animate start-hint font-mono mt-3">
+                                {store.promptType === 'daily'
+                                  ? 'daily challenge: one attempt per day. read the prompt, hit start, and go.'
+                                  : startHint}
+                              </p>
+                            </div>
+
+                            <CapabilityBanner />
+
+                            {startError && (
+                              <div
+                                role="alert"
+                                className="hero-animate note-panel alert-note px-4 py-3 flex items-center justify-between gap-4 w-full max-w-md"
+                              >
+                                <span className="font-mono">{startError}</span>
+                                <button
+                                  onClick={() => setStartError(null)}
+                                  aria-label="Dismiss error"
+                                  className="plain-icon-btn"
+                                >
+                                  x
+                                </button>
                               </div>
                             )}
-                            <p className="hero-animate start-hint font-mono mt-3">
-                              {store.promptType === 'daily'
-                                ? 'daily challenge: one attempt per day. read the prompt, hit start, and go.'
-                                : startHint}
-                            </p>
+                            {claritySaveError && (
+                              <div
+                                role="alert"
+                                className="hero-animate note-panel alert-note px-4 py-3 flex items-center justify-between gap-4 w-full max-w-md"
+                              >
+                                <span className="font-mono">{claritySaveError}</span>
+                                <button
+                                  onClick={() => setClaritySaveError(null)}
+                                  aria-label="Dismiss error"
+                                  className="plain-icon-btn"
+                                >
+                                  x
+                                </button>
+                              </div>
+                            )}
                           </div>
 
-                          <CapabilityBanner />
-
-                          {startError && (
-                            <div
-                              role="alert"
-                              className="hero-animate note-panel alert-note px-4 py-3 flex items-center justify-between gap-4 w-full max-w-md"
-                            >
-                              <span className="font-mono">{startError}</span>
-                              <button
-                                onClick={() => setStartError(null)}
-                                aria-label="Dismiss error"
-                                className="plain-icon-btn"
-                              >
-                                x
-                              </button>
-                            </div>
-                          )}
-                          {claritySaveError && (
-                            <div
-                              role="alert"
-                              className="hero-animate note-panel alert-note px-4 py-3 flex items-center justify-between gap-4 w-full max-w-md"
-                            >
-                              <span className="font-mono">{claritySaveError}</span>
-                              <button
-                                onClick={() => setClaritySaveError(null)}
-                                aria-label="Dismiss error"
-                                className="plain-icon-btn"
-                              >
-                                x
-                              </button>
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="hero-cta-zone hero-animate">
-                          <HeroMonkey
-                            onStart={handleStart}
-                            micState={store.micState}
-                            onHoverChange={setMicHovered}
-                          />
-                        </div>
-                      </>
-                    )}
+                          <div className="hero-cta-zone hero-animate">
+                            <HeroMonkey
+                              onStart={handleStart}
+                              micState={store.micState}
+                              onHoverChange={setMicHovered}
+                            />
+                          </div>
+                        </>
+                      )}
                     </section>
 
                     <div className="hero-side-stack hero-animate">
@@ -763,23 +339,21 @@ export default function Home() {
                   </div>
                 )}
 
-                {isIdle && store.mode === 'ghost' && (() => {
-                  return (
-                    <GhostRace
-                      phase="idle"
-                      playerProgress={0}
-                      ghostProgress={0}
-                      playerWpm={0}
-                      ghostWpm={ghostBest?.wpm ?? 0}
-                      hasReplay={hasGhostReplay}
-                      duration={store.duration}
-                      onStart={handleStart}
-                      onGoSpeed={() => store.setMode('speed')}
-                    />
-                  )
-                })()}
+                {isIdle && store.mode === 'ghost' && (
+                  <GhostRace
+                    phase="idle"
+                    playerProgress={0}
+                    ghostProgress={0}
+                    playerWpm={0}
+                    ghostWpm={ghostBest?.wpm ?? 0}
+                    hasReplay={hasGhostReplay}
+                    duration={store.duration}
+                    onStart={handleStart}
+                    onGoSpeed={() => store.setMode('speed')}
+                  />
+                )}
 
-                {/* running live test */}
+                {/* Running live test */}
                 {(isRunning || isEnding) && (
                   <>
                     {sttError && (
@@ -845,7 +419,7 @@ export default function Home() {
                   if (s.testState !== 'idle') return
                   const last = s.prompt.join(' ')
                   const text = generateClarityPrompt(s.promptType as PromptMode, s.customPromptText, last)
-                  s.setPrompt(splitPrompt(text))
+                  s.setPrompt(text.split(/\s+/).filter(Boolean))
                 }}
               />
             )}
