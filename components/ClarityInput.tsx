@@ -6,7 +6,7 @@ import Link from 'next/link'
 import type { DiffWord } from '@/store/testStore'
 import { useTestStore } from '@/store/testStore'
 import { useClarityLeaderboard } from '@/hooks/useClarityLeaderboard'
-import { CLARITY_TOOLS } from '@/lib/clarityLeaderboard/tools'
+import { CLARITY_TOOLS, clarityToolIcon } from '@/lib/clarityLeaderboard/tools'
 import { getClarityPromptMeta, type ClaritySignal } from '@/lib/clarityPrompts'
 
 interface ClarityInputProps {
@@ -188,21 +188,33 @@ export default function ClarityInput({
                 </p>
               </li>
             ) : (
-              leaders.slice(0, 5).map((leader, index) => (
-                <li key={leader.toolId} className={index === 0 ? 'leader-row is-first' : 'leader-row'}>
-                  <span className="leader-rank">{String(index + 1).padStart(2, '0')}</span>
-                  <div>
-                    <strong>{leader.toolName}</strong>
-                    <small>
-                      punct {leader.punctuationScore}% · {leader.runCount} runs
-                    </small>
-                  </div>
-                  <b>
-                    {leader.clarityScore}
-                    <small>%</small>
-                  </b>
-                </li>
-              ))
+              leaders.slice(0, 5).map((leader, index) => {
+                const icon = clarityToolIcon(leader.toolId)
+                return (
+                  <li key={leader.toolId} className={index === 0 ? 'leader-row is-first' : 'leader-row'}>
+                    <span className="leader-rank">{String(index + 1).padStart(2, '0')}</span>
+                    <div>
+                      <strong>{leader.toolName}</strong>
+                      <small>
+                        punct {leader.punctuationScore}% · {leader.runCount} runs
+                      </small>
+                    </div>
+                    <b className="leader-score">
+                      {icon ? (
+                        <img src={icon} alt="" className="clarity-board-toolicon" />
+                      ) : (
+                        <span className="clarity-board-toolicon clarity-board-toolicon--fallback" aria-hidden>
+                          🎙️
+                        </span>
+                      )}
+                      <span>
+                        {leader.clarityScore}
+                        <small>%</small>
+                      </span>
+                    </b>
+                  </li>
+                )
+              })
             )}
           </ol>
           <div className="clarity-board-foot">

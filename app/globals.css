@@ -3062,8 +3062,28 @@ html.filler-flash .game-focus-card {
 .leader-row small { display: block; }
 .leader-row strong { font: 900 0.72rem var(--font-display); text-transform: lowercase; }
 .leader-row div small { margin-top: 0.18rem; color: var(--text-stats); font: 0.55rem var(--font-mono); }
-.leader-row > b { color: var(--accent); font: 900 1.15rem/0.9 var(--font-display); }
-.leader-row > b small { display: inline; font-size: 0.55em; }
+.leader-row > b,
+.leader-score {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--accent);
+  font: 900 1.15rem/0.9 var(--font-display);
+}
+.leader-row > b small,
+.leader-score small { display: inline; font-size: 0.55em; }
+.leader-score .clarity-board-toolicon {
+  width: 1.2rem;
+  height: 1.2rem;
+  padding: 0.1rem;
+  border-radius: 0.3rem;
+}
+.clarity-board-toolicon--fallback {
+  display: inline-grid;
+  place-items: center;
+  font-size: 0.72rem;
+  line-height: 1;
+}
 
 .clarity-board-foot {
   display: grid;
