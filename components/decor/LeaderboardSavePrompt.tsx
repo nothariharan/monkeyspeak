@@ -44,6 +44,20 @@ export default function LeaderboardSavePrompt({ score, onClose, onSaved }: Leade
     setEmoji(savedEmoji ?? DEFAULT_LEADERBOARD_EMOJI)
     setEditing(!savedName)
     setError('')
+
+    if (savedName) return
+
+    let active = true
+    void fetch('/api/leaderboard/name')
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { name?: string } | null) => {
+        if (active && data?.name) setName((current) => current || data.name || '')
+      })
+      .catch(() => undefined)
+
+    return () => {
+      active = false
+    }
   }, [score, savedName, savedEmoji])
 
   const title = useMemo(() => {
