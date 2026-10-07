@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: contributing guide
+    url: https://github.com/nothariharan/monkeyspeak/blob/main/CONTRIBUTING.md
+    about: how to set up locally and open a PR

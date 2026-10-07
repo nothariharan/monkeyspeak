@@ -1,0 +1,28 @@
+name: bug report
+description: something isn't working
+title: "[bug]: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: what happened
+      description: what did you expect vs what actually happened
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: steps to reproduce
+      placeholder: "1. go to... 2. click... 3. see..."
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: environment
+      placeholder: "browser, os, device"
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: screenshots / recordings
