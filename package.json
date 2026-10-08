@@ -41,7 +41,7 @@
     "autoprefixer": "^10.6.1",
     "cross-env": "^10.1.0",
     "eslint": "^8",
-    "eslint-config-next": "14.2.5",
+    "eslint-config-next": "14.2.35",
     "jest": "^30.4.2",
     "jest-environment-node": "^30.4.1",
     "patch-package": "8.0.1",
