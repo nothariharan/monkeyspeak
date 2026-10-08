@@ -3,6 +3,10 @@ const nextConfig = {
   reactStrictMode: true,
   // double-metaphone ships as pure ESM; webpack needs to transpile it
   transpilePackages: ['double-metaphone'],
+  experimental: {
+    // namor reads its word lists from disk via fs; bundling it breaks those relative paths
+    serverComponentsExternalPackages: ['namor'],
+  },
   webpack: (config, { dev }) => {
     // Windows: filesystem webpack cache can desync from .next (stale chunks, missing manifests).
     // `cache: false` has been seen to leave `.next/server` incomplete (middleware-manifest missing).
