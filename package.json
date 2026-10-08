@@ -42,7 +42,7 @@
     "cross-env": "^10.1.0",
     "eslint": "^8",
     "eslint-config-next": "14.2.5",
-    "jest": "^30.4.2",
+    "jest": "^30.5.2",
     "jest-environment-node": "^30.4.1",
     "patch-package": "8.0.1",
     "postcss": "^8",
